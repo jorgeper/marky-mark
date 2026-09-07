@@ -7,6 +7,8 @@ import {
   type FluidEffect,
   type FluidEffectMap,
   fluidEffectsFor,
+  isFluidEffect,
+  isFluidEffectApplicable,
 } from '@marky-mark/editor';
 import { SectionHeader } from './ui/SectionHeader';
 
@@ -28,11 +30,11 @@ export function FluidSettings({ values, onChange }: FluidSettingsProps) {
     // PRD 025 Req 7: the picker only ever offers None plus the effects the
     // table ticks for this action, so the value is one of those by
     // construction; anything else (an impossible programmatic value) lands on
-    // the action's default rather than an inapplicable name.
-    const next: FluidEffect | 'none' =
-      raw === 'none' || (fluidEffectsFor(action) as string[]).includes(raw)
-        ? (raw as FluidEffect | 'none')
-        : DEFAULT_FLUID_EFFECTS[action];
+    // the action's default rather than an inapplicable name. Same guards as
+    // the settings parser, so the two never disagree on what is admissible.
+    let next: FluidEffect | 'none' = DEFAULT_FLUID_EFFECTS[action];
+    if (raw === 'none') next = 'none';
+    else if (isFluidEffect(raw) && isFluidEffectApplicable(action, raw)) next = raw;
     onChange({ fluidEffects: { ...values.fluidEffects, [action]: next } });
   };
 

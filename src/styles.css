@@ -3444,7 +3444,8 @@ input.folder-rename-input.invalid {
 }
 
 /* PRD 025 Req 5: the Fluid mode page's four action rows — label and picker
-   side by side, on the shared .field primitive. */
+   side by side, on the shared .field primitive (which also spaces the rows:
+   `.dialog div.field` carries the margin). */
 .settings-modal .fluid-page-hint {
   margin: 0 0 12px;
 }
@@ -3452,7 +3453,6 @@ input.folder-rename-input.invalid {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 10px;
 }
 .settings-modal .fluid-row label {
   flex: 0 0 11rem;

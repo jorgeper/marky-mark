@@ -58,8 +58,7 @@ describe('PRD 025 Fluid mode catalogue', () => {
     // Every default is applicable to its own action.
     for (const action of FLUID_ACTIONS) {
       const effect = DEFAULT_FLUID_EFFECTS[action];
-      expect(effect).not.toBe('none');
-      expect(isFluidEffectApplicable(action, effect as Exclude<typeof effect, 'none'>)).toBe(true);
+      expect(isFluidEffect(effect) && isFluidEffectApplicable(action, effect)).toBe(true);
     }
     // Req 8: Fade, Glide and Pop in 120–250 ms; Elastic ≤ 350; Burst ≤ 400.
     for (const effect of ['fade', 'glide', 'pop'] as const) {

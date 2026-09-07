@@ -322,6 +322,14 @@ const EXPERIMENTAL_FEATURES: Array<{
   },
 ];
 
+/**
+ * PRD 025 Req 4 (generalizing issue #247): whether a route names a nested
+ * page rather than a tab — read off the registry above, so a third page is
+ * one more `page` descriptor and never another literal here.
+ */
+const isPageRoute = (route: SettingsRoute | undefined): route is SettingsPageId =>
+  EXPERIMENTAL_FEATURES.some((f) => f.page?.id === route);
+
 /** PRD 011 Req 1: said once, for the whole section. */
 const EXPERIMENTAL_WARNING =
   'These features are experiments. They may change, or be removed, in any release.';
@@ -404,22 +412,18 @@ export function SettingsPanel({
   // asks before discarding pending work; with nothing pending it just closes.
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
-  // Issue #247: an `'llm'` route is the nested page under Experimental, so it
-  // sets both levels at once — the reader lands on the page with the tab
-  // behind it, and Back leads somewhere sensible.
-  // PRD 025 Req 4: generalized for the second nested page — any page route
-  // opens on the tab that owns it (read off the registry), not just 'llm'.
-  const initialPageOwner = EXPERIMENTAL_FEATURES.find((f) => f.page?.id === initialTab);
-  const [tab, setTab] = useState<SettingsTab>(
-    initialPageOwner ? 'experimental' : ((initialTab as SettingsTab | undefined) ?? 'general'),
-  );
+  // Issue #247: a page route (`'llm'`, and PRD 025 Req 4's `'fluid'`) is a
+  // nested page under Experimental, so it sets both levels at once — the
+  // reader lands on the page with the tab behind it, and Back leads somewhere
+  // sensible. Every nested page lives under Experimental today.
+  const [tab, setTab] = useState<SettingsTab>(isPageRoute(initialTab) ? 'experimental' : (initialTab ?? 'general'));
   /**
    * Issue #247: the second-level page on top of `tab`, or null for the tab
    * itself. ONE piece of state for every nested page there will ever be — the
    * descriptor on the row says which page opens, so a second experiment adds
    * data here, not markup.
    */
-  const [page, setPage] = useState<SettingsPageId | null>(initialPageOwner?.page?.id ?? null);
+  const [page, setPage] = useState<SettingsPageId | null>(isPageRoute(initialTab) ? initialTab : null);
   /** Issue #247: what each nested page is reached from — its breadcrumb and Back. */
   const pageOwner = EXPERIMENTAL_FEATURES.find((f) => f.page?.id === page);
   const capabilities: ExperimentalCapabilities = {
