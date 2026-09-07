@@ -924,9 +924,9 @@ mark.hl.ghost[data-color] {
   flex-shrink: 0;
   display: flex;
   overflow: hidden;
-  /* Issue #339: the wrapper is the ground the band-high spacer below shows
-     — the same --mm-bg-elevated plane as .body-row and the strip, with no
-     shadow, border or radius of its own. */
+  /* Issue #339: the wrapper paints the ground its band-high top padding
+     (next rule) exposes — the same --mm-bg-elevated plane as .body-row and
+     the strip, with no shadow, border or radius of its own. */
   background: var(--mm-bg-elevated, #f6f8fa);
 }
 /* Issue #339 (PRD 025 Req 11 amended): the column's SCROLL BOX starts at the
@@ -2441,8 +2441,9 @@ mark.hl.ghost {
   min-width: 180px;
 }
 /* Static-toolbar mode (web/shim): the strip clears the overlaying toolbar
-   the way .folder-panel does, and the workspace's own 42px clearance moves
-   onto it (the corner controls ride the strip, so nothing else to clear). */
+   the way .folder-panel does, and the workspace's own --mm-toolbar-clear
+   clearance moves onto it (the corner controls ride the strip, so nothing
+   else to clear). */
 .theme-root.toolbar-static .workspace-stack.with-tabs .file-tab-strip {
   margin-top: var(--mm-toolbar-clear);
 }

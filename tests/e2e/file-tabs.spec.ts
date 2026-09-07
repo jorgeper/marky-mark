@@ -1812,25 +1812,23 @@ test('E594: issue #339 (PRD 025 Req 11 amended) — the comments pane\'s scroll 
   // The band-high region above the pane is ground: whatever paints there
   // has the body row's own background, and no shadow, edge or radius.
   const groundColour = await body.evaluate((el) => getComputedStyle(el).backgroundColor);
-  const above = await (async () => {
-    const [p, s] = await Promise.all([rectOf(pane), rectOf(strip)]);
-    return page.evaluate(
-      ([x, y]) => {
-        let el = document.elementFromPoint(x, y);
-        while (el && getComputedStyle(el).backgroundColor === 'rgba(0, 0, 0, 0)') el = el.parentElement;
-        if (!el) return null;
-        const st = getComputedStyle(el);
-        return {
-          className: el.className,
-          background: st.backgroundColor,
-          shadow: st.boxShadow,
-          radius: st.borderRadius,
-          border: [st.borderTopWidth, st.borderBottomWidth],
-        };
-      },
-      [p.left + p.width / 2, p.top - s.height / 2] as [number, number]
-    );
-  })();
+  const [paneRect, stripRect] = await Promise.all([rectOf(pane), rectOf(strip)]);
+  const above = await page.evaluate(
+    ([x, y]) => {
+      let el = document.elementFromPoint(x, y);
+      while (el && getComputedStyle(el).backgroundColor === 'rgba(0, 0, 0, 0)') el = el.parentElement;
+      if (!el) return null;
+      const st = getComputedStyle(el);
+      return {
+        className: el.className,
+        background: st.backgroundColor,
+        shadow: st.boxShadow,
+        radius: st.borderRadius,
+        border: [st.borderTopWidth, st.borderBottomWidth],
+      };
+    },
+    [paneRect.left + paneRect.width / 2, paneRect.top - stripRect.height / 2] as [number, number]
+  );
   expect(above).toEqual({
     className: 'comments-wrap',
     background: groundColour,
@@ -1842,8 +1840,7 @@ test('E594: issue #339 (PRD 025 Req 11 amended) — the comments pane\'s scroll 
 
   // Split edit: the document scrollers are inside the page; the page's top
   // edge is still the reference and the pane still meets it.
-  await openSettings(page);
-  await page.getByTestId('settings-tab-general').click();
+  await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').check();
   await saveSettings(page);
   await page.keyboard.press('Control+e');
@@ -1854,8 +1851,7 @@ test('E594: issue #339 (PRD 025 Req 11 amended) — the comments pane\'s scroll 
   // Plain edit too.
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
-  await openSettings(page);
-  await page.getByTestId('settings-tab-general').click();
+  await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').uncheck();
   await saveSettings(page);
   await page.keyboard.press('Control+e');
