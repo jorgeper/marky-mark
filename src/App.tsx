@@ -155,15 +155,6 @@ import { DEFAULT_SEARCH_OPTIONS } from './lib/searchOptions';
 import { blockLineRange, blockOccurrenceIndex, rawMatchOffsets } from './lib/searchLanding';
 import { runSearchScan } from './lib/searchScan';
 import { deriveSearchView } from './lib/searchView';
-import {
-  SLIDE_SETTLE_MS,
-  slideClasses,
-  slideMounted,
-  slideOnFrame,
-  slideOnSettle,
-  slideOnToggle,
-  type SlidePhase,
-} from './lib/paneSlide';
 import { countWords } from './lib/wordCount';
 import { expandImageName, extForMime, imageMarkdownRef, pickedImageName } from './lib/imagePaste';
 import {
@@ -400,52 +391,6 @@ async function writeRecentStore(p: Platform, fileName: string, store: RecentStor
   } catch {
     /* best effort */
   }
-}
-
-/**
- * PRD 003 Reqs 9–12: drive a side pane's slide phases from its setting.
- * Layout effect so the pre-open/closing frames land before paint (no flash),
- * double rAF so the browser paints the off-screen frame before the slide to
- * open starts (a transition needs a painted from-state). Reduced motion is
- * sampled at toggle time: the phases collapse to an instant switch (Req 11).
- */
-function usePaneSlide(open: boolean, arm: React.MutableRefObject<boolean>): SlidePhase {
-  const [phase, setPhase] = useState<SlidePhase>(open ? 'open' : 'closed');
-  const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
-    // Derived during render (the React adjust-state-on-prop-change form), so
-    // an armed open MOUNTS already in its off-screen pre-open state. Via an
-    // effect instead, any style recalc between the mount commit and the
-    // effect's commit makes the browser transition 0 → off-screen and then
-    // retarget — the entry slide visibly never runs.
-    // Only an explicitly armed flip slides; programmatic flips (reveal
-    // forcing the pane open, workspace resolution swaps) switch instantly.
-    const armed = arm.current;
-    arm.current = false;
-    const reduced =
-      typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    setPrevOpen(open);
-    setPhase(slideOnToggle(phase, open, !armed || reduced));
-  }
-  useLayoutEffect(() => {
-    if (phase === 'open' || phase === 'closed') return;
-    let raf1 = 0;
-    let raf2 = 0;
-    if (phase === 'pre-open') {
-      // Two rAFs: the browser must paint the off-screen frame before the
-      // slide-to-open values land, or the transition has nothing to run from.
-      raf1 = requestAnimationFrame(() => {
-        raf2 = requestAnimationFrame(() => setPhase(slideOnFrame));
-      });
-    }
-    const t = setTimeout(() => setPhase(slideOnSettle), SLIDE_SETTLE_MS);
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-      clearTimeout(t);
-    };
-  }, [phase]);
-  return phase;
 }
 
 /**
@@ -3445,16 +3390,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     // the initial state (e.g. fontSize 14) are never applied.
   }, [platform, settings.fontSize, settings.margins, settings.zoom, settings.paneMinWidth]);
 
-  // PRD 003 Reqs 9–12: "the next pane-setting flip is a user toggle — slide".
-  // Consumed (and cleared) by usePaneSlide's effect; unarmed flips (folder
-  // reveals forcing the pane open, workspace-layer resolution swaps, launch
-  // restores) switch instantly, exactly as before this PRD.
-  const armFolderSlide = useRef(false);
-  const armSplitSlide = useRef(false);
-  // PRD 023 §14 (issue #284): the comments pane slides on explicit toggles
-  // only — programmatic flips (auto-open on insert, doc close) switch
-  // instantly, the same contract as its two arm-ref neighbours.
-  const armCommentsSlide = useRef(false);
   // Issue #165: an opening toggle's pre-render is in flight — a second
   // splitEdit edit inside that window commits directly instead of stacking
   // another render (the html it needs is already on the way).
@@ -3462,8 +3397,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
 
   /**
    * Issue #165: render the buffer BEFORE an opening split toggle flips the
-   * setting, so the pane mounts already holding its content and the slide
-   * never runs over a blank pane. This is the named "the split just opened"
+   * setting, so the pane mounts already holding its content — it never
+   * appears blank. This is the named "the split just opened"
    * path; keystroke re-renders keep their 200ms coalescing debounce in the
    * SPEC7 §5 effect. `commit` runs either way — a render that fails, or that
    * lands after a doc swap (the epoch moved), still flips the setting and
@@ -3516,12 +3451,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           await p.writeTextFile(path, serializeSettingsLayer(settingsLayersRef.current.user));
         })();
       };
-      // PRD 003 Req 12: an explicit splitEdit edit slides the pane. Every
-      // surface — the toggleSplit command (chevrons, View menu, Mod+\) and
-      // the Settings checkbox in the overlay or the aux window — lands here;
-      // programmatic resolution changes (workspace open/close) never do.
+      // PRD 025 Req 22 (issue #328): an explicit splitEdit edit mounts or
+      // unmounts the pane in place — no slide phases. Every surface — the
+      // toggleSplit command (chevrons, View menu, Mod+\) and the Settings
+      // checkbox in the overlay or the aux window — lands here.
       if (patch.splitEdit !== undefined && patch.splitEdit !== stateRef.current.settings.splitEdit) {
-        armSplitSlide.current = true;
         // Issue #165: an OPENING toggle waits on one render first, so the
         // pane mounts already holding its content (prerenderSplitPane).
         if (patch.splitEdit && stateRef.current.mode === 'edit' && !splitPrerenderRef.current) {
@@ -3550,7 +3484,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * Unconditional, unlike the pre-#134 version: with the view persisted (Req
    * 11) the pane can come back on the TOC, and a folder route that left it
    * there would open a pane with no tree in it. An already-open folders view
-   * diffs to no change, so nothing re-slides and nothing is rewritten.
+   * diffs to no change, so nothing re-mounts and nothing is rewritten.
    */
   const revealFolderPane = useCallback(() => {
     updateSettings({ ...stateRef.current.settings, showFolders: true, sidebarView: 'folders' });
@@ -4386,8 +4320,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * PRD 012 Req 9 (amended by issue #257): the rule every view COMMAND
    * follows, stated once. Dispatching the view already on screen hides the
    * sidebar; dispatching another puts it on screen, opening the sidebar if it
-   * was closed. Only the call that actually flips visibility arms the slide
-   * (PRD 003 Reqs 9/12) — one that merely swaps views leaves the pane where
+   * was closed. PRD 025 Req 12 (issue #328): a flip of visibility switches
+   * the pane instantly; one that merely swaps views leaves the pane where
    * it is. The switch's buttons never reach the hiding half: they drop a
    * press on the live view before dispatching (`switchToView` below).
    *
@@ -4399,8 +4333,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       const st = stateRef.current;
       const open = st.settings.showFolders;
       const hiding = open && st.settings.sidebarView === view;
-      // PRD 003 Reqs 9/12: only a press that flips visibility slides the pane.
-      if (!open || hiding) armFolderSlide.current = true;
       // PRD 012 Req 11: the view and the visibility travel as ONE settings
       // write, so a reopen never lands on the pane's previous view for a frame.
       // (On a swap `showFolders` is already true, so it diffs to nothing.)
@@ -5106,8 +5038,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         const st = stateRef.current;
         if (!st.platform?.readDirEntries) return;
         if (curWorkspaceRef.current.kind === 'none') return;
-        // PRD 003 Reqs 9/12: chevrons, View menu and the hotkey all dispatch
-        // this command — the explicit toggle is what slides the pane.
+        // PRD 025 Req 12 (issue #328): chevrons, View menu and the hotkey all
+        // dispatch this command — the pane flips instantly on every surface.
         // PRD 012 Req 9: and it is the folders half of the one view rule, so
         // a press while the pane shows the TOC SWITCHES it to Folders rather
         // than hiding it. With the TOC view never entered (every route before
@@ -5258,11 +5190,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       toggleComments: () => {
         // Master switch off (SPEC7 §2): the comments UI is gone, commands included.
         // PRD 023 §14/§15 (issue #284): every surface of this command is an
-        // explicit user toggle of the persisted pane setting — armed so the
-        // flip slides (the toggleSplit/toggleFolders precedent).
+        // explicit user toggle of the persisted pane setting. PRD 025 Req 12
+        // (issue #328): the pane flips instantly, no slide.
         const st = stateRef.current.settings;
         if (!st.commentsEnabled) return;
-        armCommentsSlide.current = true;
         updateSettings({ ...st, showComments: !st.showComments });
       },
       nextComment: () => navigateComment(1),
@@ -7655,7 +7586,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       updateSettings({ ...s.settings, showComments: true });
     }
     // Activation re-lays the flow out (the active card anchors level with its
-    // mark, SPEC6 §2), and the pane may first have to mount and slide — one
+    // mark, SPEC6 §2), and the pane may first have to mount — one
     // frame is not enough, so retry until the card exists (bounded, the
     // pendingScrollLine pattern).
     let tries = 120; // ~2s of frames
@@ -8147,30 +8078,21 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     landSearchMatch(jump.match);
   }, [docPath, html, mode, landSearchMatch]);
 
-  // PRD 003 Reqs 9–12: every toggle surface funnels into these two settings,
-  // so phasing the render on them animates chevron, menu, hotkey and Settings
-  // toggles alike. Above the platform guard — hooks must run every render.
-  // Keyed on the settings alone: entering workspace mode (openFolder) or edit
-  // mode must swap panes in instantly, as before — only toggles slide.
-  const folderSlide = usePaneSlide(settings.showFolders, armFolderSlide);
-  // PRD 003 Req 9 + PRD 012 Req 1: whether the ONE pane is in the DOM at all —
-  // open, or still sliding out. Which of the two views fills it is the extra
-  // condition each render below adds.
-  const sidebarMounted = slideMounted(folderSlide, settings.showFolders);
-  const splitSlide = usePaneSlide(settings.splitEdit, armSplitSlide);
-  const { sliding: previewSliding, out: previewOut, pre: previewPre } = slideClasses(splitSlide);
-  // PRD 023 §14 (issue #284): the comments pane rides the same slide
-  // machinery as its two siblings — keyed on the resolved predicate so a
-  // doc close or master-switch flip swaps it out instantly (unarmed), and
-  // only the toggleComments command slides.
-  const commentsSlide = usePaneSlide(commentsPaneWanted, armCommentsSlide);
-  const commentsPaneMounted = slideMounted(commentsSlide, commentsPaneWanted);
-  const { sliding: commentsSliding, out: commentsOut } = slideClasses(commentsSlide);
-  // Issue #165: the split layout is on screen — open, or still sliding out.
-  // The merged edit branch below keys the workspace class and the
-  // divider/preview mount on it, so the Editor subtree itself is shared by
-  // both layouts and survives the toggle.
-  const splitActive = slideMounted(splitSlide, settings.splitEdit);
+  // PRD 025 Req 12 (issue #328): every toggle surface funnels into these
+  // settings, and each pane is in the DOM exactly when its setting says so —
+  // chevron, menu, hotkey and Settings toggles all switch instantly (the
+  // PRD 003 slide phases are gone).
+  // PRD 012 Req 1: whether the ONE sidebar pane is in the DOM at all. Which
+  // of its views fills it is the extra condition each render below adds.
+  const sidebarMounted = settings.showFolders;
+  // PRD 023 §14 (issue #284): keyed on the resolved predicate so a doc close
+  // or master-switch flip drops the pane the same instant a toggle does.
+  const commentsPaneMounted = commentsPaneWanted;
+  // Issue #165 + PRD 025 Req 22: the split layout is on screen. The merged
+  // edit branch below keys the workspace class and the divider/preview mount
+  // on it, so the Editor subtree itself is shared by both layouts and
+  // survives the toggle.
+  const splitActive = settings.splitEdit;
 
   // Issue #253: the pre-bootstrap shell is an empty frame of its own — under
   // a held hosted boot it must not exist at all (the gate's frame is the one
@@ -8371,14 +8293,12 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           clusters below the strip, so they stay visible and clickable rather
           than sitting behind it (styles.css). */}
       <div className={`body-row${showFileTabs ? ' with-tabs' : ''}`}>
-        {/* Issue #22: the folder sidebar is a workspace-mode surface only.
-            PRD 003 Req 9: it stays mounted through the exit slide. */}
+        {/* Issue #22: the folder sidebar is a workspace-mode surface only. */}
         {/* PRD 012 Req 1: exactly one view of the one pane renders — the
             folders tree only while it is the chosen view. */}
         {folderSeam && sidebarView === 'folders' && sidebarMounted && (
           <FolderPanel
             viewSwitch={sidebarSwitch}
-            slide={folderSlide}
             roots={folderRoots}
             children={folderChildren}
             expanded={folderExpanded}
@@ -8480,7 +8400,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
             viewSwitch={sidebarSwitch}
             rows={tocRows}
             activeId={tocActiveId}
-            slide={folderSlide}
             width={settings.folderWidth}
             onToggle={toggleTocEntry}
             onSelect={(row) => jumpToTocEntry(row.entry.headingLine)}
@@ -8520,7 +8439,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
             noRoots={folderRoots.length === 0}
             collapsed={searchCollapsed}
             focusTick={searchFocusTick}
-            slide={folderSlide}
             width={settings.folderWidth}
             onQuery={setSearchQuery}
             onOptions={setSearchOptions}
@@ -8712,17 +8630,14 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       ) : (
         // Issue #165: ONE branch for both edit layouts. Split and plain used
         // to be sibling ternary arms, so React unmounted the whole Editor
-        // subtree at exactly the frame the slide started — a main-thread
-        // stall through its opening frames, and scroll/caret lost. Sharing
-        // the elements keeps the CodeMirror instance alive through the
-        // toggle; outside split mode the .split-editor wrapper collapses to
-        // display:contents (styles.css) so the plain layout is unchanged.
+        // subtree at exactly the frame of the toggle — a main-thread stall,
+        // and scroll/caret lost. Sharing the elements keeps the CodeMirror
+        // instance alive through the toggle; outside split mode the
+        // .split-editor wrapper collapses to display:contents (styles.css)
+        // so the plain layout is unchanged. PRD 025 Req 22 (issue #328): the
+        // class is the steady state alone — no preview-* slide phases.
         <div
-          className={
-            splitActive
-              ? `workspace split${previewSliding ? ' preview-sliding' : ''}${previewOut ? ' preview-out' : ''}${previewPre ? ' preview-pre' : ''}`
-              : 'workspace'
-          }
+          className={splitActive ? 'workspace split' : 'workspace'}
           ref={workspaceRef}
           style={
             splitActive
@@ -8751,8 +8666,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
               // Issue #43: a doc swap resets the pane instantly — no stale
               // paint, no debounce, and no re-anchoring against old text.
               docKey: docIdentity(docPath, untitled),
-              // Issue #165: the split slide opens over rendered content —
-              // the app's retained render is the pane's first frame.
+              // Issue #165: the split opens over rendered content — the
+              // app's retained render is the pane's first frame.
               initialHtml: html,
               codeSyntax: settings.codeSyntax, // Issue #122
               themeVariant: activeThemeVariant,
@@ -8877,12 +8792,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
 
       {/* PRD 023 §14 (issue #284): the comments pane — a body-row sibling at
           the workspace's RIGHT edge, in every document mode. Fixed at 300px
-          (no drag handle, no breakpoints — PRD non-goal), mirrored folder-
-          pane slide: the wrapper's width animates while the pane translates
-          toward the right edge on the same 180ms curve.
-          PRD 003 Req 9: it stays mounted through the exit slide. */}
+          (no drag handle, no breakpoints — PRD non-goal). PRD 025 Req 12
+          (issue #328): it mounts and unmounts in place — the wrapper is a
+          plain fixed-width container, no slide phases. */}
       {commentsPaneMounted && (
-        <div className={`comments-slide${commentsSliding ? ' sliding' : ''}${commentsOut ? ' out' : ''}`}>
+        <div className="comments-slide">
           <aside className="comments-pane" data-testid="comments-pane" ref={commentsPaneRef}>
             {panelInner}
           </aside>

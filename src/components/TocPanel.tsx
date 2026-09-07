@@ -1,6 +1,5 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { Chevron, paneWidthDrag } from './FolderPanel';
-import { slideClasses, type SlidePhase } from '../lib/paneSlide';
 import { IconButton } from './ui/IconButton';
 import type { VisibleTocEntry } from '../lib/tocModel';
 import type { SidebarView } from '../lib/settings';
@@ -15,7 +14,7 @@ import type { SidebarView } from '../lib/settings';
  * the web where the folder tree does not exist (Req 12).
  *
  * It reuses the `.folder-*` treatment deliberately (Req 1): the two views are
- * one pane, so they share the slide, the width, the divider and the row look.
+ * one pane, so they share the wrapper, the width, the divider and the row look.
  */
 export interface TocPanelProps {
   /** PRD 012 Req 4: `visibleTocEntries()` output — the rows, already filtered. */
@@ -26,8 +25,6 @@ export interface TocPanelProps {
    * heading-less document, and then no row claims to be active.
    */
   activeId: string | null;
-  /** PRD 003 Req 9: the shared pane's open/close slide phase (App owns timing). */
-  slide: SlidePhase;
   /** PRD 012 Req 1: `settings.folderWidth` — one width for the one pane. */
   width: number;
   /** PRD 012 Req 9: the Folders/TOC switch, rendered at the head of the header. */
@@ -173,10 +170,9 @@ export function TocPanel(p: TocPanelProps) {
       </div>
     );
 
-  const { sliding, out } = slideClasses(p.slide);
   return (
     <div
-      className={`folder-slide${sliding ? ' sliding' : ''}${out ? ' out' : ''}`}
+      className="folder-slide"
       ref={slideRef}
       style={{ '--mm-folders': `${p.width}px` } as CSSProperties}
     >

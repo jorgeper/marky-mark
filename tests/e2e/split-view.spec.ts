@@ -60,8 +60,8 @@ test('E40: the split divider drags within bounds, persists its ratio, and double
     const e = (await page.locator('.split-editor').boundingBox())!;
     return e.width / wsBox.width;
   };
-  // The preview slides in over 180ms (paneSlide.ts): poll the ratio instead of
-  // sampling it mid-flight — and the divider below must be grabbed at rest.
+  // The ratio lands with the mount (issue #328: no slide); polled so the
+  // divider below is grabbed once the layout has settled.
   await expect.poll(async () => Math.abs((await editorFraction()) - 0.5)).toBeLessThanOrEqual(0.05);
 
   // Drag the divider to ~30% of the window.
@@ -374,7 +374,7 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   // Req 13: each preview chevron carries its tooltip + aria-label pair.
   await expect(collapse).toHaveAttribute('title', 'Hide the preview pane');
   await expect(collapse).toHaveAttribute('aria-label', 'Hide the preview pane');
-  // PRD 003 Req 10: the reopen slides in now — let it settle before measuring.
+  // Issue #328: the reopen mounts in place — settled means transform-free.
   await expect
     .poll(() => page.getByTestId('split-preview').evaluate((el) => getComputedStyle(el).transform))
     .toBe('none');
@@ -389,6 +389,9 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   expect(collapseBox.y).toBeLessThan(previewBox.y + 64); // near the top
 
   // Clicking it closes the split (today's full-screen editor), persisted.
+  // SPEC12 §1.3 cross-source dedup window: the pane switches instantly now
+  // (issue #328), so nothing else spaces this toggle from the last one.
+  await page.waitForTimeout(250);
   await collapse.click();
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
   await expect(collapse).toHaveCount(0);
@@ -401,7 +404,7 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   await expect(expand).toHaveAttribute('title', 'Show the preview pane');
   await expect(expand).toHaveAttribute('aria-label', 'Show the preview pane');
   const viewport = page.viewportSize()!;
-  // The chevron re-pins once the preview has finished sliding away.
+  // The chevron re-pins once the preview has left the DOM.
   // Issue #284: the comments chevron holds the corner itself; the preview
   // chevron re-pins immediately left of it.
   await expect
@@ -1094,17 +1097,17 @@ interface ToggleWatch {
   docChildrenAtMount: number;
   /** The Suspense fallback appeared at any point — i.e. the Editor remounted. */
   loadingSeen: boolean;
-  /** The workspace carried a slide phase at any point. */
+  /** The workspace carried a slide phase at any point (issue #328: never). */
   slideSeen: boolean;
   /** Disconnects the observer. */
   stop: () => void;
 }
 
-test('E355: issue #165 — the split slide opens over rendered content, the editor instance survives with scroll and caret, reduced motion stays instant', async ({
+test('E355: issue #165 — the split opens over rendered content, the editor instance survives with scroll and caret, and the toggle is instant', async ({
   page,
 }) => {
   // Full edit on the long doc, pane closed — the state an opening toggle
-  // slides from.
+  // starts from.
   await splitApp(page, false);
   await expect(page.getByTestId('editor')).toBeVisible();
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
@@ -1131,7 +1134,7 @@ test('E355: issue #165 — the split slide opens over rendered content, the edit
   expect(topLineBefore).toBeGreaterThan(1); // really scrolled away from the top
   // The column's transform, which must be 'none' in both settled states (a
   // resting transform would become the containing block for fixed-position
-  // menus). Issue #272 removed the mid-slide glide entirely — the column is
+  // menus). Issue #272 removed the column glide entirely — the column is
   // flush-left at both ends, so nothing may translate it at any point.
   const columnTransform = () =>
     page.locator('.split-editor .cm-scroller > .cm-content').evaluate((el) => getComputedStyle(el).transform);
@@ -1139,7 +1142,8 @@ test('E355: issue #165 — the split slide opens over rendered content, the edit
 
   // Watch the toggle happen: what the preview pane holds THE MOMENT it enters
   // the DOM (issue #165's blank-pane symptom: it used to arrive empty and
-  // fill ~200ms later), whether the slide really armed, and whether the
+  // fill ~200ms later), whether a slide phase ever appeared (PRD 025 Req 22,
+  // issue #328: it must not — the pane mounts in place), and whether the
   // Suspense fallback (= an Editor remount) ever appeared. Structural facts,
   // not frame sampling — E135 was removed for that flakiness.
   const watchToggle = () =>
@@ -1182,7 +1186,7 @@ test('E355: issue #165 — the split slide opens over rendered content, the edit
     .poll(() => page.getByTestId('split-preview').evaluate((el) => getComputedStyle(el).transform))
     .toBe('none');
   const open = await watched();
-  expect(open.slideSeen).toBe(true); // the observer really saw the slide run
+  expect(open.slideSeen).toBe(false); // no preview-sliding phase, ever
   expect(open.docChildrenAtMount).toBeGreaterThan(0); // content from the first frame
   expect(open.loadingSeen).toBe(false); // no Suspense fallback = no remount window
 
@@ -1198,11 +1202,10 @@ test('E355: issue #165 — the split slide opens over rendered content, the edit
   // caret still sits on the same (uniquely worded) line.
   expect(Math.abs((await editorTopGutterLine(page)) - topLineBefore)).toBeLessThanOrEqual(2);
   expect(afterOpen.activeText).toBe(before.activeText);
-  // And the text column stays transform-free (issue #272: it never moves —
-  // the slide animates the pane's width only).
+  // And the text column stays transform-free (issue #272: it never moves).
   await expect.poll(columnTransform).toBe('none');
 
-  // Close plays the same motion in reverse and hands back the same editor.
+  // Close unmounts the pane in place and hands back the same editor.
   await page.waitForTimeout(250); // SPEC12 §1.3 cross-source dedup window
   await page.keyboard.press('Control+\\');
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
@@ -1215,16 +1218,17 @@ test('E355: issue #165 — the split slide opens over rendered content, the edit
   expect(Math.abs((await editorTopGutterLine(page)) - topLineBefore)).toBeLessThanOrEqual(2);
   await expect.poll(columnTransform).toBe('none'); // still flush-left, transform-free
 
-  // PRD 003 Req 11: reduced motion still switches instantly — no slide
-  // phases at all — and the pane STILL arrives already holding content.
-  await page.emulateMedia({ reducedMotion: 'reduce' });
+  // PRD 025 Req 22 (issue #328): the reopen is the same instant switch —
+  // no slide phases at all — and the pane STILL arrives already holding
+  // content. (This leg used to run under prefers-reduced-motion; instant is
+  // the one behaviour now, so the media emulation is gone.)
   await page.waitForTimeout(250);
   await watchToggle();
   await page.keyboard.press('Control+\\');
   await expect(page.getByTestId('split-preview')).toBeVisible();
-  const reduced = await watched();
-  expect(reduced.slideSeen).toBe(false);
-  expect(reduced.docChildrenAtMount).toBeGreaterThan(0);
+  const reopened = await watched();
+  expect(reopened.slideSeen).toBe(false);
+  expect(reopened.docChildrenAtMount).toBeGreaterThan(0);
   expect(
     await page.getByTestId('split-preview').evaluate((el) => getComputedStyle(el).transform)
   ).toBe('none');

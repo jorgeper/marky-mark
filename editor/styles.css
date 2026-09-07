@@ -729,20 +729,16 @@
   right: 8px;
   width: 16px;
   pointer-events: none;
-  /* PRD 018 Req 4: this inset edge shade is a one-off, not the floating
-     --mm-panel-shadow — declared as --mm-split-edge-shade with the internal
-     tokens (issue #205), value unchanged (also on the :hover rule below). */
-  box-shadow:
-    inset -1px 0 0 var(--mm-border, #d1d9e0),
-    var(--mm-split-edge-shade);
+  /* PRD 025 Req 23 (issue #328): exactly the 1px hairline — the inset edge
+     shade (--mm-split-edge-shade) is gone so the two halves read as one
+     plane. Same on the :hover rule below. */
+  box-shadow: inset -1px 0 0 var(--mm-border, #d1d9e0);
 }
 
 /* A subtle accent tint on the hairline only while hovering or dragging the grab
    zone (pointer capture keeps :hover asserted through a drag) — no full bar. */
 .split-divider:hover::before {
-  box-shadow:
-    inset -1px 0 0 var(--mm-accent, #0969da),
-    var(--mm-split-edge-shade);
+  box-shadow: inset -1px 0 0 var(--mm-accent, #0969da);
 }
 
 .split-preview {

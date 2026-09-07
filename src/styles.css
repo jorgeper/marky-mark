@@ -6,28 +6,6 @@
   box-sizing: border-box;
 }
 
-/* Motion token for the two pane slides (#8, PRD 003 Reqs 9–12). Internal to
-   this stylesheet — NOT part of the theme contract (see THEMES.md): themes
-   never set it, and nothing else in the app reads it.
-
-   `ease` (what the slides used to run) puts most of its character in a lazy
-   tail and reads flat at 180ms. This curve leaves and arrives at zero
-   velocity with its peak speed in the middle: the pane accelerates hard out
-   of the gate, covers ~88% of its travel in the first half of the run, then
-   glides the last stretch into its resting position. Opening therefore eases
-   into place; closing whips off the edge and its slow tail plays out where
-   the pane is already clipped/off-screen. No control point leaves the 0..1
-   band, so the motion never overshoots — no scrollbar, gap, or overlap
-   mid-flight.
-
-   One token, one curve, for all FOUR slide transitions: each pane's
-   transform AND the companion width transition that moves with it. If the
-   pair ran different curves the pane edge and its neighbour's edge would
-   drift apart mid-flight (E135 samples for exactly that). */
-:root {
-  --mm-slide-ease: cubic-bezier(0.2, 0, 0, 1);
-}
-
 html,
 body,
 #root {
@@ -154,11 +132,10 @@ body,
 /* CHROME TOKENS — END (PRD 018 Req 1) */
 
 /* Internal tokens — NOT part of the theme contract or the chrome scales
-   above (kept outside the BEGIN/END markers, like --mm-slide-ease): one-off
-   hooks that PRD 018 Req 3 requires declared rather than resolved through
-   per-site var() fallbacks. Values are the former fallbacks verbatim; the
-   two caret tints are the theme accent at their old alphas, identical under
-   Crisp. */
+   above (kept outside the BEGIN/END markers): one-off hooks that PRD 018
+   Req 3 requires declared rather than resolved through per-site var()
+   fallbacks. Values are the former fallbacks verbatim; the two caret tints
+   are the theme accent at their old alphas, identical under Crisp. */
 .theme-root {
   --mm-zoom: 1; /* settings zoom factor; App.tsx sets it inline when ≠ 100% */
   --mm-toolbar-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); /* SPEC4 §2.4 */
@@ -185,7 +162,6 @@ body,
      visually unchanged. */
   --mm-orphan-fg: #9a6700; /* the orphaned-comment badge */
   --mm-orphan-bg: rgba(255, 214, 102, 0.35);
-  --mm-split-edge-shade: inset -12px 0 14px -12px rgba(0, 0, 0, 0.28); /* split-divider edge */
   --mm-overlay-scrim: rgba(0, 0, 0, 0.35); /* modal backdrop */
   --mm-alpha-note: #b3591f; /* the About dialog's alpha warning */
 }
@@ -788,7 +764,7 @@ button {
    styling for DOM the app injects into those surfaces through the seams:
    comment highlights, find marks, SPEC44 preview cues, the diagram-resize
    overlay — plus everything keyed on app-owned classes (.workspace, the
-   pane slides). The --mm-* contract those moved rules consume is documented
+   pane wrappers). The --mm-* contract those moved rules consume is documented
    in editor/THEMING.md. */
 /* ---------- comment highlights ---------- */
 
@@ -925,28 +901,14 @@ mark.hl.ghost[data-color] {
 
 /* The third workspace pane — a body-row sibling at the RIGHT edge, in every
    document mode, fixed at 300px (no drag handle, no breakpoints: PRD
-   non-goal). The slide mirrors .folder-slide: the wrapper's width animates
-   while the pane keeps its full width and translates toward the right edge
-   on the same 180ms curve. overflow: hidden clips the translating pane so
-   the exit slide never grows a page-level horizontal scrollbar. */
+   non-goal). PRD 025 Req 12 (issue #328): the wrapper mirrors .folder-slide
+   as a plain fixed-width container — the pane mounts and unmounts in place,
+   no width or transform transition, no phase classes. */
 .comments-slide {
   width: 300px;
   flex-shrink: 0;
   display: flex;
   overflow: hidden;
-}
-.comments-slide.sliding {
-  transition: width 180ms var(--mm-slide-ease);
-}
-.comments-slide.sliding .comments-pane {
-  transition: transform 180ms var(--mm-slide-ease);
-  will-change: transform;
-}
-.comments-slide.out {
-  width: 0;
-}
-.comments-slide.out .comments-pane {
-  transform: translateX(100%);
 }
 /* The folder pane's second-plane treatment: the --mm-bg-elevated layer the
    workspace floats in front of. The seam hairline + cast shadow are painted
@@ -1131,56 +1093,20 @@ mark.hl.ghost {
 /* Issue #165: outside split mode the wrapper contributes no box at all — the
    editor stays the workspace's own flex child, the exact pre-split layout —
    but the element (and the CodeMirror subtree inside it) survives the split
-   toggle, so opening the pane never tears the editor down mid-slide. */
+   toggle, so opening the pane never tears the editor down mid-toggle. */
 .workspace:not(.split) .split-editor {
   display: contents;
 }
 
-/* PRD 003 Reqs 10/11: the split preview opens/closes as a slide from/toward
-   the right edge, same motion language. During the slide the pane leaves the
-   flex flow (absolute at the right, frozen at its open width — no reflow of
-   its content) and translates, while the editor's width animates underneath
-   on the same curve: the editor's growing right edge tracks the pane's
-   sliding left edge. `.preview-sliding` arms the transitions only for the
-   phases, so the split-ratio drag stays live; the workspace is already
-   position:relative (SPEC20 §4.2). */
-/* Issue #165: the editor half persists across the toggle now, so its armed
-   transitions must skip the pre-open frame (.preview-pre) — on a surviving
-   element the browser WOULD transition to the painted from-state values,
-   running the entry's first frame backwards. The freshly inserted
-   .split-preview never had that problem (no transition on insertion). */
-.workspace.split.preview-sliding:not(.preview-pre) .split-editor {
-  transition: width 180ms var(--mm-slide-ease);
-}
-/* Issue #165: the text column is flush-left in plain edit and split alike
-   (issue #272), so it never moves during the slide — only the pane's width
-   animates. But mid-flight CodeMirror can rewrap a beat behind the narrowing
-   scroller; never surface that as a transient horizontal scrollbar. Vertical
-   scrolling stays live. */
-.workspace.split.preview-sliding .split-editor .cm-editor .cm-scroller {
-  overflow-x: hidden;
-}
-.workspace.split.preview-sliding .split-preview {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: calc(100% - var(--mm-split) - 8px);
-  z-index: 2;
-  transition: transform 180ms var(--mm-slide-ease);
-  will-change: transform;
-}
-.workspace.split.preview-out .split-editor {
-  width: 100%;
-}
-.workspace.split.preview-out .split-preview {
-  transform: translateX(100%);
-}
+/* PRD 025 Req 22 (issue #328): the split preview mounts and unmounts in
+   place. .split-editor and .split-preview carry no transition, transform or
+   will-change in any state — the editor's width changes in the same frame
+   the pane enters or leaves the flex flow. */
 
-/* PRD 003 Req 11 — the app's only prefers-reduced-motion carve-out, scoped
-   to the pane slides (the toolbar slide is unchanged) and, since issue #316,
-   the hosted boot indicator. The phase hook already skips the animated
-   phases; this also stills any mid-flight run. */
+/* The app's prefers-reduced-motion rules: the hosted boot indicator only
+   (issue #316). PRD 025 Req 12 (issue #328): the pane-slide carve-out that
+   used to share this block is gone with the slides themselves — the panes
+   switch instantly for everyone, so there is nothing left to still. */
 @media (prefers-reduced-motion: reduce) {
   /* PRD 020 Req 5+6 (issue #316): the boot indicator does not spin — it
      keeps only its late fade-in and sits as a still accent arc. Scoped under
@@ -1188,17 +1114,6 @@ mark.hl.ghost {
      source order at single-class specificity. */
   .hosted-booting .hosted-booting-spinner {
     animation: mm-boot-hold-in 120ms linear 400ms forwards;
-  }
-  .folder-slide.sliding,
-  .folder-slide.sliding .folder-panel,
-  /* PRD 023 §14 (issue #284): the comments pane's slide is stilled too. */
-  .comments-slide.sliding,
-  .comments-slide.sliding .comments-pane,
-  /* Issue #165: the :not(.preview-pre) form matches the armed rule above at
-     equal specificity, so this carve-out still wins by source order. */
-  .workspace.split.preview-sliding:not(.preview-pre) .split-editor,
-  .workspace.split.preview-sliding .split-preview {
-    transition: none;
   }
 }
 
@@ -2427,36 +2342,17 @@ mark.hl.ghost {
 .theme-root.toolbar-static .workspace-stack.with-tabs .workspace {
   padding-top: 0;
 }
-/* PRD 003 Reqs 9/11: the pane opens/closes as a horizontal slide — a 180ms
-   transform on the shared --mm-slide-ease curve (#8; the toolbar keeps its
-   own `ease`). The wrapper animates its width so the workspace follows; the
-   panel keeps its full width and translates toward the left edge on the SAME
-   curve, so the pane's right edge and the workspace's left edge track
-   pixel-for-pixel — no tearing.
-   `.sliding` (transitions armed) exists only during the open/close phases:
-   the width drag must stay live, and a steady-state transform would become
-   the containing block for the panel's fixed-position context menu. */
-/* No overflow clipping here: the width-drag divider overhangs the panel's
-   right edge by 3px, and during the slide the panel's translate keeps it
-   inside the shrinking wrapper anyway (both run the same 180ms
-   --mm-slide-ease). */
+/* PRD 025 Req 12 (issue #328): the sidebar pane mounts and unmounts in
+   place — the wrapper is a plain fixed-width container (paneWidthDrag writes
+   --mm-folders onto it, the print rules list it), with no width or transform
+   transition and no phase classes. It never carries a transform: one would
+   become the containing block for the panel's fixed-position context menu.
+   No overflow clipping here: the width-drag divider overhangs the panel's
+   right edge by 3px. */
 .folder-slide {
   width: var(--mm-folders);
   flex-shrink: 0;
   display: flex;
-}
-.folder-slide.sliding {
-  transition: width 180ms var(--mm-slide-ease);
-}
-.folder-slide.sliding .folder-panel {
-  transition: transform 180ms var(--mm-slide-ease);
-  will-change: transform;
-}
-.folder-slide.out {
-  width: 0;
-}
-.folder-slide.out .folder-panel {
-  transform: translateX(-100%);
 }
 .folder-panel {
   position: relative;

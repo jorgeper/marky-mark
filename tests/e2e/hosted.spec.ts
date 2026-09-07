@@ -6526,8 +6526,9 @@ test('E567: the highlight copy-link\'s "Link copied" caption is an opaque pill b
   // the viewport's left edge — no room for the pill there, so it flips to
   // the right of the glyph, opaque over the words instead of off-screen.
   await page.getByTestId('folder-collapse').click();
-  // The pane slides out over 180ms and the doc re-centres behind it: wait
-  // for the glyph to come to rest near the edge before aiming the pill.
+  // The pane leaves in place (issue #328: no slide) and the doc re-centres
+  // behind it: wait for the glyph to come to rest near the edge before
+  // aiming the pill.
   await expect
     .poll(
       async () => {

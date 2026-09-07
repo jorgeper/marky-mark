@@ -25,7 +25,7 @@ import {
 } from './helpers';
 
 // App shell: launch, toolbar chrome, splash, About, native desktop menus,
-// aux windows and the sliding panes.
+// aux windows and the pane toggles.
 
 test.beforeEach(async ({ page }) => {
   await freshApp(page);
@@ -776,7 +776,7 @@ test('E132: scope notes add no layout height — shared settings rows measure id
   expect(await wsNotes.count()).toBeGreaterThan(0);
 });
 
-test('E133: pane slides — panes mount/unmount cleanly through the toggles, settings persist, reduced motion is instant', async ({
+test('E133: pane toggles — panes mount/unmount instantly through the toggles, settings persist, no slide', async ({
   page,
 }) => {
   await seedFolders(page);
@@ -785,60 +785,191 @@ test('E133: pane slides — panes mount/unmount cleanly through the toggles, set
 
   // The rAF interpolation sampler that used to live here (E25-pattern,
   // shared with the removed E135) is gone — frame sampling under CPU load is
-  // inherently flaky (owner call, 2026-08-03, with E135's removal). This
-  // test keeps the functional guarantees: panes mount/unmount cleanly
-  // through the toggles, steady state carries no transform, settings
-  // persist, and reduced motion is instant.
+  // inherently flaky (owner call, 2026-08-03, with E135's removal). PRD 025
+  // Req 12 (issue #328) then removed the slide itself. This test keeps the
+  // functional guarantees: panes mount/unmount cleanly through the toggles,
+  // steady state carries no transform, settings persist, and every toggle is
+  // instant — the pane is gone (or present) within two frames of the click.
+  const twoFramesAfterClick = (clickId: string, paneId: string) =>
+    page.evaluate(
+      async ([clickSel, paneSel]) => {
+        const twoFrames = () =>
+          new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        (document.querySelector(`[data-testid="${clickSel}"]`) as HTMLElement).click();
+        await twoFrames();
+        return !!document.querySelector(`[data-testid="${paneSel}"]`);
+      },
+      [clickId, paneId]
+    );
 
-  // Folder close (Req 9): from a settled steady state, the pane unmounts.
+  // Folder close: from a settled steady state, the pane unmounts within two
+  // frames of the click.
   await expect
     .poll(() => page.getByTestId('folder-panel').evaluate((el) => getComputedStyle(el).transform))
     .toBe('none');
-  await page.getByTestId('folder-collapse').click();
+  expect(await twoFramesAfterClick('folder-collapse', 'folder-panel')).toBe(false);
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
-  // Req 12: end state and persistence identical to an instant toggle.
+  // End state and persistence identical through every surface (PRD 003
+  // Req 12's guarantee, kept by PRD 025 Req 12).
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"showFolders": false');
 
-  // Folder open: slides in from the left edge, then rests transform-free
+  // Folder open: present within two frames, and it rests transform-free
   // (steady state keeps no transform — the context menu is fixed-position).
   await page.waitForTimeout(250); // SPEC12 §1.3 cross-source dedup window
-  await page.getByTestId('folder-expand').click();
+  expect(await twoFramesAfterClick('folder-expand', 'folder-panel')).toBe(true);
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await expect
     .poll(() => page.getByTestId('folder-panel').evaluate((el) => getComputedStyle(el).transform))
     .toBe('none');
 
-  // Split preview (Req 10): same language from/toward the RIGHT edge.
+  // Split preview (PRD 025 Req 22): mounts and unmounts in place, the same
+  // instant contract from the RIGHT edge.
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('split-preview')).toBeVisible();
   await expect
     .poll(() => page.getByTestId('split-preview').evaluate((el) => getComputedStyle(el).transform))
     .toBe('none');
   await page.waitForTimeout(250);
-  await page.getByTestId('preview-collapse').click();
+  expect(await twoFramesAfterClick('preview-collapse', 'split-preview')).toBe(false);
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"splitEdit": false');
 
   await page.waitForTimeout(250);
-  await page.getByTestId('preview-expand').click();
+  expect(await twoFramesAfterClick('preview-expand', 'split-preview')).toBe(true);
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"splitEdit": true');
+
+  // Both panes again, closing in sequence — instant for everyone, with no
+  // reduced-motion media to emulate: there is no motion left to skip.
+  await page.waitForTimeout(250);
+  expect(await twoFramesAfterClick('preview-collapse', 'split-preview')).toBe(false);
+  expect(await twoFramesAfterClick('folder-collapse', 'folder-panel')).toBe(false);
+});
+
+test('E578: PRD 025 Reqs 12/22 (issue #328) — no transition applies on a pane toggle: sidebar, split preview and comments column mount and unmount in place', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await openFolderRoot(page);
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  await expect(page.getByTestId('comments-expand')).toBeVisible();
+
+  /** What one click produced, read at the first frame the pane appeared (or
+      two frames after the click when it was closing). */
+  interface ToggleRead {
+    /** The pane element was in the DOM two frames after the click. */
+    present: boolean;
+    /** Frames (0–2) it took for the pane to reach the expected state. */
+    framesToSettle: number;
+    /** Computed style at the frame the pane was first seen (open toggles). */
+    pane: { transition: string; transform: string; willChange: string } | null;
+    wrapper: { transition: string; transform: string; willChange: string } | null;
+    /** Phase classes the MutationObserver caught at any point. */
+    phaseSeen: string[];
+    /** Split only: editor + preview + divider vs the workspace, that frame. */
+    split: { editor: number; preview: number; divider: number; workspace: number } | null;
+  }
+  const toggle = (clickId: string, paneSel: string, wrapperSel: string, expectOpen: boolean) =>
+    page.evaluate(
+      async ([clickSel, paneSel, wrapperSel, expectOpen]) => {
+        const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+        const read = (el: Element) => {
+          const cs = getComputedStyle(el);
+          return { transition: cs.transitionDuration, transform: cs.transform, willChange: cs.willChange };
+        };
+        const phaseSeen = new Set<string>();
+        const scan = () => {
+          for (const el of document.querySelectorAll('.workspace, .folder-slide, .comments-slide')) {
+            for (const c of el.classList) {
+              if (c.startsWith('preview-') || c === 'sliding' || c === 'out') phaseSeen.add(c);
+            }
+          }
+        };
+        const mo = new MutationObserver(scan);
+        mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+        const out: ToggleRead = {
+          present: false,
+          framesToSettle: -1,
+          pane: null,
+          wrapper: null,
+          phaseSeen: [],
+          split: null,
+        };
+        (document.querySelector(`[data-testid="${clickSel}"]`) as HTMLElement).click();
+        for (let i = 0; i <= 2; i++) {
+          const pane = document.querySelector(paneSel);
+          if (!!pane === expectOpen && out.framesToSettle < 0) {
+            out.framesToSettle = i;
+            if (pane) {
+              out.pane = read(pane);
+              const wrapper = document.querySelector(wrapperSel);
+              out.wrapper = wrapper ? read(wrapper) : null;
+              if (paneSel === '.split-preview') {
+                const ws = document.querySelector('.workspace.split') as HTMLElement;
+                const ed = document.querySelector('.split-editor') as HTMLElement;
+                const dv = document.querySelector('[data-testid="split-divider"]') as HTMLElement;
+                const dcs = getComputedStyle(dv);
+                const wcs = getComputedStyle(ws);
+                out.split = {
+                  editor: ed.getBoundingClientRect().width,
+                  preview: pane.getBoundingClientRect().width,
+                  divider: dv.getBoundingClientRect().width + parseFloat(dcs.marginLeft) + parseFloat(dcs.marginRight),
+                  workspace: ws.clientWidth - parseFloat(wcs.paddingLeft) - parseFloat(wcs.paddingRight),
+                };
+              }
+            }
+          }
+          if (i < 2) await frame();
+        }
+        out.present = !!document.querySelector(paneSel);
+        scan();
+        mo.disconnect();
+        out.phaseSeen = [...phaseSeen];
+        return out;
+      },
+      [clickId, paneSel, wrapperSel, expectOpen] as const
+    );
+  const still = { transition: '0s', transform: 'none', willChange: 'auto' };
+  const expectInstant = (r: ToggleRead, open: boolean) => {
+    expect(r.present).toBe(open);
+    expect(r.framesToSettle).toBeGreaterThanOrEqual(0);
+    expect(r.framesToSettle).toBeLessThanOrEqual(2);
+    expect(r.phaseSeen).toEqual([]);
+    if (open) {
+      expect(r.pane).toEqual(still);
+      expect(r.wrapper).toEqual(still);
+    }
+  };
+  const settle = () => page.waitForTimeout(250); // SPEC12 §1.3 cross-source dedup window
+
+  // Split preview: close, then open — the editor + preview + divider fill
+  // the workspace in the very frame the pane enters the DOM (Req 22).
+  expectInstant(await toggle('preview-collapse', '.split-preview', '.workspace', false), false);
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  await settle();
+  const splitOpen = await toggle('preview-expand', '.split-preview', '.workspace.split', true);
+  expectInstant(splitOpen, true);
+  expect(splitOpen.split).not.toBeNull();
+  const { editor, preview, divider, workspace } = splitOpen.split!;
+  expect(Math.abs(editor + preview + divider - workspace)).toBeLessThanOrEqual(1);
   await expect(page.getByTestId('split-preview')).toBeVisible();
 
-  // Req 11: prefers-reduced-motion switches both panes instantly — gone
-  // within a frame or two of the toggle, no slide.
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.waitForTimeout(250);
-  const instant = await page.evaluate(async () => {
-    const twoFrames = () =>
-      new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    (document.querySelector('[data-testid="preview-collapse"]') as HTMLElement).click();
-    await twoFrames();
-    const previewGone = !document.querySelector('[data-testid="split-preview"]');
-    (document.querySelector('[data-testid="folder-collapse"]') as HTMLElement).click();
-    await twoFrames();
-    const folderGone = !document.querySelector('[data-testid="folder-panel"]');
-    return { previewGone, folderGone };
-  });
-  expect(instant).toEqual({ previewGone: true, folderGone: true });
+  // Folder sidebar: chevron close, chevron open (Req 12).
+  await settle();
+  expectInstant(await toggle('folder-collapse', '[data-testid="folder-panel"]', '.folder-slide', false), false);
+  await settle();
+  expectInstant(await toggle('folder-expand', '[data-testid="folder-panel"]', '.folder-slide', true), true);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+
+  // Comments column: chevron open, chevron close (Req 12).
+  await settle();
+  expectInstant(await toggle('comments-expand', '[data-testid="comments-pane"]', '.comments-slide', true), true);
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await settle();
+  expectInstant(await toggle('comments-collapse', '[data-testid="comments-pane"]', '.comments-slide', false), false);
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
 });
 
 test('E134: split mode — the editor column hugs its pane, leaving no blank strip at the folder seam (#7)', async ({

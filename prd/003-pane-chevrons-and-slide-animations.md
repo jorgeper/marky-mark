@@ -118,6 +118,15 @@ slide, like the toolbar already does, instead of popping in and out.
 
 ### Slide animations
 
+> **Amended (issue #328, 2026-09-07):** Reqs 9–12 below are retired. Per
+> PRD 025 Reqs 12 and 22 the folder pane, the comments column and the split
+> preview switch instantly on every toggle surface — mounted or unmounted in
+> place with no slide, no phase classes, no `transition`, `transform` or
+> `will-change` — and the `prefers-reduced-motion` carve-out of Req 11 is
+> gone with the motion it existed to skip. Req 12's end-state and
+> persistence guarantee still holds: every surface lands the same setting
+> flip. The chevrons (Reqs 1–8) are unchanged.
+
 9. Opening and closing the folder pane animates as a horizontal slide from
    / toward the left edge, using the app's existing motion language: a
    transform transition of ~180ms ease with `will-change: transform`, as

@@ -74,7 +74,7 @@ test('E339: the Search view — the third switch button, one view at a time, and
   await expect(page.getByTestId('toc-item')).toHaveCount(1);
 
   // Issue #257: pressing Search while Search is showing does NOTHING — the
-  // panel stays, still pressed, and the pane never slides. The header's
+  // panel stays, still pressed, and the pane never hides. The header's
   // chevron is the hide control, and with the sidebar hidden the whole
   // switch is gone; the tooltips are fixed constants throughout.
   await page.getByTestId('sidebar-view-search').click();
@@ -594,6 +594,9 @@ test('E284: the searchAllFiles hotkey opens the sidebar on Search with the query
 
   // Exactly the same action from either surface: the collapsed state's Show
   // sidebar control opens it, and the hotkey hides what it opened.
+  // SPEC12 §1.3 cross-source dedup window: the pane switches instantly now
+  // (issue #328), so nothing else spaces this toggle from the last one.
+  await page.waitForTimeout(250);
   await page.getByTestId('folder-expand').click();
   await expect(page.getByTestId('search-panel')).toBeVisible();
   // Past SPEC12 §1.3's exactly-once window first: the chevron and the hotkey
