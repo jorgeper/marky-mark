@@ -106,6 +106,17 @@ function userEventOf(u: ViewUpdate): string | null {
   return null;
 }
 
+/**
+ * One `coordsAtPos` read translated into the overlay layer's frame, or null
+ * when the position is not rendered / off-screen. The overlay sits at inset
+ * 0 of the scroller and scrolls with the content, so client coordinates
+ * translate by the layer's own rect.
+ */
+function frameCoordsAt(view: EditorView, frame: DOMRect, pos: number): FluidPosCoords | null {
+  const c = view.coordsAtPos(pos);
+  return c ? { left: c.left - frame.left, top: c.top - frame.top, bottom: c.bottom - frame.top } : null;
+}
+
 /** Req 11: write one shape's rectangles into the ghost's slot elements, in overlay-layer pixels. */
 function paintSelectionShape(els: HTMLElement[], shape: FluidSelectionShape): void {
   shape.forEach((r, i) => {
@@ -316,10 +327,7 @@ class FluidOverlay {
     // the new range, both ends of the previous one (unless a ghost in flight
     // already supplies the start shape), and one content-rect read.
     const frame = this.layer.getBoundingClientRect();
-    const at = (pos: number): FluidPosCoords | null => {
-      const c = view.coordsAtPos(pos);
-      return c ? { left: c.left - frame.left, top: c.top - frame.top, bottom: c.bottom - frame.top } : null;
-    };
+    const at = (pos: number) => frameCoordsAt(view, frame, pos);
     const content = view.contentDOM.getBoundingClientRect();
     const contentLeft = content.left - frame.left;
     const contentRight = content.right - frame.left;
@@ -424,23 +432,16 @@ class FluidOverlay {
     const deletion = deletionEffectOf(this.map);
     const insertion = insertionEffectOf(this.map);
     if (!deletion && !insertion) return;
-    const wantDeletion = deletion !== null;
-    const wantInsertion = insertion !== null;
     const startDoc = u.startState.doc;
     const doc = u.state.doc;
     const removed: FluidChangedSpan[] = [];
     const inserted: FluidInsertedSpan[] = [];
     u.changes.iterChanges((fromA, toA, fromB, toB) => {
       const removedLines = toA > fromA ? startDoc.lineAt(toA).number - startDoc.lineAt(fromA).number + 1 : 1;
-      if (wantDeletion)
-        removed.push({
-          fromA,
-          toA,
-          fromB,
-          insertedLength: toB - fromB,
-          lines: removedLines,
-        });
-      if (wantInsertion) {
+      if (deletion) {
+        removed.push({ fromA, toA, fromB, insertedLength: toB - fromB, lines: removedLines });
+      }
+      if (insertion) {
         inserted.push({
           fromB,
           toB,
@@ -451,41 +452,20 @@ class FluidOverlay {
       }
     });
     const userEvent = userEventOf(u);
-    const ghosted = wantDeletion
-      ? fluidDeletionSpans({
-          docChanged: u.docChanged,
-          userEvent,
-          spans: removed,
-        })
-      : [];
-    const masked = wantInsertion
-      ? fluidInsertionSpans({
-          docChanged: u.docChanged,
-          userEvent,
-          spans: inserted,
-        })
-      : [];
+    const ghosted = deletion ? fluidDeletionSpans({ docChanged: u.docChanged, userEvent, spans: removed }) : [];
+    const masked = insertion ? fluidInsertionSpans({ docChanged: u.docChanged, userEvent, spans: inserted }) : [];
     if (ghosted.length === 0 && masked.length === 0) return;
     if (prefersReducedMotion()) return; // Req 16: inert — no element, no particle, no frame
     if (typeof document.createElement('div').animate !== 'function') return; // no Web Animations: no static ghost either
     const view = this.view;
-    // The overlay sits at inset 0 of the scroller, so client coordinates
-    // translate by the layer's own rect; one content-rect read gives the
-    // edges a multi-line ghost wraps between and a multi-line mask spans.
+    // One layer-rect and one content-rect read serve every span of both
+    // effects: the content edges are what a multi-line ghost wraps between
+    // and a multi-line mask spans.
     const frame = this.layer.getBoundingClientRect();
+    const at = (pos: number) => frameCoordsAt(view, frame, pos);
     const content = view.contentDOM.getBoundingClientRect();
     const contentLeft = content.left - frame.left;
     const contentRight = content.right - frame.left;
-    const at = (pos: number): FluidPosCoords | null => {
-      const c = view.coordsAtPos(pos);
-      return c
-        ? {
-            left: c.left - frame.left,
-            top: c.top - frame.top,
-            bottom: c.bottom - frame.top,
-          }
-        : null;
-    };
     if (deletion) {
       for (const span of ghosted) {
         const start = at(span.fromB);
@@ -494,27 +474,21 @@ class FluidOverlay {
         this.startDeletionGhost(startDoc.sliceString(span.fromA, span.toA), box, deletion, frame);
       }
     }
-    if (!insertion) return;
-    for (const span of masked) {
-      // Req 13: the inserted range's painted rectangles — two coordsAtPos
-      // reads per span, the selection effect's three-slot geometry; a
-      // rectangle with no area (a bare Enter's empty tail) needs no element.
-      const start = at(span.fromB);
-      const end = at(span.toB);
-      if (!start || !end) continue; // not rendered / off-screen: this span draws nothing
-      const rects = fluidSelectionRects({
-        start,
-        end,
-        contentLeft,
-        contentRight,
-      }).filter((r) => r.width > 0 && r.height > 0);
-      if (rects.length === 0) continue;
-      this.startInsertionEffect(
-        doc.sliceString(span.fromB, span.toB),
-        rects,
-        fluidDeletionBox({ start, contentLeft, contentRight }),
-        insertion
-      );
+    if (insertion) {
+      for (const span of masked) {
+        // Req 13: the inserted range's painted rectangles — two coordsAtPos
+        // reads per span, the selection effect's three-slot geometry; a
+        // rectangle with no area (a bare Enter's empty tail) needs no element.
+        const start = at(span.fromB);
+        const end = at(span.toB);
+        if (!start || !end) continue; // not rendered / off-screen: this span draws nothing
+        const rects = fluidSelectionRects({ start, end, contentLeft, contentRight }).filter(
+          (r) => r.width > 0 && r.height > 0
+        );
+        if (rects.length === 0) continue;
+        const box = fluidDeletionBox({ start, contentLeft, contentRight });
+        this.startInsertionEffect(doc.sliceString(span.fromB, span.toB), rects, box, insertion);
+      }
     }
   }
 
@@ -539,8 +513,6 @@ class FluidOverlay {
     box: FluidDeletionBox,
     effect: FluidInsertionEffect
   ): void {
-    const els: HTMLElement[] = [];
-    const anims: Animation[] = [];
     const masks = rects.map((r) => {
       const el = document.createElement('div');
       el.className = 'fluid-insertion-mask';
@@ -551,9 +523,10 @@ class FluidOverlay {
       st.width = `${r.width}px`;
       st.height = `${r.height}px`;
       this.layer.appendChild(el);
-      els.push(el);
       return el;
     });
+    const els: HTMLElement[] = [...masks];
+    const anims: Animation[] = [];
     if (effect === 'fade') {
       // Req 7: Fade — every mask dissolves, revealing the real text beneath.
       for (const el of masks) {
