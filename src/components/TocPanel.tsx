@@ -139,7 +139,7 @@ function Magnifier() {
 
 export function TocPanel(p: TocPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const slideRef = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // PRD 012 Req 4 (issue #255): opening the box puts the caret in it — the
@@ -152,7 +152,7 @@ export function TocPanel(p: TocPanelProps) {
 
   // PRD 012 Req 1: the folder pane's own width drag — one pane, one
   // `settings.folderWidth`, so dragging in either view moves the same edge.
-  const dragWidth = paneWidthDrag({ panelRef, slideRef, width: p.width, onWidth: p.onWidth });
+  const dragWidth = paneWidthDrag({ panelRef, wrapRef, width: p.width, onWidth: p.onWidth });
 
   /* PRD 012 Req 8: a document with no headings says so — a blank pane reads as
      a bug, and "no headings yet" is the true statement. Issue #255: a live
@@ -172,8 +172,8 @@ export function TocPanel(p: TocPanelProps) {
 
   return (
     <div
-      className="folder-slide"
-      ref={slideRef}
+      className="folder-wrap"
+      ref={wrapRef}
       style={{ '--mm-folders': `${p.width}px` } as CSSProperties}
     >
       <div className="folder-panel toc-panel" data-testid="toc-panel" ref={panelRef}>

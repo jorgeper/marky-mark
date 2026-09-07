@@ -3455,6 +3455,71 @@ test('E359: hosted — ✕ closes a tab without switching, and Settings ▸ Appe
   await expect(hostedTab(page, 'keep.md')).toHaveAttribute('data-active', 'true');
 });
 
+test('E587: PRD 025 Req 27 (issue #332) — hosted: at 1800px the sidebar and the comments column hug the centred page with equal ground either side, the page carries its radius and shadow, and the Edit/Preview toggle closes the strip\'s control group', async ({
+  page,
+  request,
+}) => {
+  // The hosted platform has every PRD 025 surface — the sidebar (SPEC34 on
+  // the REST seam), the strip (E358) and the comments column (PRD 023) —
+  // so the centred-cluster form E583 proves on the desktop shim is proven
+  // here on the hosted build too, from the same geometry.
+  await page.setViewportSize({ width: 1800, height: 900 });
+  const token = await signIn(request, 'ada');
+  const headers = { Authorization: `Bearer ${token}` };
+  const id = await createWorkspace(request, token, `E587 w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/page.md`, { headers, data: '# page\n\nA line.\n' });
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'page.md');
+  await expect(page.getByTestId('file-tab-strip')).toBeVisible();
+  await page.getByTestId('comments-expand').click();
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+
+  const rectOf = (loc: Locator) =>
+    loc.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right, width: r.width };
+    });
+  const body = page.locator('.body-row');
+  const stack = page.locator('.workspace-stack');
+  const folder = page.locator('.folder-wrap');
+  const comments = page.locator('.comments-wrap');
+
+  // Reqs 2, 8, 10–11 on hosted: equal ground outside the cluster, none inside.
+  await expect
+    .poll(async () => {
+      const [b, f, c] = await Promise.all([rectOf(body), rectOf(folder), rectOf(comments)]);
+      return Math.abs(f.left - b.left - (b.right - c.right));
+    })
+    .toBeLessThanOrEqual(1);
+  const [b, f, s, c] = await Promise.all([rectOf(body), rectOf(folder), rectOf(stack), rectOf(comments)]);
+  expect(f.left - b.left).toBeGreaterThan(0);
+  expect(b.right - c.right).toBeGreaterThan(0);
+  expect(Math.abs(f.right - s.left)).toBeLessThanOrEqual(1);
+  expect(Math.abs(s.right - c.left)).toBeLessThanOrEqual(1);
+
+  // Reqs 6–7: the page is the lifted, rounded surface — its radius the
+  // theme's --mm-radius-small, its shadow present.
+  const radius = await page
+    .locator('.theme-root')
+    .evaluate((el) => getComputedStyle(el).getPropertyValue('--mm-radius-small').trim());
+  const rounded = await stack.evaluate((el) => ({
+    radius: getComputedStyle(el).borderTopLeftRadius,
+    shadow: getComputedStyle(el).boxShadow,
+  }));
+  expect(rounded.radius).toBe(radius);
+  expect(rounded.shadow).not.toBe('none');
+
+  // Reqs 19–20: the toggle is the LAST member of the strip's trailing group
+  // and the toolbar renders none (E579's form, on hosted).
+  const trail = page.getByTestId('file-tab-strip').locator('.file-tab-strip-trail');
+  const ids = await trail.evaluate((el) =>
+    Array.from(el.children).map((ch) => (ch as HTMLElement).dataset.testid ?? ch.className)
+  );
+  expect(ids[ids.length - 1]).toBe('edit-toggle');
+  await expect(page.getByTestId('edit-toggle')).toHaveCount(1);
+  await expect(page.locator('.toolbar').getByTestId('edit-toggle')).toHaveCount(0);
+});
+
 // --- deployment policies (PRD 017 Reqs 3+6–12+15, issue #188) ----------------
 
 /**

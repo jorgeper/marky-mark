@@ -89,8 +89,10 @@ export interface PreviewProps {
   docKey?: string | number | null;
   /**
    * Warm start (issue #165): HTML this same document already rendered to
-   * elsewhere in the host, painted synchronously on mount so an opening
-   * slide animates over content from its very first frame. The component
+   * elsewhere in the host, painted synchronously on mount so the pane holds
+   * content on its very first frame (PRD 025 Req 22 retired the opening
+   * slide it used to animate under; the in-place mount still needs the
+   * warm start so the pane never appears empty for a frame). The component
    * re-renders from `markdown` immediately after, so a stale warm start is
    * visible for at most one render round-trip — the contract split mode
    * always had.

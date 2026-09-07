@@ -226,7 +226,7 @@ export function Chevron({ open, dir }: { open?: boolean; dir?: 'left' | 'right' 
 
 /**
  * SPEC34 §3: the pane's width drag — the split divider's pointer-capture
- * pattern. The live width lands on the slide wrapper's `--mm-folders` (the
+ * pattern. The live width lands on the `.folder-wrap` wrapper's `--mm-folders` (the
  * wrapper and the panel both read it, so they track the pointer together) and
  * only the settled width is handed back to the owner to persist.
  *
@@ -235,19 +235,19 @@ export function Chevron({ open, dir }: { open?: boolean; dir?: 'left' | 'right' 
  */
 export function paneWidthDrag({
   panelRef,
-  slideRef,
+  wrapRef,
   width,
   onWidth,
 }: {
   panelRef: React.RefObject<HTMLDivElement | null>;
-  slideRef: React.RefObject<HTMLDivElement | null>;
+  wrapRef: React.RefObject<HTMLDivElement | null>;
   width: number;
   onWidth(width: number): void;
 }) {
   return (e: React.PointerEvent<HTMLDivElement>) => {
     const panel = panelRef.current;
-    const slideEl = slideRef.current;
-    if (!panel || !slideEl) return;
+    const wrapEl = wrapRef.current;
+    if (!panel || !wrapEl) return;
     e.preventDefault();
     const divider = e.currentTarget;
     divider.setPointerCapture(e.pointerId);
@@ -255,7 +255,7 @@ export function paneWidthDrag({
     let w = width;
     const onMove = (ev: PointerEvent) => {
       w = Math.min(FOLDER_WIDTH_MAX, Math.max(FOLDER_WIDTH_MIN, ev.clientX - left));
-      slideEl.style.setProperty('--mm-folders', `${w}px`);
+      wrapEl.style.setProperty('--mm-folders', `${w}px`);
     };
     const onUp = () => {
       divider.removeEventListener('pointermove', onMove);
@@ -732,7 +732,7 @@ function Rows({
 
 export function FolderPanel(p: FolderPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const slideRef = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [dropOver, setDropOver] = useState<string | null>(null);
@@ -790,7 +790,7 @@ export function FolderPanel(p: FolderPanelProps) {
     list.scrollLeft = x;
   }, [p.selectedPath, p.expanded, p.children, p.openOnly]);
 
-  const dragWidth = paneWidthDrag({ panelRef, slideRef, width: p.width, onWidth: p.onWidth });
+  const dragWidth = paneWidthDrag({ panelRef, wrapRef, width: p.width, onWidth: p.onWidth });
 
   // PRD 025 Req 12 (issue #328): the wrapper is a plain fixed-width
   // container — the pane mounts and unmounts in place, no slide phases, no
@@ -799,8 +799,8 @@ export function FolderPanel(p: FolderPanelProps) {
   // onto it.
   return (
     <div
-      className="folder-slide"
-      ref={slideRef}
+      className="folder-wrap"
+      ref={wrapRef}
       style={{ '--mm-folders': `${p.width}px` } as React.CSSProperties}
     >
       <div

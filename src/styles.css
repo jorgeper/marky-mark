@@ -904,10 +904,10 @@ mark.hl.ghost[data-color] {
 
 /* The third workspace pane — a body-row sibling at the RIGHT edge, in every
    document mode, fixed at 300px (no drag handle, no breakpoints: PRD
-   non-goal). PRD 025 Req 12 (issue #328): the wrapper mirrors .folder-slide
+   non-goal). PRD 025 Req 12 (issue #328): the wrapper mirrors .folder-wrap
    as a plain fixed-width container — the pane mounts and unmounts in place,
    no width or transform transition, no phase classes. */
-.comments-slide {
+.comments-wrap {
   width: 300px;
   flex-shrink: 0;
   display: flex;
@@ -1720,7 +1720,7 @@ mark.hl.ghost {
   .toolbar-shell,
   .toolbar-hotzone,
   .folder-panel,
-  .folder-slide,
+  .folder-wrap,
   .folder-expand,
   .edge-cluster,
   /* PRD 013 Req 1: the tab strip is chrome — never on paper. */
@@ -1737,7 +1737,7 @@ mark.hl.ghost {
   .smart-edit-menu,
   .split-divider,
   /* PRD 023 §15 (issue #284): the comments pane is chrome — never on paper. */
-  .comments-slide,
+  .comments-wrap,
   .panel,
   .editor-wrap,
   .fm-card,
@@ -2369,7 +2369,7 @@ mark.hl.ghost {
    become the containing block for the panel's fixed-position context menu.
    No overflow clipping here: the width-drag divider overhangs the panel's
    right edge by 3px. */
-.folder-slide {
+.folder-wrap {
   width: var(--mm-folders);
   flex-shrink: 0;
   display: flex;
