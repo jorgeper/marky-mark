@@ -76,9 +76,15 @@ export function SmartEditMenu({ x, y, entries, onInvoke, onClose }: Props) {
     // remembered at open and compared against, so a real gesture — which
     // clears SETTLE_PX in its first frame — still dismisses at once.
     const settled = new Map<Element, { left: number; top: number }>();
-    for (let el = menuRef.current?.parentElement ?? null; el; el = el.parentElement) {
-      settled.set(el, { left: el.scrollLeft, top: el.scrollTop });
-    }
+    const remember = (el: Element) => settled.set(el, { left: el.scrollLeft, top: el.scrollTop });
+    for (let el = menuRef.current?.parentElement ?? null; el; el = el.parentElement) remember(el);
+    // Issue #330 (same settle, other direction): the host's own scroll boxes
+    // — the editor's .cm-scroller, a DESCENDANT of the host rather than an
+    // ancestor of the menu — take the same hairline nudge when the menu
+    // mounts beside them, and a scroll event whose offsets never moved must
+    // not dismiss the menu either (E154 opened and lost the menu in one
+    // frame). A real gesture on the scroller still clears SETTLE_PX at once.
+    menuRef.current?.parentElement?.querySelectorAll('.cm-scroller').forEach(remember);
     /** Still within SETTLE_PX of where this ancestor stood when the menu opened. */
     const isSettle = (el: Element): boolean => {
       const was = settled.get(el);
