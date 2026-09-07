@@ -1008,7 +1008,7 @@ test('E580: PRD 025 Reqs 9, 10, 16 (issue #334) — with Fluid mode on, reduced 
   await expect(layer).toHaveCount(1);
 });
 
-test('E581: PRD 025 Reqs 9, 11, 14, 16 (issue #335) — with Fluid mode on, reduced motion draws no selection ghost, typing over a selection replaces it synchronously and draws nothing, a large selection snaps, and Selection change → None draws nothing', async ({
+test('E582: PRD 025 Reqs 9, 11, 14, 16 (issue #335) — with Fluid mode on, reduced motion draws no selection ghost, typing over a selection replaces it synchronously and draws nothing, a large selection snaps, and Selection change → None draws nothing', async ({
   page,
 }) => {
   await freshApp(page);

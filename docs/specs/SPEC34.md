@@ -82,6 +82,11 @@ Two OPTIONAL `Platform` methods (absent ⇒ the feature never renders):
    filtering per §2.1.
 3. **Header:** the root's basename, a **sync** button (§5), and an **×**
    that closes the panel (same as the View toggle off).
+   > **Amended (issue #329, 2026-09-07):** the header row carries **no
+   > bottom rule**. Its controls sit directly above the tree on the same
+   > flat ground (the panel's `--mm-bg-elevated`), at the same height,
+   > padding and control set as before; the outline and search views share
+   > the row (`.folder-header`) and lose the rule with it (PRD 025 Req 13).
 4. **Empty state** (no root chosen): a centered "Open Folder…" button
    invoking the same command as the menu item.
 5. **Refresh:** a directory re-lists whenever it is (re)expanded; the

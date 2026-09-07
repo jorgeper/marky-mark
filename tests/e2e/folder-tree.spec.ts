@@ -9,7 +9,9 @@ import {
   menuClick,
   openFolderRoot,
   openNotesRoot,
+  openSettings,
   openViewMenu,
+  saveSettings,
   seedFolders,
   stableBox,
   viewMenuClick,
@@ -94,20 +96,23 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   await expect(page.getByTestId('docname')).toContainText('b.md');
   await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
 
-  // The selected tab floats clear of the panel's left edge — the pill must
-  // not widen the scroll range, and the reveal must not scroll the gap away.
-  const pill = () =>
+  // PRD 025 Req 15 (issue #329): the selected row is FLAT and full-width —
+  // its left edge is the list's left edge (no pill margin), and the reveal
+  // scroll (vertical-only) leaves scrollLeft at 0.
+  const flat = () =>
     page.evaluate(() => {
       const list = document.querySelector('.folder-list')!;
       const sel = document.querySelector('.folder-item.selected')!;
       return {
         gap: sel.getBoundingClientRect().left - list.getBoundingClientRect().left,
+        marginLeft: getComputedStyle(sel).marginLeft,
         scrollLeft: list.scrollLeft,
       };
     });
   // The reveal scroll lands after the selection re-render, so poll both.
-  await expect.poll(async () => (await pill()).scrollLeft).toBe(0);
-  await expect.poll(async () => (await pill()).gap).toBeGreaterThanOrEqual(10);
+  await expect.poll(async () => (await flat()).scrollLeft).toBe(0);
+  await expect.poll(async () => (await flat()).gap).toBe(0);
+  expect((await flat()).marginLeft).toBe('0px');
 
   // The eye choice survived the restart above (the revived session); hiding
   // again drops the rows without collapsing sub or losing the selection.
@@ -117,8 +122,8 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
 
   // Tree opens are additive (SPEC36 §3.2 amended, issue #64): clicking a
-  // not-open file over a dirty buffer never prompts — b parks with its ●
-  // on the panel plane while a takes the front plane.
+  // not-open file over a dirty buffer never prompts — b parks as a plain
+  // open row with its ● while a becomes the selected row.
   await page.keyboard.press('Control+e');
   await page.getByTestId('editor').locator('.cm-line').first().click();
   await page.keyboard.type('DIRTY ');
@@ -717,10 +722,11 @@ test('E292: rapid successive opens from the folder pane — the last click alway
 test('E305: open rows do not indent — open, closed and active labels share one column per depth, in tree and only-open views', async ({
   page,
 }) => {
-  // Issue #126 / SPEC36 §4.1: the open-tab pill keeps the SAME left gap as
-  // `.selected`, compensated by inner padding, so opening a file never reads
-  // as indentation. Label x is measured the same way E249/E31 do: rect left
-  // plus the row's own padding-left (margins are inside rect left already).
+  // Issue #126 / SPEC36 §4.1 (amended by PRD 025 Reqs 14–15, issue #329):
+  // open, closed and active rows are all flat full-width rows with the same
+  // depth padding, so neither opening nor selecting a file may read as
+  // indentation. Label x is measured the same way E249/E31 do: rect left
+  // plus the row's own padding-left.
   await seedFolders(page);
   await fsWrite(page, '/notes/e.md', '# E doc\n'); // becomes the active row
   await fsWrite(page, '/notes/f.md', '# F doc\n'); // closed sibling, depth 1
@@ -773,4 +779,81 @@ test('E305: open rows do not indent — open, closed and active labels share one
   );
   expect(lefts.length).toBe(4); // welcome.md (the boot doc) + a, b, e
   for (const l of lefts) expect(Math.abs(l - lefts[0])).toBeLessThanOrEqual(1);
+});
+
+test('E581: only the active file is tinted — open and closed rows are transparent and flat, the header has no rule, the open row keeps its slot (Crisp and One Dark)', async ({
+  page,
+}) => {
+  // PRD 025 Reqs 13–16 (issue #329): the sidebar is one flat ground. The
+  // `.selected` row is the ONLY row with a background (accent-derived);
+  // every other row — open-but-inactive and closed alike — is transparent,
+  // nothing lifts (no shadow, no stacking, no pill margin), the header
+  // carries no bottom rule, and open rows still show their trailing slot.
+  await seedFolders(page);
+  await fsWrite(page, '/notes/e.md', '# E doc\n'); // becomes the active row
+  await openNotesRoot(page);
+  await page.locator('[data-path="/notes/a.md"]').click(); // open-but-inactive
+  await page.locator('[data-path="/notes/e.md"]').click({ modifiers: ['ControlOrMeta'] });
+  await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/\bopen\b/);
+  await expect(page.locator('[data-path="/notes/e.md"]')).toHaveClass(/selected/);
+  // Park the pointer off the tree so no row's hover wash is engaged.
+  await page.mouse.move(0, 0);
+
+  const TRANSPARENT = 'rgba(0, 0, 0, 0)';
+  const styles = () =>
+    page.evaluate(() => {
+      const cs = (el: Element) => getComputedStyle(el);
+      const sel = document.querySelector('.folder-item.selected')!;
+      const open = document.querySelector('.folder-item.open')!;
+      const header = document.querySelector('[data-testid="folder-header"]')!;
+      const panel = document.querySelector('[data-testid="folder-panel"]')!;
+      return {
+        selected: {
+          background: cs(sel).backgroundColor,
+          boxShadow: cs(sel).boxShadow,
+          zIndex: cs(sel).zIndex,
+          marginLeft: cs(sel).marginLeft,
+          fontWeight: cs(sel).fontWeight,
+        },
+        open: { background: cs(open).backgroundColor, boxShadow: cs(open).boxShadow, zIndex: cs(open).zIndex },
+        others: Array.from(document.querySelectorAll('.folder-item:not(.selected)')).map(
+          (el) => cs(el).backgroundColor
+        ),
+        panelBackground: cs(panel).backgroundColor,
+        headerBorderBottom: cs(header).borderBottomWidth,
+      };
+    });
+  const assertFlat = async () => {
+    const s = await styles();
+    expect(s.selected.background).not.toBe(TRANSPARENT);
+    expect(s.selected.background).not.toBe(s.panelBackground);
+    expect(s.selected.boxShadow).toBe('none');
+    expect(s.selected.zIndex).toBe('auto');
+    expect(s.selected.marginLeft).toBe('0px');
+    expect(Number(s.selected.fontWeight)).toBeGreaterThanOrEqual(600);
+    expect(s.open.background).toBe(TRANSPARENT);
+    expect(s.open.boxShadow).toBe('none');
+    expect(s.open.zIndex).toBe('auto');
+    expect(s.others.length).toBeGreaterThanOrEqual(2); // the open row + closed siblings
+    for (const bg of s.others) expect(bg).toBe(TRANSPARENT);
+    expect(s.headerBorderBottom).toBe('0px');
+    // Req 16: the open row keeps its trailing slot (the ● / ✕ affordance).
+    await expect(page.locator('[data-path="/notes/a.md"] .folder-tab-slot')).toHaveCount(1);
+  };
+  await assertFlat();
+
+  // The tint derives from the theme accent: the same picture holds under a
+  // dark theme (One Dark, as E306 does for the strip).
+  await openSettings(page);
+  await page.getByTestId('settings-theme-light').selectOption('crisp');
+  await page.getByTestId('settings-theme-dark').selectOption('one-dark');
+  const useDark = page.getByTestId('use-dark-theme');
+  if (!(await useDark.isChecked())) await useDark.check();
+  await saveSettings(page);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect
+    .poll(() => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor))
+    .toBe('rgb(40, 44, 52)'); // One Dark #282c34
+  await page.mouse.move(0, 0);
+  await assertFlat();
 });
