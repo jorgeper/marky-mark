@@ -781,49 +781,66 @@ test('E305: open rows do not indent — open, closed and active labels share one
   for (const l of lefts) expect(Math.abs(l - lefts[0])).toBeLessThanOrEqual(1);
 });
 
-test('E581: only the active file is tinted — open and closed rows are transparent and flat, the header has no rule, the open row keeps its slot (Crisp and One Dark)', async ({
+test('E581: three-way sidebar tint — the active row strongest, open rows a lighter non-transparent shade, closed rows transparent, all flat; the header has no rule, open rows keep their slot, hover never drops below the open tint (Crisp and One Dark)', async ({
   page,
 }) => {
-  // PRD 025 Reqs 13–16 (issue #329): the sidebar is one flat ground. The
-  // `.selected` row is the ONLY row with a background (accent-derived);
-  // every other row — open-but-inactive and closed alike — is transparent,
-  // nothing lifts (no shadow, no stacking, no pill margin), the header
-  // carries no bottom rule, and open rows still show their trailing slot.
+  // PRD 025 Reqs 13–16 (issue #329) flattened the sidebar into one ground;
+  // Reqs 14–15 as amended by issue #347 tint every OPEN row with a lighter
+  // shade of the active row's selection colour. The three-way picture:
+  // the `.selected` row carries the strongest accent tint (bold); every
+  // `.open` row a non-transparent, strictly lower-alpha tint at normal
+  // weight; every closed row is transparent. Nothing lifts (no shadow, no
+  // stacking, no pill margin), the header carries no bottom rule, open rows
+  // still show their trailing slot, and hovering an open row resolves to a
+  // wash at least as strong as the open tint.
   await seedFolders(page);
   await fsWrite(page, '/notes/e.md', '# E doc\n'); // becomes the active row
   await openNotesRoot(page);
   await page.locator('[data-path="/notes/a.md"]').click(); // open-but-inactive
+  await page.locator('[data-path="/notes/sub"]').click(); // expand sub
+  await page.locator('[data-path="/notes/sub/b.md"]').click({ modifiers: ['ControlOrMeta'] }); // open-but-inactive
   await page.locator('[data-path="/notes/e.md"]').click({ modifiers: ['ControlOrMeta'] });
   await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/\bopen\b/);
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/\bopen\b/);
   await expect(page.locator('[data-path="/notes/e.md"]')).toHaveClass(/selected/);
   // Park the pointer off the tree so no row's hover wash is engaged.
   await page.mouse.move(0, 0);
 
   const TRANSPARENT = 'rgba(0, 0, 0, 0)';
+  // The alpha of a computed colour: `rgba(r, g, b, a)` / `rgb(r, g, b)`,
+  // or Chromium's `color(srgb r g b / a)` form for a color-mix() result.
+  const alphaOf = (c: string) => {
+    const rgba = c.match(/^rgba?\([\d.]+, [\d.]+, [\d.]+(?:, ([\d.]+))?\)$/);
+    if (rgba) return rgba[1] === undefined ? 1 : Number(rgba[1]);
+    const srgb = c.match(/^color\(srgb [\d.]+ [\d.]+ [\d.]+(?: \/ ([\d.]+))?\)$/);
+    if (srgb) return srgb[1] === undefined ? 1 : Number(srgb[1]);
+    throw new Error(`unexpected computed colour: ${c}`);
+  };
   const styles = () =>
     page.evaluate(() => {
       const cs = (el: Element) => getComputedStyle(el);
-      const sel = document.querySelector('.folder-item.selected')!;
-      const open = document.querySelector('.folder-item.open')!;
+      const row = (el: Element) => ({
+        background: cs(el).backgroundColor,
+        boxShadow: cs(el).boxShadow,
+        zIndex: cs(el).zIndex,
+        marginLeft: cs(el).marginLeft,
+        minWidth: cs(el).minWidth,
+        borderRadius: cs(el).borderTopLeftRadius,
+        fontWeight: cs(el).fontWeight,
+      });
       const header = document.querySelector('[data-testid="folder-header"]')!;
       const panel = document.querySelector('[data-testid="folder-panel"]')!;
       return {
-        selected: {
-          background: cs(sel).backgroundColor,
-          boxShadow: cs(sel).boxShadow,
-          zIndex: cs(sel).zIndex,
-          marginLeft: cs(sel).marginLeft,
-          fontWeight: cs(sel).fontWeight,
-        },
-        open: { background: cs(open).backgroundColor, boxShadow: cs(open).boxShadow, zIndex: cs(open).zIndex },
-        others: Array.from(document.querySelectorAll('.folder-item:not(.selected)')).map(
+        selected: row(document.querySelector('.folder-item.selected')!),
+        open: Array.from(document.querySelectorAll('.folder-item.open')).map(row),
+        closed: Array.from(document.querySelectorAll('.folder-item:not(.selected):not(.open)')).map(
           (el) => cs(el).backgroundColor
         ),
         panelBackground: cs(panel).backgroundColor,
         headerBorderBottom: cs(header).borderBottomWidth,
       };
     });
-  const assertFlat = async () => {
+  const assertThreeWay = async () => {
     const s = await styles();
     expect(s.selected.background).not.toBe(TRANSPARENT);
     expect(s.selected.background).not.toBe(s.panelBackground);
@@ -831,18 +848,46 @@ test('E581: only the active file is tinted — open and closed rows are transpar
     expect(s.selected.zIndex).toBe('auto');
     expect(s.selected.marginLeft).toBe('0px');
     expect(Number(s.selected.fontWeight)).toBeGreaterThanOrEqual(600);
-    expect(s.open.background).toBe(TRANSPARENT);
-    expect(s.open.boxShadow).toBe('none');
-    expect(s.open.zIndex).toBe('auto');
-    expect(s.others.length).toBeGreaterThanOrEqual(2); // the open row + closed siblings
-    for (const bg of s.others) expect(bg).toBe(TRANSPARENT);
+    const selectedAlpha = alphaOf(s.selected.background);
+    expect(selectedAlpha).toBeGreaterThan(0);
+    // Req 14 (issue #347): each open row is tinted — lighter than the
+    // active row, never transparent — and stays flat: no shadow, no
+    // stacking, no pill margin / min-width, the same small radius as the
+    // active row, normal weight.
+    expect(s.open.length).toBe(2); // a.md and sub/b.md
+    for (const o of s.open) {
+      expect(o.background).not.toBe(TRANSPARENT);
+      expect(o.background).not.toBe(s.panelBackground);
+      const openAlpha = alphaOf(o.background);
+      expect(openAlpha).toBeGreaterThan(0);
+      expect(openAlpha).toBeLessThan(selectedAlpha);
+      expect(Number(o.fontWeight)).toBeLessThan(600);
+      expect(o.boxShadow).toBe('none');
+      expect(o.zIndex).toBe('auto');
+      expect(o.marginLeft).toBe('0px');
+      expect(o.minWidth).toBe(s.selected.minWidth);
+      expect(o.borderRadius).toBe(s.selected.borderRadius);
+    }
+    // Closed rows (neither open nor selected) stay transparent.
+    expect(s.closed.length).toBeGreaterThanOrEqual(1);
+    for (const bg of s.closed) expect(bg).toBe(TRANSPARENT);
     expect(s.headerBorderBottom).toBe('0px');
-    // Req 16: the open row keeps its trailing slot (the ● / ✕ affordance).
+    // Req 16: the open rows keep their trailing slot (the ● / ✕ affordance).
     await expect(page.locator('[data-path="/notes/a.md"] .folder-tab-slot')).toHaveCount(1);
+    await expect(page.locator('[data-path="/notes/sub/b.md"] .folder-tab-slot')).toHaveCount(1);
+    // Req 15 (issue #347): hovering an open row never makes it look less
+    // open — the hover wash is at least as strong as the open tint.
+    const openRow = page.locator('[data-path="/notes/a.md"]');
+    const restAlpha = alphaOf(await openRow.evaluate((el) => getComputedStyle(el).backgroundColor));
+    await openRow.hover();
+    await expect
+      .poll(async () => alphaOf(await openRow.evaluate((el) => getComputedStyle(el).backgroundColor)))
+      .toBeGreaterThanOrEqual(restAlpha);
+    await page.mouse.move(0, 0);
   };
-  await assertFlat();
+  await assertThreeWay();
 
-  // The tint derives from the theme accent: the same picture holds under a
+  // The tints derive from the theme accent: the same picture holds under a
   // dark theme (One Dark, as E306 does for the strip).
   await openSettings(page);
   await page.getByTestId('settings-theme-light').selectOption('crisp');
@@ -855,5 +900,5 @@ test('E581: only the active file is tinted — open and closed rows are transpar
     .poll(() => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor))
     .toBe('rgb(40, 44, 52)'); // One Dark #282c34
   await page.mouse.move(0, 0);
-  await assertFlat();
+  await assertThreeWay();
 });
