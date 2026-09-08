@@ -909,7 +909,7 @@ async function charPoint(page: Page, word: string, chars: number, nth = 0): Prom
   return { x: r.x + 1, y: r.y + r.height / 2, w: r.width };
 }
 
-test('E626: issue #356 — a pointer drag anchored on a cell\'s second character keeps its anchor on every step and clamps the head to the cell\'s content end over the padding, the pipe and the next cell, releasing there', async ({
+test('E644: issue #356 — a pointer drag anchored on a cell\'s second character keeps its anchor on every step and clamps the head to the cell\'s content end over the padding, the pipe and the next cell, releasing there', async ({
   page,
 }) => {
   await openFlatGrid(page, '/docs/v356a.md', FLAT_SOURCE, 5);
