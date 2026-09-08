@@ -6,6 +6,7 @@ import { createMockAuthProvider } from '../../server/providers/mock/auth';
 import { createMockDirectoryProvider } from '../../server/providers/mock/directory';
 import { PERMISSIONS, type WorkspaceManifest } from '../../src/lib/hostedWorkspace';
 import type { WorkspaceListing } from '../../src/lib/workspaceLifecycle';
+import { UNIQUE_NAME_MAX_LENGTH } from '../../src/lib/workspaceNames';
 import { migrateWorkspaceUniqueNames, WORKSPACE_ROUTE_PERMISSIONS } from '../../server/workspaces';
 import { createMemoryStorage, describeStorageContract } from './storage-contract';
 
@@ -1345,6 +1346,76 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     expect(renamed.status).toBe(409);
     expect(((await renamed.json()) as { error: string }).error).toBe('The unique name "mixed-case" is already taken.');
     expect((await readManifest(other)).uniqueName).toBe('someone-else');
+    blobs.clear();
+  });
+
+  // PRD 026 Req 12: a collision 409 carries the first free name beside the
+  // unchanged refusal, minted by `dedupeUniqueName` against the same scan
+  // that refused the request.
+  const takenBody = async (res: Response): Promise<{ error: string; suggestion?: unknown }> => {
+    expect(res.status).toBe(409);
+    return (await res.json()) as { error: string; suggestion?: unknown };
+  };
+
+  it('U1339: PRD 026 Req 12 — a POST with a taken name is a 409 whose body carries the -2 suggestion beside the unchanged error', async () => {
+    await create('team-docs');
+    const body = await takenBody(await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'team-docs' })));
+    expect(body.error).toBe('The unique name "team-docs" is already taken.');
+    expect(body.suggestion).toBe('team-docs-2');
+    // The suggestion is free by the rule that refused: creating it succeeds.
+    expect((await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'team-docs-2' }))).status).toBe(201);
+    blobs.clear();
+  });
+
+  it('U1340: PRD 026 Req 12 — an already-held -2 is skipped, so the suggestion is -3', async () => {
+    await create('team-docs');
+    await create('team-docs-2');
+    const body = await takenBody(await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'team-docs' })));
+    expect(body.suggestion).toBe('team-docs-3');
+    // The scan is case-insensitive, like the refusal: a seeded `Team-Docs-3`
+    // holds the `-3` slot too.
+    const seeded = await create('placeholder');
+    await seedStoredName(seeded, 'Team-Docs-3');
+    const again = await takenBody(await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'team-docs' })));
+    expect(again.suggestion).toBe('team-docs-4');
+    blobs.clear();
+  });
+
+  it('U1341: PRD 026 Req 12 — a PUT rename onto a taken name is a 409 with a suggestion that is never the renaming workspace\'s own current name', async () => {
+    await create('team-docs');
+    // `mine` holds `team-docs-2` itself: excluded from the rename scan, so the
+    // suggestion for `team-docs` is exactly that name — its own, free to take.
+    const mine = await create('team-docs-2');
+    const body = await takenBody(
+      await call('ada', 'PUT', `/api/workspaces/${mine}/manifest`, JSON.stringify({ ...(await readManifest(mine)), uniqueName: 'team-docs' })),
+    );
+    expect(body.error).toBe('The unique name "team-docs" is already taken.');
+    expect(body.suggestion).toBe('team-docs-2');
+    expect((await readManifest(mine)).uniqueName).toBe('team-docs-2');
+    // With a third workspace holding `team-docs-2`, the renamer (`other`) is
+    // still excluded from the scan and the suggestion moves past both.
+    const other = await create('other');
+    const moved = await takenBody(
+      await call('ada', 'PUT', `/api/workspaces/${other}/manifest`, JSON.stringify({ ...(await readManifest(other)), uniqueName: 'team-docs' })),
+    );
+    expect(moved.suggestion).toBe('team-docs-3');
+    expect(moved.suggestion).not.toBe('other');
+    expect((await readManifest(other)).uniqueName).toBe('other');
+    blobs.clear();
+  });
+
+  it('U1342: PRD 026 Req 12 — a suggestion that would exceed the length cap is clamped to exactly UNIQUE_NAME_MAX_LENGTH characters', async () => {
+    const long = 'a'.repeat(UNIQUE_NAME_MAX_LENGTH);
+    await create(long);
+    const body = await takenBody(await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: long })));
+    expect(body.suggestion).toBe(`${'a'.repeat(UNIQUE_NAME_MAX_LENGTH - 2)}-2`);
+    expect((body.suggestion as string).length).toBe(UNIQUE_NAME_MAX_LENGTH);
+    // Rename clamps through the same helper.
+    const other = await create('short');
+    const renamed = await takenBody(
+      await call('ada', 'PUT', `/api/workspaces/${other}/manifest`, JSON.stringify({ ...(await readManifest(other)), uniqueName: long })),
+    );
+    expect((renamed.suggestion as string).length).toBe(UNIQUE_NAME_MAX_LENGTH);
     blobs.clear();
   });
 });

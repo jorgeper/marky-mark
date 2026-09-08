@@ -42,6 +42,10 @@ export function WorkspaceNames({ lifecycle, workspaceId, manifest, onManifest }:
   // one (`friendlyNameOf`'s unset-friendly reading is not this field's).
   const [displayName, setDisplayName] = useState(manifest.name);
   const [error, setError] = useState('');
+  // PRD 026 Req 12: the free name the server's collision 409 offered beside
+  // `error` — only ever set together with it, and dropped at every site that
+  // clears the refusal, so the action can never outlive the message.
+  const [suggestion, setSuggestion] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   // PRD 026 Req 9+10: has the URL name been changed from the stored one?
   // While it has not, the value is the workspace's own — possibly a
@@ -85,6 +89,7 @@ export function WorkspaceNames({ lifecycle, workspaceId, manifest, onManifest }:
     }
     setBusy(true);
     setError('');
+    setSuggestion(undefined);
     // PRD 020 Req 4 (amended by PRD 026 Req 10): a display-name change never
     // touches the URL name — both travel in one manifest write, the display
     // name trimmed and always present (the "blank stores the URL name" rule
@@ -99,8 +104,25 @@ export function WorkspaceNames({ lifecycle, workspaceId, manifest, onManifest }:
       // it reads as unedited against the manifest the parent hands back.
       setUniqueName(validated.uniqueName);
       onManifest(result.manifest);
-    } else setError(result.error);
+    } else {
+      setError(result.error);
+      // PRD 026 Req 12: a collision's free-name suggestion lands beside the
+      // refusal; every other failure carries none, and the line shows alone.
+      setSuggestion(result.suggestion);
+    }
     setBusy(false);
+  };
+
+  // PRD 026 Req 12: accepting the suggestion puts it in the URL-name field
+  // verbatim — it now differs from `stored`, so the field is edited and in
+  // the strict regime, which the suggestion passed at the seam — retires the
+  // refusal (message, paint and this action together), leaves the display
+  // name alone, and does NOT save: the manifest is unchanged until the user
+  // presses Save names themselves.
+  const useSuggestion = (name: string) => {
+    setError('');
+    setSuggestion(undefined);
+    setUniqueName(name);
   };
 
   return (
@@ -131,6 +153,7 @@ export function WorkspaceNames({ lifecycle, workspaceId, manifest, onManifest }:
             // (no auto-derive here: a URL change is a rename with link
             // consequences and stays a deliberate act).
             setError('');
+            setSuggestion(undefined);
             setDisplayName(e.target.value);
           }}
         />
@@ -155,6 +178,7 @@ export function WorkspaceNames({ lifecycle, workspaceId, manifest, onManifest }:
             // earned — message and paint both — without waiting for another
             // Save (WorkspaceSwitcher's onChange behaviour).
             setError('');
+            setSuggestion(undefined);
             // PRD 026 Req 6: every keystroke lands normalised (`Foo Bar`→
             // `foo-bar`, `foo--bar`→`foo-bar`, `foo-` kept while typing).
             setUniqueName(normalizeUrlNameTyping(e.target.value));
@@ -200,9 +224,26 @@ export function WorkspaceNames({ lifecycle, workspaceId, manifest, onManifest }:
         // Issue #250: the save-time refusal joins the same shared rule as the
         // type-time one — `.workspace-settings-error` (small) stays what the
         // members and roles sections use.
-        <p className="form-error" data-testid="workspace-names-error" role="alert">
-          {error}
-        </p>
+        <>
+          <p className="form-error" data-testid="workspace-names-error" role="alert">
+            {error}
+          </p>
+          {suggestion !== undefined && (
+            // PRD 026 Req 12: the one-click way out of a collision — the quiet
+            // inline Button primitive right under the refusal line, with the
+            // server's minted free name in its label. Absent whenever the 409
+            // carried no usable suggestion.
+            <Button
+              variant="quiet"
+              size="sm"
+              className="form-error-action"
+              data-testid="workspace-use-suggestion"
+              onClick={() => useSuggestion(suggestion)}
+            >
+              Use {suggestion}
+            </Button>
+          )}
+        </>
       )}
       <div className="dialog-actions">
         <Button data-testid="workspace-names-save" disabled={busy} onClick={() => void save()}>

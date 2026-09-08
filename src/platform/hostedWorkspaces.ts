@@ -22,7 +22,7 @@ import {
   type WorkspaceManifest,
   type WorkspaceMember,
 } from '../lib/hostedWorkspace';
-import type { WorkspaceListing } from '../lib/workspaceLifecycle';
+import { suggestionFrom, type WorkspaceListing } from '../lib/workspaceLifecycle';
 
 /** The lifecycle seam the workspace UI is written against. */
 export interface WorkspaceLifecycle {
@@ -30,8 +30,12 @@ export interface WorkspaceLifecycle {
   currentId(): string | null;
   /** PRD 007 Req 11: every workspace in the deployment, with access + owners. */
   list(): Promise<WorkspaceListing[]>;
-  /** PRD 007 Req 10: create; the error string is the server's own 400 message. */
-  create(request: CreateWorkspaceRequest): Promise<{ id: string } | { error: string }>;
+  /**
+   * PRD 007 Req 10: create; the error string is the server's own 400/409
+   * message. PRD 026 Req 12: a collision 409 also carries the server's
+   * free-name `suggestion` when it is one the form could use.
+   */
+  create(request: CreateWorkspaceRequest): Promise<{ id: string } | { error: string; suggestion?: string }>;
   /** PRD 007 Req 12: delete every server-side blob of a workspace. */
   remove(id: string): Promise<boolean>;
   /** The signed-in user's resolved permissions in a workspace ([] without access). */
@@ -201,7 +205,14 @@ export function createHostedWorkspaceLifecycle(
     if (failure?.required) {
       return { ok: false, error: `You need the ${failure.required} permission to do that.` };
     }
-    return { ok: false, error: failure?.error ?? `The change could not be saved (${res.status}).` };
+    // PRD 026 Req 12: a rename collision's suggestion rides along for the
+    // Names section's "Use <name>" action; absent on every other refusal.
+    const suggestion = suggestionFrom(failure);
+    return {
+      ok: false,
+      error: failure?.error ?? `The change could not be saved (${res.status}).`,
+      ...(suggestion === undefined ? {} : { suggestion }),
+    };
   };
 
   return {
@@ -223,7 +234,13 @@ export function createHostedWorkspaceLifecycle(
       });
       const body = (await res.json().catch(() => null)) as { id?: string; error?: string } | null;
       if (res.ok && body?.id) return { id: body.id };
-      return { error: body?.error ?? `Could not create the workspace (${res.status}).` };
+      // PRD 026 Req 12: a collision 409's suggestion rides along for the
+      // dialog's "Use <name>" action; absent on every other refusal.
+      const suggestion = suggestionFrom(body);
+      return {
+        error: body?.error ?? `Could not create the workspace (${res.status}).`,
+        ...(suggestion === undefined ? {} : { suggestion }),
+      };
     },
 
     async remove(id) {

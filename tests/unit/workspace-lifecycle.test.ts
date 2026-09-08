@@ -19,6 +19,7 @@ import {
   filterWorkspaces,
   formatOwnerNames,
   isUniqueNameError,
+  suggestionFrom,
   noAccessMessage,
   normalizeUrlNameTyping,
   orderByRecentUse,
@@ -594,6 +595,32 @@ describe('Issue #245: which create failures the unique name earned', () => {
 // puts the caller's recently used workspaces first (the per-user MRU list's
 // order), then the rest newest-modified; without ids it is byte-for-byte the
 // old order, which U286 / U287 / U1196 keep pinning.
+describe('PRD 026 Req 12: the free-name suggestion read off a collision 409', () => {
+  it('U1347: a valid suggestion passes through verbatim', () => {
+    expect(suggestionFrom({ error: 'The unique name "team-docs" is already taken.', suggestion: 'team-docs-2' })).toBe('team-docs-2');
+    expect(suggestionFrom({ suggestion: 'a' })).toBe('a');
+    expect(suggestionFrom({ suggestion: 'a'.repeat(UNIQUE_NAME_MAX_LENGTH) })).toBe('a'.repeat(UNIQUE_NAME_MAX_LENGTH));
+  });
+
+  it('U1348: a missing field, a non-object body, a non-string or an empty string all yield undefined', () => {
+    expect(suggestionFrom({ error: 'The unique name "team-docs" is already taken.' })).toBeUndefined();
+    expect(suggestionFrom(null)).toBeUndefined();
+    expect(suggestionFrom(undefined)).toBeUndefined();
+    expect(suggestionFrom('team-docs-2')).toBeUndefined();
+    expect(suggestionFrom({ suggestion: 2 })).toBeUndefined();
+    expect(suggestionFrom({ suggestion: ['team-docs-2'] })).toBeUndefined();
+    expect(suggestionFrom({ suggestion: null })).toBeUndefined();
+    expect(suggestionFrom({ suggestion: '' })).toBeUndefined();
+  });
+
+  it('U1349: a suggestion the strict rule would refuse is dropped, so the form is never filled with a name it would bounce', () => {
+    for (const bad of ['Team_Docs', 'team.docs', 'team--docs', 'scratchpad', 'api', 'a'.repeat(UNIQUE_NAME_MAX_LENGTH + 1), 'has space']) {
+      expect(uniqueNameProblem(bad), bad).not.toBeNull();
+      expect(suggestionFrom({ suggestion: bad }), bad).toBeUndefined();
+    }
+  });
+});
+
 describe('PRD 007 Req 11 (issue #312): recently used workspaces lead the Open Workspace list', () => {
   const at = (id: string, day: number): WorkspaceListing =>
     listing({ id, name: `Workspace ${id}`, modified: `2026-08-${String(day).padStart(2, '0')}T00:00:00.000Z` });

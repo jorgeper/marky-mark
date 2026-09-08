@@ -204,6 +204,44 @@ describe('PRD 020 Req 3 slugify and dedupe (slugifier amended by PRD 026 Req 2)'
     expect(deduped.length).toBe(UNIQUE_NAME_MAX_LENGTH);
   });
 
+  // PRD 026 Req 12 (Req 13's minting table): the free-name suggestion a
+  // collision 409 carries is `dedupeUniqueName` run against the refusing
+  // scan — no second minting rule exists, so the table is pinned here.
+  it('U1343: PRD 026 Req 12 — the suggestion for a taken name is its first free -n suffix', () => {
+    expect(dedupeUniqueName('team-docs', new Set(['team-docs']))).toBe('team-docs-2');
+    // The scan holds `uniqueNameKey` forms; a mixed-case request compares through them.
+    expect(dedupeUniqueName('Team-Docs', new Set(['team-docs']))).toBe('Team-Docs-2');
+  });
+
+  it('U1344: PRD 026 Req 12 — a reserved word is never suggested; the suffix skips it', () => {
+    for (const reserved of RESERVED_WORKSPACE_NAMES) {
+      expect(dedupeUniqueName(reserved, new Set()), reserved).toBe(`${reserved}-2`);
+      expect(uniqueNameProblem(dedupeUniqueName(reserved, new Set())), reserved).toBeNull();
+    }
+  });
+
+  it('U1345: PRD 026 Req 12 — a suffix already held is skipped (team-docs-2 taken → team-docs-3)', () => {
+    expect(dedupeUniqueName('team-docs', new Set(['team-docs', 'team-docs-2']))).toBe('team-docs-3');
+    expect(dedupeUniqueName('team-docs', new Set(['team-docs', 'team-docs-2', 'team-docs-3']))).toBe('team-docs-4');
+    // A held `-2` with the base itself free still suggests the base: it was
+    // never taken (the route only mints when the base collided).
+    expect(dedupeUniqueName('team-docs', new Set(['team-docs-2']))).toBe('team-docs');
+  });
+
+  it('U1346: PRD 026 Req 12 — the suggestion is clamped to the length cap and still passes the strict rule', () => {
+    const long = 'a'.repeat(UNIQUE_NAME_MAX_LENGTH);
+    const clamped = dedupeUniqueName(long, new Set([long]));
+    expect(clamped.length).toBe(UNIQUE_NAME_MAX_LENGTH);
+    expect(clamped.endsWith('-2')).toBe(true);
+    expect(uniqueNameProblem(clamped)).toBeNull();
+    // Ten suffixes in: `-11` costs one more character of base.
+    const held = (n: number) => `${long.slice(0, UNIQUE_NAME_MAX_LENGTH - `-${n}`.length)}-${n}`;
+    const many = new Set([long, ...Array.from({ length: 9 }, (_, i) => held(i + 2))]);
+    const wide = dedupeUniqueName(long, many);
+    expect(wide).toBe(`${'a'.repeat(UNIQUE_NAME_MAX_LENGTH - 3)}-11`);
+    expect(wide.length).toBe(UNIQUE_NAME_MAX_LENGTH);
+  });
+
   it('U1048: migration planning slugifies unnamed workspaces oldest-first, dedupes deployment-wide, and is idempotent', () => {
     const plan = planUniqueNameMigration([
       // Already migrated: skipped, but its name counts as taken.

@@ -358,9 +358,29 @@ async function releaseFormerName(
   }
 }
 
-/** PRD 020 Req 1: the 409 refusal creation and rename both send — one template, so the two routes can never drift apart. */
+/**
+ * PRD 020 Req 1: the 409 refusal creation and rename both send — one
+ * template, so the two routes can never drift apart. PRD 026 Req 12: the
+ * message rides beside a `suggestion` (see `uniqueNameTakenBody`), and its
+ * own wording is unchanged so every client that reads only `.error` — and
+ * `isUniqueNameError`'s match on it — keeps working.
+ */
 function uniqueNameTakenError(name: string): string {
   return `The unique name ${JSON.stringify(name)} is already taken.`;
+}
+
+/**
+ * PRD 026 Req 12: the whole 409 body a collision earns — the unchanged
+ * refusal plus the first free name minted from the requested one. The
+ * suggestion comes from `dedupeUniqueName`, the one minting rule (Req 3's
+ * migration and name-only creation use it too), run against the SAME scan
+ * that refused the request: so `team-docs` → `team-docs-2`, an already-held
+ * `-2` skips to `-3`, a reserved word is never offered, and the suffix
+ * truncates the base under `UNIQUE_NAME_MAX_LENGTH`. Both routes build their
+ * body here so neither can drift from the other or from the refusal.
+ */
+function uniqueNameTakenBody(name: string, taken: ReadonlySet<string>): { error: string; suggestion: string } {
+  return { error: uniqueNameTakenError(name), suggestion: dedupeUniqueName(name, taken) };
 }
 
 /**
@@ -734,11 +754,12 @@ export async function handleWorkspaceApi(
     // PRD 020 Req 1: the stateful half of unique-name enforcement (format and
     // reserved words were refused inside buildNewWorkspaceManifest) — a name
     // any workspace already holds, compared case-insensitively, is a 409 the
-    // dialog shows verbatim.
+    // dialog shows verbatim. PRD 026 Req 12: the body also carries the first
+    // free name, minted against this very scan.
     const scan = await scanUniqueNames(storage);
     if (built.manifest.uniqueName) {
       if (scan.taken.has(uniqueNameKey(built.manifest.uniqueName))) {
-        sendJson(res, 409, { error: uniqueNameTakenError(built.manifest.uniqueName) });
+        sendJson(res, 409, uniqueNameTakenBody(built.manifest.uniqueName, scan.taken));
         return;
       }
     } else {
@@ -943,10 +964,13 @@ export async function handleWorkspaceApi(
         }
         // PRD 024 Req 6: `taken` is current names only, so renaming ONTO
         // another workspace's former name is not a collision — it succeeds
-        // and reclaims the name below.
+        // and reclaims the name below. PRD 026 Req 12: the 409 carries a
+        // suggestion minted against this same scan — which excludes the
+        // workspace being renamed, so its own current name is never offered
+        // as "taken" and never blocks a suffix.
         const scan = await scanUniqueNames(storage, id);
         if (scan.taken.has(uniqueNameKey(requested))) {
-          sendJson(res, 409, { error: uniqueNameTakenError(requested) });
+          sendJson(res, 409, uniqueNameTakenBody(requested, scan.taken));
           return;
         }
         rename = { name: requested, scan };

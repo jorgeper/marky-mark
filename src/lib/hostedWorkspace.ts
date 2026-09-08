@@ -189,7 +189,9 @@ export interface WorkspaceManifest {
 
 export type ManifestResult =
   | { ok: true; manifest: WorkspaceManifest }
-  | { ok: false; error: string };
+  // PRD 026 Req 12: a unique-name collision refusal may carry the server's
+  // free-name suggestion. Optional, so every other failure is unchanged.
+  | { ok: false; error: string; suggestion?: string };
 
 const fail = (error: string): ManifestResult => ({ ok: false, error });
 

@@ -8410,3 +8410,131 @@ test('E566: issue #305 — a roamed settings.json carrying semanticZoom: true st
     await request.delete(settingsBlob, { headers });
   }
 });
+
+// --- PRD 026 Req 12: the collision 409's suggestion and the "Use <name>" action (issue #354)
+
+test('E606: PRD 026 Req 12 — the New Workspace dialog offers "Use <name>-2" beside a taken-name refusal; one click fills the URL name (touched), retires message and paint, updates the preview and does not submit; Create then lands on the suggested name', async ({
+  page,
+  request,
+}) => {
+  // E492's setup: a workspace holding the name the dialog is about to ask for.
+  const ada = await signIn(request, 'ada');
+  const taken = await pathWorkspace(request, ada, 'e606-taken');
+  const suggested = `${taken.unique}-2`;
+
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await openAppMenu(page);
+  await page.getByTestId('menu-new-workspace').click();
+  const dialog = page.getByTestId('new-workspace-dialog');
+  await expect(dialog).toBeVisible();
+  const origin = new URL(page.url()).origin;
+  const { danger } = await errorTokens(dialog);
+
+  const display = page.getByTestId('new-workspace-name');
+  await display.fill(`E606 dup w${test.info().workerIndex}`);
+  const displayBefore = await display.inputValue();
+  const input = page.getByTestId('new-workspace-unique-name');
+  const paint = () => fieldPaint(input);
+  await input.focus();
+  const normal = await paint();
+  expect(normal.color, 'the untouched field is not already red').not.toBe(danger);
+
+  // The real collision: the 409 lands, and beside it exactly one action
+  // labelled with the server's free name.
+  await input.fill(taken.unique);
+  await page.getByTestId('new-workspace-create').click();
+  const error = page.getByTestId('new-workspace-error');
+  await expect(error).toHaveText(`The unique name "${taken.unique}" is already taken.`);
+  const action = page.getByTestId('new-workspace-use-suggestion');
+  await expect(action).toHaveCount(1);
+  await expect(action).toHaveText(`Use ${suggested}`);
+  expect(await paint()).toEqual({ color: danger, border: danger });
+
+  // One click: the field holds the suggestion, message + action + paint are
+  // gone, no type-time problem, the preview shows the new address, and the
+  // dialog is still open — nothing was submitted.
+  await action.click();
+  await expect(input).toHaveValue(suggested);
+  await expect(error).toHaveCount(0);
+  await expect(action).toHaveCount(0);
+  await expect(page.getByTestId('new-workspace-unique-name-error')).toHaveCount(0);
+  await input.focus();
+  expect(await paint()).toEqual(normal);
+  await expect(page.getByTestId('new-workspace-url-preview')).toHaveText(`${origin}/${suggested}`);
+  await expect(dialog).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/');
+  // Req 5: accepting the suggestion counts as touching — the display name
+  // was left alone, and editing it no longer mirrors into the URL name.
+  await expect(display).toHaveValue(displayBefore);
+  await display.fill(`${displayBefore} more`);
+  await expect(input).toHaveValue(suggested);
+
+  // Create with the suggested name succeeds and navigates as today.
+  await page.getByTestId('new-workspace-create').click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/${suggested}`);
+  await expect(page.getByTestId('new-workspace-dialog')).toHaveCount(0);
+});
+
+test('E607: PRD 026 Req 12 — settings → Names offers "Use <name>-2" beside a rename-collision refusal; one click fills the URL name (edited), retires message and paint, updates the preview and does not save; Save then renames onto the suggestion', async ({
+  page,
+  request,
+}) => {
+  // E535's setup: another workspace holds the name; `mine` is being renamed.
+  const ada = await signIn(request, 'ada');
+  const taken = await pathWorkspace(request, ada, 'e607-taken');
+  const mine = await pathWorkspace(request, ada, 'e607-mine');
+  const suggested = `${taken.unique}-2`;
+
+  await signInTo(page, 'ada', mine.id);
+  await openWorkspaceSettings(page);
+  await expect(page.getByTestId('workspace-names-section')).toBeVisible();
+  const origin = new URL(page.url()).origin;
+  const { danger } = await errorTokens(page.getByTestId('settings-panel'));
+
+  const display = page.getByTestId('workspace-friendly-name');
+  const displayBefore = await display.inputValue();
+  const input = page.getByTestId('workspace-unique-name');
+  await expect(input).toHaveValue(mine.unique);
+  const paint = () => fieldPaint(input);
+  await input.click();
+  const normal = await paint();
+  expect(normal.color, 'the untouched field is not already red').not.toBe(danger);
+
+  // The real rename collision: the 409 lands inline with exactly one action.
+  await input.fill(taken.unique);
+  await page.getByTestId('workspace-names-save').click();
+  const error = page.getByTestId('workspace-names-error');
+  await expect(error).toHaveText(`The unique name "${taken.unique}" is already taken.`);
+  const action = page.getByTestId('workspace-use-suggestion');
+  await expect(action).toHaveCount(1);
+  await expect(action).toHaveText(`Use ${suggested}`);
+  expect(await paint()).toEqual({ color: danger, border: danger });
+
+  // One click: the field holds the suggestion (edited, strict, passing),
+  // message + action + paint are gone, the preview shows the new address —
+  // and nothing was saved: the manifest still holds the old name.
+  await action.click();
+  await expect(input).toHaveValue(suggested);
+  await expect(error).toHaveCount(0);
+  await expect(action).toHaveCount(0);
+  await expect(page.getByTestId('workspace-unique-name-problem')).toHaveCount(0);
+  await input.focus();
+  expect(await paint()).toEqual(normal);
+  await expect(page.getByTestId('workspace-url-preview')).toHaveText(`${origin}/${suggested}`);
+  await expect(display).toHaveValue(displayBefore);
+  expect((await storedNames(request, ada, mine.id)).uniqueName).toBe(mine.unique);
+  expect(new URL(page.url()).pathname).toBe(`/${mine.unique}`);
+
+  // Save lands the rename: the tab is on the suggested name and the old one
+  // is recorded as former, exactly as E602 shows.
+  await page.getByTestId('workspace-names-save').click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/${suggested}`);
+  expect(await storedNames(request, ada, mine.id)).toEqual({
+    name: 'e607-mine',
+    uniqueName: suggested,
+    formerNames: [mine.unique],
+  });
+  await expect(page.getByTestId('workspace-names-error')).toHaveCount(0);
+  await expect(page.getByTestId('workspace-use-suggestion')).toHaveCount(0);
+});

@@ -377,3 +377,21 @@ export function isUniqueNameError(message: string): boolean {
     /^".*" is a reserved name\.$/.test(message)
   );
 }
+
+/**
+ * PRD 026 Req 12: the free-name suggestion a collision 409 carries, read off
+ * the parsed body — or `undefined` when there is nothing the form could
+ * safely fill in. Only a non-empty string that passes `uniqueNameProblem`
+ * (the same strict rule the fields validate with) is kept: a missing field,
+ * a non-string, an empty string, or a value the form would refuse all yield
+ * `undefined`, so the "Use <name>" action never offers a name that would
+ * bounce at the next submit. Pure and shared by the create and manifest-write
+ * clients in src/platform/hostedWorkspaces.ts, so both seams read the body
+ * one way.
+ */
+export function suggestionFrom(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null) return undefined;
+  const { suggestion } = body as { suggestion?: unknown };
+  if (typeof suggestion !== 'string' || suggestion === '') return undefined;
+  return uniqueNameProblem(suggestion) === null ? suggestion : undefined;
+}

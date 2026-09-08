@@ -1259,6 +1259,13 @@ mark.hl.ghost {
   color: var(--mm-danger);
 }
 
+/* PRD 026 Req 12: the "Use <name>" action beside a collision refusal — a
+   layout hook only (it follows the .form-error line, so it closes the gap
+   that line leaves below itself); its look is the .btn-quiet primitive's. */
+.form-error-action {
+  margin: 0 0 4px;
+}
+
 /* Tabbed settings (SPEC4 §3). Fixed box (SPEC7 §1): switching tabs never
    resizes the dialog — long tabs scroll inside .tab-content instead. */
 /* Issue #246: ~15% more room in each dimension (was 560x480), keeping the

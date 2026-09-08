@@ -51,6 +51,10 @@ export function NewWorkspaceDialog({
   // {id, role}. Both views of the same selection move together.
   const [picked, setPicked] = useState<MemberEntry[]>([]);
   const [error, setError] = useState('');
+  // PRD 026 Req 12: the free name the server's collision 409 offered beside
+  // `error` — only ever set together with it, and dropped at every site that
+  // clears the refusal, so the action can never outlive the message.
+  const [suggestion, setSuggestion] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   // PRD 026 Req 5: has the user edited the URL-name field themselves? False
   // at open; while false every display-name change re-derives the URL name.
@@ -84,6 +88,7 @@ export function NewWorkspaceDialog({
   // word here — Req 6's empty refusal waits for submit).
   const changeDisplayName = (name: string) => {
     setError('');
+    setSuggestion(undefined);
     setForm((prev) => ({ ...prev, name, uniqueName: touched ? prev.uniqueName : slugifyWorkspaceName(name) }));
   };
   // PRD 026 Req 5+6: a URL-name edit is normalised as typed before it lands
@@ -95,6 +100,7 @@ export function NewWorkspaceDialog({
     // — message and styling both — so a corrected name reads as normal
     // without waiting for the next submit.
     setError('');
+    setSuggestion(undefined);
     const normalized = normalizeUrlNameTyping(raw);
     if (normalized === '') {
       setTouched(false);
@@ -116,6 +122,20 @@ export function NewWorkspaceDialog({
   const setRole = (id: string, role: string) =>
     setForm((prev) => ({ ...prev, members: prev.members.map((m) => (m.id === id ? { id, role } : m)) }));
 
+  // PRD 026 Req 12 (+ Req 5): accepting the suggestion fills the URL-name
+  // field with it verbatim and counts as touching it (mirroring from the
+  // display name stops; the display name itself is left alone), retires the
+  // refusal — message, paint and this action together — and does NOT submit:
+  // the dialog stays open on the new value for the user to read the preview
+  // and press Create themselves. The suggestion already passed the strict
+  // rule at the seam, so no type-time problem appears.
+  const useSuggestion = (name: string) => {
+    setError('');
+    setSuggestion(undefined);
+    setTouched(true);
+    setForm((prev) => ({ ...prev, uniqueName: name }));
+  };
+
   const submit = async () => {
     const validated = validateNewWorkspaceForm(form);
     if (!validated.ok) {
@@ -126,6 +146,9 @@ export function NewWorkspaceDialog({
     const created = await lifecycle.create(validated.request);
     if ('error' in created) {
       setError(created.error);
+      // PRD 026 Req 12: a collision's free-name suggestion lands beside the
+      // refusal; every other failure carries none, and the line shows alone.
+      setSuggestion(created.suggestion);
       setBusy(false);
       return;
     }
@@ -250,9 +273,26 @@ export function NewWorkspaceDialog({
         {error && (
           // Issue #245: the submit-time refusal — the server's duplicate-name
           // message lands here — in the same error treatment.
-          <p className="form-error" data-testid="new-workspace-error" role="alert">
-            {error}
-          </p>
+          <>
+            <p className="form-error" data-testid="new-workspace-error" role="alert">
+              {error}
+            </p>
+            {suggestion !== undefined && (
+              // PRD 026 Req 12: the one-click way out of a collision — the quiet
+              // inline Button primitive right under the refusal line, with the
+              // server's minted free name in its label. Absent whenever the 409
+              // carried no usable suggestion.
+              <Button
+                variant="quiet"
+                size="sm"
+                className="form-error-action"
+                data-testid="new-workspace-use-suggestion"
+                onClick={() => useSuggestion(suggestion)}
+              >
+                Use {suggestion}
+              </Button>
+            )}
+          </>
         )}
         <div className="dialog-actions">
           <Button data-testid="new-workspace-cancel" onClick={onClose}>
