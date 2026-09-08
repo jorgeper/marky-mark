@@ -25,7 +25,7 @@
  */
 import { createHeadingLinkButton, ensureCopyLinkLiveRegion } from '@marky-mark/editor';
 
-/** The active highlight's copy-link button; also its `data-testid`. */
+/** The addressed record's margin copy-link button; also its `data-testid`. */
 export const HIGHLIGHT_LINK_CLASS = 'mm-hl-link';
 
 interface Graft {

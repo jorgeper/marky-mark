@@ -26,12 +26,8 @@ describe('Issue #343 margin copy-link — which record the control addresses', (
   test('U1359: the pick is the PRD 023 §5 kind-aware rule over the ids under the head, labelled for its kind; plain text picks nothing', () => {
     const records = [highlight('h', 0, 20), comment('c', 0, 20), comment('inner', 5, 9)];
     // A comment beats the highlight sharing its text; the innermost comment wins.
-    expect(marginLinkPick(['h', 'c', 'inner'], records)).toEqual({
-      id: 'inner',
-      kind: 'comment',
-      label: 'Copy link to comment',
-    });
-    expect(marginLinkPick(['h'], records)).toEqual({ id: 'h', kind: 'highlight', label: 'Copy link to highlight' });
+    expect(marginLinkPick(['h', 'c', 'inner'], records)).toEqual({ id: 'inner', label: 'Copy link to comment' });
+    expect(marginLinkPick(['h'], records)).toEqual({ id: 'h', label: 'Copy link to highlight' });
     // No painted range under the head, or ids naming no record: no control.
     expect(marginLinkPick([], records)).toBeNull();
     expect(marginLinkPick(['gone'], records)).toBeNull();

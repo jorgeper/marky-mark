@@ -477,9 +477,9 @@ function summaryPriceFor(ctx: { providerId: string; modelId: string }): TokenPri
  * range starting at a block boundary can lead with a zero-size rect; issue
  * #306), the doc's content-left edge, the margin copy-link's bottom edge
  * when one is grafted LEVEL with that line (the button stacks beneath it,
- * centred on its x),
- * and the top chrome's floor: the file tab strip's bottom while the strip
- * shows (the toolbar band's fixed floor predates the 38px strip).
+ * centred on its x), and the top chrome's floor: the file tab strip's
+ * bottom while the strip shows (the toolbar band's fixed floor predates the
+ * 38px strip).
  */
 function previewAnchorFor(doc: HTMLElement, rects: DOMRectList, fallback: DOMRect): PreviewButtonAnchor {
   const first = Array.from(rects).find((r) => r.width > 0 && r.height > 0) ?? fallback;
@@ -7267,9 +7267,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       // Issue #306: the first non-empty client rect is the selection's first
       // line box (a range starting at a block boundary can lead with a
       // zero-size rect); the bounding rect is the fallback if none is.
-      // line box (a range starting at a block boundary can lead with a
-      // zero-size rect); issue #343: previewAnchorFor also reads the margin
-      // copy-link level with it and the tab strip's floor.
+      // Issue #343: previewAnchorFor also reads the margin copy-link level
+      // with that line and the tab strip's floor.
       const next = { start, end, ...previewAnchorFor(doc, range.getClientRects(), range.getBoundingClientRect()) };
       // Identity-stable when nothing moved: scroll fires per frame.
       setSelInfo((prev) =>

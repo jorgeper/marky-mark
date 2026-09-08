@@ -19,7 +19,6 @@ import { COPY_LINK_COMMENT_LABEL, COPY_LINK_HIGHLIGHT_LABEL } from './shareLinks
 /** The record a margin copy-link addresses: its id and rest label. */
 export interface MarginLinkPick {
   id: string;
-  kind: 'comment' | 'highlight';
   label: string;
 }
 
@@ -37,7 +36,7 @@ export function marginLinkPick(ids: readonly string[], records: readonly Comment
   const id = pickHitRecord(ids, records);
   const rec = id === null ? undefined : records.find((r) => r.id === id);
   if (!rec) return null;
-  return { id: rec.id, kind: isComment(rec) ? 'comment' : 'highlight', label: marginLinkLabel(rec) };
+  return { id: rec.id, label: marginLinkLabel(rec) };
 }
 
 /**
