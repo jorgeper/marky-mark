@@ -7,6 +7,7 @@ import {
   Prec,
   RangeSetBuilder,
   type Line,
+  type TransactionSpec,
 } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, keymap, type ViewUpdate } from '@codemirror/view';
 import {
@@ -17,14 +18,14 @@ import {
   displayCellAt,
   displayCellBounds,
   displayPosOf,
-  displayWholeCellBounds,
-  snapToCell,
   displayRoundTrips,
+  displayWholeCellBounds,
   layoutTable,
   parseDisplay,
   parseTable,
   sanitizeCellInsert,
   serializeCompactTable,
+  snapToCell,
   type ParsedDisplay,
   type Region,
   type TableModel,
@@ -309,7 +310,7 @@ function wholeCellEdit(
   span: GridSpan,
   width: number,
   r: { fromA: number; toA: number; ins: string }
-): { changes: { from: number; to: number; insert: string }; selection: { anchor: number } } | null {
+): TransactionSpec | null {
   const w1 = displayWholeCellBounds(text, region, parsed, r.fromA);
   const w2 = displayWholeCellBounds(text, region, parsed, r.toA);
   if (!w1 || !w2 || w1.kind !== 'cells' || w2.kind !== 'cells' || w1.row !== w2.row || w1.col !== w2.col) return null;
@@ -758,8 +759,8 @@ function caretCell(view: EditorView): {
   width: number;
   parsed: ParsedDisplay;
   b: NonNullable<ReturnType<typeof displayCellBounds>>;
-  /** SPEC39 §2.1 (issue #346): the same cell across its wrapped lines. */
-  w: WholeCellBounds | null;
+  /** SPEC39 §2.1 (issue #346): the same cell across its wrapped lines (same kind as `b`). */
+  w: WholeCellBounds;
   head: number;
 } | null {
   const set = view.state.field(tableModeField, false);
@@ -772,8 +773,9 @@ function caretCell(view: EditorView): {
   const parsed = parseDisplay(text, region);
   if (!parsed) return null;
   const b = displayCellBounds(text, region, parsed, head);
-  if (!b) return null;
-  return { span, width: set.width, parsed, b, w: displayWholeCellBounds(text, region, parsed, head), head };
+  const w = displayWholeCellBounds(text, region, parsed, head);
+  if (!b || !w) return null;
+  return { span, width: set.width, parsed, b, w, head };
 }
 
 /** §2.3: Enter/Tab navigate cells; the caret lands at the target's content end. */
@@ -799,7 +801,7 @@ const confineKeymap = Prec.highest(
       run: (v) => {
         const ctx = caretCell(v);
         if (!ctx) return false;
-        if (ctx.b.kind !== 'cells' || !ctx.w || ctx.w.kind !== 'cells') return true;
+        if (ctx.w.kind !== 'cells') return true;
         // SPEC39 §2.1 (issue #346): ⌘A selects the WHOLE cell across its
         // wrapped lines; when the selection already is that cell, it is not
         // consumed — selectAll runs and the SPEC38 escape hatch (both ends

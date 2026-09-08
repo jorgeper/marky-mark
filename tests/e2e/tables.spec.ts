@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
   caretInto,
@@ -620,7 +621,7 @@ const WRAP_SOURCE = `top\n\n| Name | Detail |\n| --- | --- |\n| zq | ${WRAP_CELL
 const EDITOR_PANE = '[data-testid="editor"] .cm-content';
 
 /** Open the fixture and return the wrapped cell's three per-line fragments. */
-async function openWrappedGrid(page: import('@playwright/test').Page, path: string): Promise<string[]> {
+async function openWrappedGrid(page: Page, path: string): Promise<string[]> {
   await page.setViewportSize({ width: 1280, height: 720 });
   await openGridDoc(page, path, WRAP_SOURCE, 'top');
   const editor = page.getByTestId('editor');
@@ -634,7 +635,7 @@ async function openWrappedGrid(page: import('@playwright/test').Page, path: stri
   return frags;
 }
 
-const editState = (page: import('@playwright/test').Page) =>
+const editState = (page: Page) =>
   page.evaluate(() => ({
     selText: window.__mmEdit?.selText ?? '',
     selFrom: window.__mmEdit?.selFrom ?? -1,
@@ -642,7 +643,7 @@ const editState = (page: import('@playwright/test').Page) =>
   }));
 
 /** The editor text's [k01 … last fragment end] slice — the whole-cell union in doc bytes. */
-async function wholeCellUnion(page: import('@playwright/test').Page, frags: string[]): Promise<string> {
+async function wholeCellUnion(page: Page, frags: string[]): Promise<string> {
   const text = await page.getByTestId('editor').locator('.cm-content').evaluate((el) => (el as HTMLElement).innerText);
   const start = text.indexOf(frags[0]);
   const last = frags[frags.length - 1];
