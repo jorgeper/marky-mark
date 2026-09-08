@@ -206,6 +206,13 @@ export interface PreviewAnnotationInput {
    * null/absent means the record is not painted in this surface. */
   positions: Readonly<Record<string, RenderedRange | null | undefined>>;
   records: readonly CommentData[];
+  /**
+   * Issue #343: the record a preview click activated, for the COLLAPSED
+   * case — the click that activates a mark collapses the selection, so with
+   * `end <= start` this record's own context builds the menu instead of
+   * closing it. Null/absent ⇒ a collapsed selection closes as before.
+   */
+  activeId?: string | null;
 }
 
 /**
@@ -227,9 +234,29 @@ export interface PreviewAnnotationInput {
  * never a second divergent rule.
  */
 export function previewAnnotationModel(input: PreviewAnnotationInput): AnnotationMenuModel {
-  const { gate, start, end, positions, records } = input;
+  const { gate, start, end, positions, records, activeId = null } = input;
   if (!gate.commentsEnabled || gate.authoringFrozen || !gate.canWrite) return CLOSED;
-  if (end <= start) return CLOSED; // no selection ⇒ no button, no context
+  if (end <= start) {
+    // Issue #343 (PRD 023 §13): no selection, but a record a preview click
+    // just activated and that paints on this surface — the button grows
+    // from that record's own context: Delete Comment for a comment, the
+    // color rows as a recolor and Remove Highlight for a highlight. Rows
+    // that need a fresh selection anchor (Insert Comment, a new highlight
+    // over plain text) are disabled, never mis-anchored (§19). With no
+    // such record a collapsed selection closes as before.
+    if (activeId === null || positions[activeId] == null) return CLOSED;
+    const { deleteCommentId, highlightId } = hitContext([activeId], records);
+    if (deleteCommentId === null && highlightId === null) return CLOSED; // names no record
+    return {
+      show: true,
+      anchor: null,
+      insertCommentEnabled: false,
+      deleteCommentId,
+      colorsEnabled: highlightId !== null,
+      recolorId: highlightId,
+      removeHighlightId: highlightId,
+    };
+  }
 
   // The ids whose painted range overlaps the selection, in document order
   // (painted start) — this surface's candidates, the role the editor's caret

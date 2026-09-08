@@ -35,6 +35,7 @@ import {
   SMART_EDIT_HASH_SVG,
   SmartEditMenu,
   type AnnotationSelection,
+  type MarginLinkTarget,
   type SmartMenuEntry,
   type DiagramRenderCache,
   type DiffLineSets,
@@ -65,7 +66,9 @@ import {
   type SourceHighlight,
 } from './lib/anchoring';
 import { COPY_LINK_FILE_LABEL, COPY_LINK_WORKSPACE_LABEL, entryShareUrl, fileShareUrl, headingAnchors, headingShareUrl, highlightIdFromHash, highlightShareUrl, slugFromHash, workspaceShareUrl, type HeadingAnchor } from './lib/shareLinks';
-import { updateHighlightLink } from './lib/highlightLink';
+import { HIGHLIGHT_LINK_CLASS, updateHighlightLink } from './lib/highlightLink';
+import { marginLinkLabel, marginLinkPick, recordAtOffset } from './lib/marginLink';
+import { previewButtonPos, type PreviewButtonAnchor } from './lib/previewButton';
 import { CopyLinkButton } from './components/CopyLinkButton';
 import { rewriteFenceWidthAt } from './lib/diagramResize';
 import { DiagramResizer } from './components/DiagramResizer';
@@ -462,49 +465,46 @@ function summaryPriceFor(ctx: { providerId: string; modelId: string }): TokenPri
   return isLlmProviderKind(ctx.providerId) ? priceFor(ctx.providerId, ctx.modelId) : null;
 }
 
+// PRD 023 §13 (issue #287): the preview selection button's geometry lives in
+// lib/previewButton.ts (pure, unit-tested) — the button hangs in the host
+// .doc's left padding column level with its anchor line (issue #306), or
+// beneath the margin copy-link when one sits on that line (issue #343).
+
 /**
- * PRD 023 §13 (issue #287): where the preview selection button sits — the
- * 24px square `.preview-sel-btn` (styles.css), clamped to stay inside the
- * viewport and below the .toolbar-shell band (the issue #18 toolbar floor).
- * One place to change if the button's size or the band ever does.
- *
- * Issue #306: it lives in the host `.doc`'s LEFT PADDING COLUMN, never over
- * the words — the edit-mode gutter glyph's spot (SPEC43 §3 hangs the same
- * 24px button in .cm-content's 32px padding with a 4px gap to the line
- * start). So `left` is measured from the doc's content-left edge, not from
- * the selection rect: a selection that starts mid-line used to drag the
- * glyph across the preceding words. 24 + 4 = 28 fits the .doc's 32px
- * padding (editor/styles.css). Vertically it is centred on the selection's
- * FIRST line box (`y`/`h` below), so a selection spanning several lines or
- * blocks keeps the button beside the line where it starts — the edit-mode
- * glyph likewise rides one line — rather than on the centre of the whole
- * selection rect. The measurements arrive from the preview selection
- * tracking effect, which re-runs on scroll/resize, so the button rides the
- * selection instead of floating detached.
+ * Issue #343 (PRD 023 §13): one measurement for the preview button's anchor
+ * from a line box — a selection's first line or an active record's first
+ * painted fragment — in the host doc: the first non-empty client rect (a
+ * range starting at a block boundary can lead with a zero-size rect; issue
+ * #306), the doc's content-left edge, the margin copy-link's bottom edge
+ * when one is grafted LEVEL with that line (the button stacks beneath it,
+ * centred on its x),
+ * and the top chrome's floor: the file tab strip's bottom while the strip
+ * shows (the toolbar band's fixed floor predates the 38px strip).
  */
-const PREVIEW_BTN = { size: 24, gap: 4, edge: 4, toolbarFloor: 46 };
-/**
- * What previewButtonPos places the button against — not the selection's own
- * rect (issue #306): the host doc's content edge for `left`, and the
- * selection's first line box for `top`.
- */
-interface PreviewButtonAnchor {
-  /** The host .doc's content-left edge (its rect left + padding-left), viewport px. */
-  contentLeft: number;
-  /** Top of the selection's first non-empty line box, viewport px. */
-  y: number;
-  /** Height of that first line box. */
-  h: number;
-}
-function previewButtonPos(sel: PreviewButtonAnchor): { left: number; top: number } {
-  const { size, gap, edge, toolbarFloor } = PREVIEW_BTN;
+function previewAnchorFor(doc: HTMLElement, rects: DOMRectList, fallback: DOMRect): PreviewButtonAnchor {
+  const first = Array.from(rects).find((r) => r.width > 0 && r.height > 0) ?? fallback;
+  const docRect = doc.getBoundingClientRect();
+  const link = doc.querySelector<HTMLElement>(`.${HIGHLIGHT_LINK_CLASS}`)?.getBoundingClientRect();
+  const level = link !== undefined && link.bottom > first.top && link.top < first.bottom;
+  const strip = document.querySelector<HTMLElement>('.file-tab-strip');
   return {
-    left: Math.max(edge, Math.min(sel.contentLeft - gap - size, window.innerWidth - size - edge)),
-    top: Math.max(
-      toolbarFloor,
-      Math.min(sel.y + sel.h / 2 - size / 2, window.innerHeight - size - edge)
-    ),
+    contentLeft: docRect.left + parseFloat(getComputedStyle(doc).paddingLeft),
+    y: first.top,
+    h: first.height,
+    stack: level ? { bottom: link.bottom, centerX: link.left + link.width / 2 } : undefined,
+    floor: strip ? strip.getBoundingClientRect().bottom : undefined,
   };
+}
+/** Identity-stable re-measures: scroll fires per frame. */
+function sameAnchor(a: PreviewButtonAnchor, b: PreviewButtonAnchor): boolean {
+  return (
+    a.contentLeft === b.contentLeft &&
+    a.y === b.y &&
+    a.h === b.h &&
+    a.stack?.bottom === b.stack?.bottom &&
+    a.stack?.centerX === b.stack?.centerX &&
+    a.floor === b.floor
+  );
 }
 
 /**
@@ -723,6 +723,18 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // host doc's content-left edge and the selection's first line box (issue
   // #306, PreviewButtonAnchor), in viewport coords.
   const [selInfo, setSelInfo] = useState<({ start: number; end: number } & PreviewButtonAnchor) | null>(null);
+  /** Issue #343: the live selection re-measure, for the graft effect to call
+   * once the margin copy-link has landed (the button stacks beneath it). */
+  const measureSelRef = useRef<(() => void) | null>(null);
+  /**
+   * Issue #343 (PRD 023 §13): the record a PREVIEW CLICK activated — kept
+   * apart from `activeId`, which a card click or a composer submit sets too:
+   * only the click on the text grows the button (and, hosted, the copy-link
+   * above it) at the margin with the selection collapsed.
+   */
+  const [previewHit, setPreviewHit] = useState<string | null>(null);
+  /** Issue #343: that record's first painted fragment, measured like selInfo. */
+  const [activeAnchor, setActiveAnchor] = useState<PreviewButtonAnchor | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // PRD 017 Req 13: the deployment-admin Management dialog.
   const [managementOpen, setManagementOpen] = useState(false);
@@ -7004,19 +7016,32 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     doc.querySelectorAll<HTMLElement>('mark.hl').forEach((m) => {
       m.classList.toggle('active', m.dataset.cid === activeId);
     });
-    // PRD 022 Req 10 (issue #233): the active highlight's copy-link rides
-    // the same activation pass — grafted beside the first painted mark,
-    // gone with deactivation. PRD 020 Req 15: hosted with an addressed file
-    // only, the gate every share placement takes; an untitled buffer never
-    // shows it.
+  }, [activeId, positions]);
+
+  // Issue #343: the record the preview surfaces' margin copy-link addresses
+  // — with a selection, the annotation under its START (the kind-aware pick
+  // over the painted ranges covering that offset, `recordAtOffset`), else
+  // the active record. Null ⇒ no graft.
+  const marginLinkRec = useMemo(() => {
+    const id = selInfo ? (recordAtOffset(selInfo.start, positions, comments)?.id ?? activeId) : activeId;
+    return id === null ? null : (comments.find((c) => c.id === id) ?? null);
+  }, [selInfo, activeId, positions, comments]);
+
+  // PRD 022 Req 10 (issue #233): the copy-link grafted beside the addressed
+  // record's first painted mark, gone with it. PRD 020 Req 15: hosted with
+  // an addressed file only, the gate every share placement takes; an
+  // untitled buffer never shows it. PRD 023 §20 as amended by issue #343:
+  // the margin graft addresses BOTH kinds — an active comment reveals its
+  // copy-link beside its first painted line exactly as an active highlight
+  // does, copying the same #hl-<id> URL its card's `copy-link-comment`
+  // control copies (that card-side control stays: one link, two placements).
+  useEffect(() => {
+    const doc = docRef.current ?? splitDocRef.current;
+    if (!doc) return;
     const s = stateRef.current;
-    // PRD 023 §20 (issue #288): the margin graft is highlight-only — a
-    // comment's one copy-link is card-side in the pane, so an active comment
-    // grafts nothing here (one control per annotation).
-    const activeRec = s.comments.find((c) => c.id === activeId);
-    const linkable =
-      s.platform?.kind === 'hosted' && s.docPath && activeRec?.kind === 'highlight' ? activeId : null;
+    const linkable = s.platform?.kind === 'hosted' && s.docPath && marginLinkRec ? marginLinkRec.id : null;
     updateHighlightLink(doc, linkable, {
+      label: marginLinkRec ? marginLinkLabel(marginLinkRec) : '',
       // Click time, like every placement: that moment's canonical address
       // (PRD 020 Req 17 derivation) plus #hl-<entry id> (Req 11).
       getUrl: () =>
@@ -7025,7 +7050,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           : highlightShareUrl(window.location.origin, window.location.pathname, linkable),
       copy: copyToClipboard,
     });
-  }, [activeId, positions, copyToClipboard]);
+    // The graft landed (or left): the selection button re-measures so it
+    // stacks beneath the link rather than level with it.
+    measureSelRef.current?.();
+  }, [marginLinkRec, positions, copyToClipboard]);
 
   // --- margin card layout (SPEC6 §2): absolutely-positioned, animated tops.
   // Idle: cards sit level with their highlights, pushing later ones down.
@@ -7239,20 +7267,18 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       // Issue #306: the first non-empty client rect is the selection's first
       // line box (a range starting at a block boundary can lead with a
       // zero-size rect); the bounding rect is the fallback if none is.
-      const rects = Array.from(range.getClientRects());
-      const first = rects.find((r) => r.width > 0 && r.height > 0) ?? range.getBoundingClientRect();
-      const docRect = doc.getBoundingClientRect();
-      const contentLeft = docRect.left + parseFloat(getComputedStyle(doc).paddingLeft);
-      const next = { start, end, contentLeft, y: first.top, h: first.height };
+      // line box (a range starting at a block boundary can lead with a
+      // zero-size rect); issue #343: previewAnchorFor also reads the margin
+      // copy-link level with it and the tab strip's floor.
+      const next = { start, end, ...previewAnchorFor(doc, range.getClientRects(), range.getBoundingClientRect()) };
       // Identity-stable when nothing moved: scroll fires per frame.
       setSelInfo((prev) =>
-        prev !== null &&
-        prev.start === next.start && prev.end === next.end &&
-        prev.contentLeft === next.contentLeft && prev.y === next.y && prev.h === next.h
+        prev !== null && prev.start === next.start && prev.end === next.end && sameAnchor(prev, next)
           ? prev
           : next
       );
     };
+    measureSelRef.current = onSelection;
     document.addEventListener('selectionchange', onSelection);
     // Issue #287: scrolling any surface (and resizing) moves the selection's
     // viewport rect without a selectionchange — re-measure so the button
@@ -7263,10 +7289,78 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       document.removeEventListener('selectionchange', onSelection);
       document.removeEventListener('scroll', onSelection, true);
       window.removeEventListener('resize', onSelection);
-      // A surface swap (mode/split toggle) orphans the old selection.
+      measureSelRef.current = null;
+      // A surface swap (mode/split toggle) orphans the old selection — and
+      // the click-activated record's button (issue #343).
       setSelInfo((prev) => (prev === null ? prev : null));
+      setPreviewHit(null);
     };
   }, [mode, settings.splitEdit]);
+
+  // Issue #343 (PRD 023 §13): the button for a record a preview click
+  // activated with the selection collapsed — anchored to that record's first
+  // painted `mark.hl` fragment on the surface that hosts it (the fragment
+  // the copy-link graft sits beside; hosted, the button stacks beneath the
+  // graft). Measured and re-measured like selInfo; null while a selection
+  // exists (selInfo then owns the button), while nothing is click-active,
+  // or when the record paints no mark here.
+  const hasSel = selInfo !== null;
+  useEffect(() => {
+    const inSplit = mode === 'edit' && settings.splitEdit;
+    const id = previewHit !== null && previewHit === activeId ? previewHit : null;
+    if ((mode !== 'preview' && !inSplit) || id === null || hasSel) {
+      setActiveAnchor((prev) => (prev === null ? prev : null));
+      return;
+    }
+    const measure = () => {
+      const doc = inSplit ? splitDocRef.current : docRef.current;
+      const mark = doc?.querySelector<HTMLElement>(`mark.hl[data-cid="${CSS.escape(id)}"]`) ?? null;
+      if (!doc || !mark) {
+        setActiveAnchor((prev) => (prev === null ? prev : null));
+        return;
+      }
+      const next = previewAnchorFor(doc, mark.getClientRects(), mark.getBoundingClientRect());
+      setActiveAnchor((prev) => (prev !== null && sameAnchor(prev, next) ? prev : next));
+    };
+    measure();
+    document.addEventListener('scroll', measure, true);
+    window.addEventListener('resize', measure);
+    // A comment click opens the comments pane (handleMarkClick), which
+    // reflows the doc without a scroll or a window resize — the surface's
+    // own resize is the signal.
+    const surface = inSplit ? splitDocRef.current : docRef.current;
+    const ro = surface ? new ResizeObserver(measure) : null;
+    if (surface) ro?.observe(surface);
+    return () => {
+      document.removeEventListener('scroll', measure, true);
+      window.removeEventListener('resize', measure);
+      ro?.disconnect();
+    };
+  }, [mode, settings.splitEdit, previewHit, activeId, hasSel, positions]);
+  // The click-activated record's button leaves with the record: another
+  // activation (a card click) or deactivation drops it…
+  useEffect(() => {
+    if (previewHit !== null && activeId !== previewHit) setPreviewHit(null);
+  }, [activeId, previewHit]);
+  // …and Esc deactivates it outright (PRD 023 §13's dismissal rules for the
+  // collapsed case), taking the copy-link and the menu with it. Capture
+  // phase, so the open menu's own Esc handling cannot leave the record
+  // behind; a focused text field keeps its Esc.
+  useEffect(() => {
+    if (previewHit === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
+      setActiveId(null);
+      setPreviewHit(null);
+      setPreviewMenu(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [previewHit]);
+  /** The button's anchor: the selection's, else the click-activated record's. */
+  const previewBtnAnchor = selInfo ?? activeAnchor;
 
   // --- comment operations -----------------------------------------------------------
   // PRD 022 Req 4: the last-used marker color arms the menu's cue and is what
@@ -7368,6 +7462,21 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     authoringFrozen,
     canWrite: docGrants.commentWrite,
   };
+  // Issue #343: the editor's margin copy-link — the record the caret or
+  // selection head rests in by the one kind-aware pick (marginLinkPick over
+  // the package's canonical idsAtHead, issue #344), its URL read at click
+  // time from the canonical address bar (PRD 022 Req 11) like every
+  // placement.
+  const resolveMarginLink = (sel: AnnotationSelection): MarginLinkTarget | null => {
+    const pick = marginLinkPick(sel.idsAtHead, stateRef.current.comments);
+    if (!pick) return null;
+    return {
+      id: pick.id,
+      label: pick.label,
+      getUrl: () => highlightShareUrl(window.location.origin, window.location.pathname, pick.id),
+    };
+  };
+
   const resolveAnnotationModel = (sel: AnnotationSelection): AnnotationMenuModel => {
     const model = annotationMenuModel({
       gate: annotationGate,
@@ -7437,11 +7546,14 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   const [previewMenu, setPreviewMenu] = useState<{ x: number; y: number; entries: SmartMenuEntry[] } | null>(null);
 
   const openPreviewMenu = (rect: DOMRect) => {
-    if (!selInfo) return;
+    if (!previewBtnAnchor) return;
     const model = previewAnnotationModel({
       gate: annotationGate,
-      start: selInfo.start,
-      end: selInfo.end,
+      start: selInfo?.start ?? 0,
+      end: selInfo?.end ?? 0,
+      // Issue #343: with the selection collapsed, the click-activated
+      // record's own context builds the rows.
+      activeId: selInfo ? null : previewHit,
       positions,
       records: comments,
     });
@@ -7634,8 +7746,19 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // set; a click landing on no mark deactivates (SPEC14 §3.1).
   const activateFromPreviewClick = (target: EventTarget | null) => {
     const mark = (target as HTMLElement | null)?.closest?.('mark.hl') as HTMLElement | null;
-    if (!mark) setActiveId(null);
-    else if (settings.commentsEnabled) activateFromHit(markChainIds(mark));
+    if (!mark) {
+      setActiveId(null);
+      setPreviewHit(null);
+      return;
+    }
+    if (!settings.commentsEnabled) return;
+    // Issue #343 (PRD 023 §13): the click-activated record grows the preview
+    // button — and, hosted, the copy-link above it — at the margin.
+    const id = pickHitRecord(markChainIds(mark), stateRef.current.comments);
+    if (id) {
+      handleMarkClick(id);
+      setPreviewHit(id);
+    }
   };
 
   const handleCardActivate = (id: string) => {
@@ -8816,6 +8939,14 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
                     ? { getUrl: headingUrlForLine, copy: copyToClipboard }
                     : undefined
                 }
+                // Issue #343 (PRD 020 Req 15): the margin copy-link seam —
+                // the same hosted-with-an-address gate; every other build
+                // passes nothing and the package renders nothing.
+                marginLink={
+                  platform?.kind === 'hosted' && docPath
+                    ? { resolve: resolveMarginLink, copy: copyToClipboard }
+                    : undefined
+                }
                 // PRD 023 §7 (issue #286): the annotation seam — the menu's
                 // Comment/Highlight context, computed fresh at open through
                 // the pure model, and the invoked row's routing back. Build-
@@ -8916,16 +9047,18 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           previewButtonPos, each fed its own doc's content edge. It rides
           selInfo, so it exists exactly when the annotation hotkeys would
           act: both preview surfaces, either build, never the split editor
-          half. Absent — not disabled — when the commentsEnabled/frozen/
+          half — and (issue #343) rides a click-activated record with the
+          selection collapsed, stacked beneath that record's margin
+          copy-link where one is grafted (hosted). Absent — not disabled — when the commentsEnabled/frozen/
           comment.write gate is closed. It is chrome: never inside .doc's text
           space, hidden in print (styles.css). */}
-      {selInfo && settings.commentsEnabled && mayComment && (
+      {previewBtnAnchor && settings.commentsEnabled && mayComment && (
         <button
           type="button"
           className="icon-btn smart-edit-btn preview-sel-btn"
           data-testid="smart-edit-selection"
           title="Comment / Highlight"
-          style={previewButtonPos(selInfo)}
+          style={previewButtonPos(previewBtnAnchor, { width: window.innerWidth, height: window.innerHeight })}
           // SPEC43 §3's widget idiom, verbatim: open on mousedown with the
           // default prevented, so the press never collapses the selection
           // the menu's rows are about to act on (a prevented mousedown also

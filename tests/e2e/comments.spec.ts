@@ -3399,3 +3399,121 @@ test('E612: issue #344 — grid view OFF: stored table records paint over the ra
   await expectSyntaxPaint(editor, { 'h-cell': 'quick brown', 'c-cell': 'lazy dog' });
   await expect.poll(async () => (await editor.locator('.mm-hl[data-color="green"]').allTextContents()).join('')).toBe('fox');
 });
+
+// --- Issue #343: the preview button off-hosted; no copy-link on the shim -----
+
+test('E616: issue #343 — preview-only: after opening from the sidebar and a round trip through edit mode, selecting plain text with the tab strip up shows the Marky Mark button clear of the toolbar and the strip, with exactly the Comment and Highlight rows', async ({
+  page,
+}) => {
+  // The owner's reported path (rather than E465/E474's fresh-open path):
+  // a sidebar-opened file, edit mode, back to preview-only, then a
+  // selection — with the file tab strip enabled and default pane state.
+  await seedFolders(page);
+  await fsWrite(page, '/notes/a.md', '# A doc\n\nA paragraph with a phrase to select inside it.\n\nAnother paragraph.\n');
+  await openFolderRoot(page);
+  await page.getByTestId('folder-item').filter({ hasText: 'a.md' }).first().click();
+  await expect(page.getByTestId('doc')).toContainText('phrase to select');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await expect(page.getByTestId('doc')).toContainText('phrase to select');
+
+  await selectPhrase(page, 'phrase to select');
+  const btn = page.getByTestId('smart-edit-selection');
+  await expect(btn).toBeVisible();
+  const strip = page.getByTestId('file-tab-strip');
+  await expect(strip).toBeVisible();
+  const stripBox = (await strip.boundingBox())!;
+  const sel = await page.evaluate(() => {
+    const r = window.getSelection()!.getRangeAt(0).getBoundingClientRect();
+    return { left: r.left, top: r.top, bottom: r.bottom };
+  });
+  const box = await stableBox(btn);
+  // Left of the selection's first line, on it, and below both bands.
+  expect(box.x + box.width).toBeLessThanOrEqual(sel.left);
+  expect(box.y + box.height).toBeGreaterThan(sel.top);
+  expect(box.y).toBeLessThan(sel.bottom);
+  expect(box.y).toBeGreaterThanOrEqual(42); // the issue #18 toolbar band
+  expect(box.y).toBeGreaterThanOrEqual(stripBox.y + stripBox.height); // the tab strip
+
+  // Exactly the two annotation rows.
+  await clickClearOfToolbar(btn);
+  const menu = page.getByTestId('smart-edit-menu');
+  await expect(menu).toBeVisible();
+  expect(await menu.locator('.menu-item').count()).toBe(2);
+  await expect(page.getByTestId('smart-edit-comment')).toBeVisible();
+  await expect(page.getByTestId('smart-edit-highlight')).toBeVisible();
+  for (const absent of ['table', 'bold', 'italic', 'link', 'heading', 'lists', 'cut', 'copy', 'paste']) {
+    await expect(page.getByTestId(`smart-edit-${absent}`)).toHaveCount(0);
+  }
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+});
+
+test('E618: issue #343 — the desktop shim renders no copy-link anywhere: a click-activated comment or highlight grows the Marky Mark button alone (its menu from the record\'s context), and the editor caret inside either paints no margin control', async ({
+  page,
+}) => {
+  await addComment(page, PHRASE, 'A note');
+  await addHighlight(page, NAV_P2);
+  const btn = page.getByTestId('smart-edit-selection');
+  const menu = page.getByTestId('smart-edit-menu');
+
+  // A click on the comment: active, button beneath no copy-link, left of
+  // the text; the menu offers Delete Comment, Insert Comment disabled.
+  const commentMark = page.locator('mark.hl', { hasText: 'saved to a sidecar' }).first();
+  await commentMark.click();
+  await expect(commentMark).toHaveClass(/active/);
+  await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
+  await expect(page.getByTestId('copy-link-comment')).toHaveCount(0);
+  await expect(btn).toBeVisible();
+  const box = await stableBox(btn);
+  const markBox = (await commentMark.boundingBox())!;
+  expect(box.x + box.width).toBeLessThanOrEqual(markBox.x);
+  expect(box.y + box.height).toBeGreaterThan(markBox.y - 4);
+  await clickClearOfToolbar(btn);
+  await expect(menu).toBeVisible();
+  expect(await menu.locator('.menu-item').count()).toBe(2);
+  await page.getByTestId('smart-edit-comment').click();
+  await expect(page.getByTestId('smart-edit-delete-comment')).toBeEnabled();
+  await expect(page.getByTestId('smart-edit-insert-comment')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(btn).toHaveCount(0);
+  await expect(page.locator('mark.hl.active')).toHaveCount(0);
+
+  // A click on the highlight: the color rows recolor it, Remove Highlight
+  // is armed — still no copy-link.
+  const hlMark = page.locator('mark.hl', { hasText: 'GitHub-flavored' }).first();
+  await hlMark.click();
+  await expect(hlMark).toHaveClass(/active/);
+  await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
+  await expect(btn).toBeVisible();
+  await clickClearOfToolbar(btn);
+  await expect(menu).toBeVisible();
+  await page.getByTestId('smart-edit-highlight').click();
+  await expect(page.getByTestId('smart-edit-remove-highlight')).toBeEnabled();
+  await expect(page.getByTestId('smart-edit-hl-green')).toBeEnabled();
+  // An outside pointerdown on the doc dismisses menu, button and activation.
+  await page.getByTestId('doc').locator('h1').click();
+  await expect(menu).toHaveCount(0);
+  await expect(btn).toHaveCount(0);
+  await expect(page.locator('mark.hl.active')).toHaveCount(0);
+
+  // Plain edit: the caret inside each painted range grows the Smart Edit
+  // hash and nothing else — no margin copy-link exists off-hosted.
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await saveSettings(page);
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+  await expect(editor.locator('.mm-hl')).toHaveCount(2);
+  for (const i of [0, 1]) {
+    await editor.locator('.mm-hl').nth(i).click();
+    await expect(editor.getByTestId('smart-edit-gutter')).toBeVisible();
+    await page.waitForTimeout(150);
+    await expect(page.getByTestId('margin-copy-link')).toHaveCount(0);
+  }
+  await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
+});

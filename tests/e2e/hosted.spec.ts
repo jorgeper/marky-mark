@@ -38,6 +38,7 @@ import {
   revealToolbar,
   saveSettings,
   selectPhrase,
+  stableBox,
   viewMenuClick,
 } from './helpers';
 // Issue #179: E325 poisons the store with a real draft payload, built by the
@@ -6781,10 +6782,11 @@ test('E450: a comment card carries a copy-link that copies the file URL plus #hl
   page,
   request,
 }) => {
-  // PRD 023 §20: the card-side control is the comment's ONE copy-link — the
+  // PRD 023 §20: the card-side control is the comment's copy-link — the
   // shared CopyLinkButton contract (named target, inline confirmation, ~2s
-  // revert), copying the canonical URL on the reserved hl- namespace; the
-  // margin graft stays highlight-only, so the active comment grafts nothing.
+  // revert), copying the canonical URL on the reserved hl- namespace. Issue
+  // #343 amended §20: the margin graft addresses comments too (E615), and
+  // this card-side control is unchanged by it.
   const token = await signIn(request, 'ada');
   const { id, unique } = await pathWorkspace(request, token, 'e446');
   await request.put(`${HOSTED}/api/workspaces/${id}/files/notes.md`, {
@@ -6811,11 +6813,13 @@ test('E450: a comment card carries a copy-link that copies the file URL plus #hl
   expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/notes.md#hl-${cid}`);
   await expect(link).toHaveAttribute('aria-label', 'Copy link to comment', { timeout: 4000 });
 
-  // One control per annotation: activating the comment from its mark grafts
-  // NO margin copy-link — that placement is the highlight's alone now.
+  // Issue #343 (PRD 023 §20 amended): activating the comment from its mark
+  // ALSO grafts the margin copy-link — the same link in a second placement
+  // (E615 pins the graft); the card-side control below is unchanged.
   await page.locator('mark.hl').first().click();
   await expect(card).toHaveClass(/active/);
-  await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
+  await expect(page.getByTestId('mm-hl-link')).toBeVisible();
+  await expect(page.getByTestId('mm-hl-link')).toHaveAttribute('title', 'Copy link to comment');
 
   // A resolved card keeps the control: copying a link is a read action. With
   // show-resolved on (the default) the ghost card in the flow carries it…
@@ -8537,4 +8541,225 @@ test('E607: PRD 026 Req 12 — settings → Names offers "Use <name>-2" beside a
   });
   await expect(page.getByTestId('workspace-names-error')).toHaveCount(0);
   await expect(page.getByTestId('workspace-use-suggestion')).toHaveCount(0);
+});
+
+// --- Issue #343: left-margin affordances — copy-link above the Marky Mark button
+
+/** Issue #343: a hosted workspace with one addressed note, opened in preview. */
+async function noteForMarginLink(
+  page: Page,
+  request: APIRequestContext,
+  slug: string,
+): Promise<{ unique: string }> {
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, slug);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/notes.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: '# Notes\n\nA phrase to thread on rides here.\n\nPlain words with no annotation at all.\n',
+  });
+  await stubClipboard(page);
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'notes.md');
+  return { unique };
+}
+
+/** Issue #343: plain edit (split off) with the caret inside the first painted range. */
+async function caretIntoPaintedRange(page: Page): Promise<Locator> {
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await saveSettings(page);
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+  const painted = editor.locator('.mm-hl').first();
+  await expect(painted).toBeVisible();
+  await painted.click(); // a plain click places the caret inside the range
+  return editor;
+}
+
+/** Issue #343: the editor copy-link's box against the Smart Edit hash's and the line's text. */
+async function expectStackedAboveHash(editor: Locator): Promise<void> {
+  const link = editor.getByTestId('margin-copy-link');
+  const hash = editor.getByTestId('smart-edit-gutter');
+  await expect(link).toBeVisible();
+  await expect(hash).toBeVisible();
+  const linkBox = await stableBox(link);
+  const hashBox = await stableBox(hash);
+  // Same column: right edges aligned (the hash's padding-column spot).
+  expect(Math.abs(linkBox.x + linkBox.width - (hashBox.x + hashBox.width))).toBeLessThanOrEqual(1);
+  // Directly above: the link ends where the hash begins, never overlapping it.
+  expect(linkBox.y + linkBox.height).toBeLessThanOrEqual(hashBox.y + 1);
+  expect(hashBox.y - (linkBox.y + linkBox.height)).toBeLessThan(8);
+  // Never over the line's text: both end left of the caret line's text start.
+  const lineLeft = await editor.locator('.mm-hl').first().evaluate((el) => el.closest('.cm-line')!.getBoundingClientRect().left);
+  expect(linkBox.x + linkBox.width).toBeLessThanOrEqual(lineLeft);
+  expect(hashBox.x + hashBox.width).toBeLessThanOrEqual(lineLeft);
+}
+
+test('E613: issue #343 — hosted plain edit: the caret inside a commented range grows a copy-link stacked directly above the Smart Edit button, copying the file URL plus #hl-<id>; plain text grows none', async ({
+  page,
+  request,
+}) => {
+  const { unique } = await noteForMarginLink(page, request, 'e613');
+  await addComment(page, 'phrase to thread on', 'A shared thought');
+  const cid = await page.locator('mark.hl').first().getAttribute('data-cid');
+  const editor = await caretIntoPaintedRange(page);
+  await expectStackedAboveHash(editor);
+
+  // Names its target (issue #227) and copies the comment's #hl- URL — the
+  // same URL the card's copy-link-comment copies (E450) — confirming inline
+  // per PRD 020 Req 14, then reverting.
+  const link = editor.getByTestId('margin-copy-link');
+  await expect(link).toHaveAttribute('title', 'Copy link to comment');
+  await expect(link).toHaveAttribute('aria-label', 'Copy link to comment');
+  const caretBefore = await editor.locator('.cm-content').evaluate(() => window.getSelection()?.anchorOffset);
+  await link.click();
+  await expect(link).toHaveAttribute('aria-label', 'Link copied');
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/notes.md#hl-${cid}`);
+  await expect(link).toHaveAttribute('aria-label', 'Copy link to comment', { timeout: 4000 });
+  // The press never moved the caret: the control is still on the range.
+  expect(await editor.locator('.cm-content').evaluate(() => window.getSelection()?.anchorOffset)).toBe(caretBefore);
+  await expect(link).toBeVisible();
+
+  // The caret on plain text: the Smart Edit button alone, no copy-link in the DOM.
+  await editor.locator('.cm-line').filter({ hasText: 'Plain words' }).click();
+  await expect(editor.getByTestId('margin-copy-link')).toHaveCount(0);
+  await expect(page.getByTestId('margin-copy-link')).toHaveCount(0);
+  await expect(editor.getByTestId('smart-edit-gutter')).toBeVisible();
+});
+
+test('E614: issue #343 — hosted plain edit: a selection inside a highlighted range grows the highlight\'s copy-link above the Smart Edit button, copying its #hl-<id> URL', async ({
+  page,
+  request,
+}) => {
+  const { unique } = await noteForMarginLink(page, request, 'e614');
+  await addHighlight(page, 'phrase to thread on');
+  const cid = await page.locator('mark.hl').first().getAttribute('data-cid');
+  const editor = await caretIntoPaintedRange(page);
+  // A RANGED selection inside the painted range, not just a caret.
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('Shift+ArrowRight');
+  await expectStackedAboveHash(editor);
+  const link = editor.getByTestId('margin-copy-link');
+  await expect(link).toHaveAttribute('title', 'Copy link to highlight');
+  await link.click();
+  await expect(link).toHaveAttribute('aria-label', 'Link copied');
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/notes.md#hl-${cid}`);
+  // The press never collapsed the selection.
+  expect(await editor.locator('.cm-content').evaluate(() => window.getSelection()?.isCollapsed)).toBe(false);
+  await expect(link).toHaveAttribute('aria-label', 'Copy link to highlight', { timeout: 4000 });
+});
+
+test('E615: issue #343 — hosted preview: clicking a commented range reveals its copy-link at the left margin directly above the Marky Mark button; the menu carries the record\'s context; Esc dismisses both', async ({
+  page,
+  request,
+}) => {
+  const { unique } = await noteForMarginLink(page, request, 'e615');
+  await addComment(page, 'phrase to thread on', 'A shared thought');
+  const mark = page.locator('mark.hl').first();
+  const cid = await mark.getAttribute('data-cid');
+  // Settle the authoring state (the composer submit activates the card).
+  await page.getByTestId('doc').locator('h1').click();
+  await expect(page.locator('mark.hl.active')).toHaveCount(0);
+  await expect(page.getByTestId('smart-edit-selection')).toHaveCount(0);
+
+  // The click activates the comment AND grafts the margin copy-link, level
+  // with the comment's first painted line (PRD 022 Req 10's placement).
+  await mark.click();
+  await expect(page.locator('mark.hl.active').first()).toBeVisible();
+  const link = page.getByTestId('mm-hl-link');
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute('title', 'Copy link to comment');
+  await expect(link).toHaveAttribute('aria-label', 'Copy link to comment');
+
+  // The Marky Mark button renders directly beneath it: horizontally aligned,
+  // its top at or below the link's bottom, both left of the annotated text.
+  const btn = page.getByTestId('smart-edit-selection');
+  await expect(btn).toBeVisible();
+  const linkBox = await stableBox(link);
+  const btnBox = await stableBox(btn);
+  const markBox = (await mark.boundingBox())!;
+  expect(Math.abs(linkBox.y - markBox.y)).toBeLessThan(28);
+  expect(btnBox.y).toBeGreaterThanOrEqual(linkBox.y + linkBox.height);
+  expect(btnBox.y - (linkBox.y + linkBox.height)).toBeLessThan(12);
+  expect(Math.abs(btnBox.x + btnBox.width / 2 - (linkBox.x + linkBox.width / 2))).toBeLessThan(8);
+  expect(linkBox.x + linkBox.width).toBeLessThanOrEqual(markBox.x);
+  expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(markBox.x);
+
+  // The copied URL is the one the card copies (E450): file URL + #hl-<id>.
+  await link.click();
+  await expect(link).toHaveAttribute('aria-label', 'Link copied');
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/notes.md#hl-${cid}`);
+  await expect(link).toHaveAttribute('aria-label', 'Copy link to comment', { timeout: 4000 });
+
+  // The menu: only the two annotation rows, built from the comment's
+  // context — Delete Comment enabled, Insert Comment (needs a fresh
+  // selection anchor) disabled rather than absent.
+  await clickClearOfToolbar(btn);
+  const menu = page.getByTestId('smart-edit-menu');
+  await expect(menu).toBeVisible();
+  expect(await menu.locator('.menu-item').count()).toBe(2);
+  await expect(page.getByTestId('smart-edit-table')).toHaveCount(0);
+  await page.getByTestId('smart-edit-comment').click();
+  await expect(page.getByTestId('smart-edit-delete-comment')).toBeEnabled();
+  await expect(page.getByTestId('smart-edit-insert-comment')).toBeDisabled();
+
+  // Esc: menu, button and copy-link leave together; the comment deactivates.
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(btn).toHaveCount(0);
+  await expect(link).toHaveCount(0);
+  await expect(page.locator('mark.hl.active')).toHaveCount(0);
+
+  // A SELECTION inside the commented range keeps the button and shows the
+  // copy-link above it; one in plain text shows the button alone.
+  await selectPhrase(page, 'to thread');
+  await expect(btn).toBeVisible();
+  await expect(link).toBeVisible();
+  const linkBox2 = await stableBox(link);
+  const btnBox2 = await stableBox(btn);
+  expect(btnBox2.y).toBeGreaterThanOrEqual(linkBox2.y + linkBox2.height);
+  await selectPhrase(page, 'Plain words');
+  await expect(btn).toBeVisible();
+  await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
+});
+
+test('E617: issue #343 — hosted preview-only: after a round trip through edit mode, selecting plain text with the tab strip up shows the Marky Mark button clear of the toolbar and the strip, with exactly the Comment and Highlight rows', async ({
+  page,
+  request,
+}) => {
+  // The owner's path, on the hosted flavour (E616 is the shim's): open from
+  // the sidebar, into edit, back to preview-only, then select.
+  await noteForMarginLink(page, request, 'e617');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await selectPhrase(page, 'Plain words');
+  const btn = page.getByTestId('smart-edit-selection');
+  await expect(btn).toBeVisible();
+  const strip = page.getByTestId('file-tab-strip');
+  await expect(strip).toBeVisible();
+  const stripBottom = (await strip.boundingBox())!.y + (await strip.boundingBox())!.height;
+  const sel = await page.evaluate(() => {
+    const r = window.getSelection()!.getRangeAt(0).getBoundingClientRect();
+    return { left: r.left, top: r.top, bottom: r.bottom };
+  });
+  const box = await stableBox(btn);
+  expect(box.x + box.width).toBeLessThanOrEqual(sel.left);
+  expect(box.y + box.height).toBeGreaterThan(sel.top);
+  expect(box.y).toBeLessThan(sel.bottom);
+  expect(box.y).toBeGreaterThanOrEqual(42);
+  expect(box.y).toBeGreaterThanOrEqual(stripBottom);
+  await clickClearOfToolbar(btn);
+  const menu = page.getByTestId('smart-edit-menu');
+  await expect(menu).toBeVisible();
+  expect(await menu.locator('.menu-item').count()).toBe(2);
+  await expect(page.getByTestId('smart-edit-comment')).toBeVisible();
+  await expect(page.getByTestId('smart-edit-highlight')).toBeVisible();
+  await expect(page.getByTestId('smart-edit-table')).toHaveCount(0);
+  await expect(page.getByTestId('smart-edit-bold')).toHaveCount(0);
+  await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
 });

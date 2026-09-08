@@ -511,6 +511,19 @@ export interface EditorProps {
    */
   headingLink?: HeadingLinkSeam;
   /**
+   * Issue #343 (PRD 020 Req 15, PRD 022 Req 10): the annotation copy-link
+   * seam — a left-margin control that stacks directly ABOVE the SPEC43 §3
+   * smart-edit button when the caret or selection head rests inside a
+   * painted comment or highlight. The owner passes it on the hosted platform
+   * with an addressed file only (Req 15); absent ⇒ the control does not
+   * exist at all. Which record the head resolves to is the owner's rule —
+   * `resolve` receives the same canonical `AnnotationSelection` the menu
+   * seam does, `idsAtHead` included — so the editor never re-implements the
+   * kind-aware pick; the target's `getUrl` is read at click time like every
+   * placement.
+   */
+  marginLink?: MarginLinkSeam;
+  /**
    * PRD 023 §7 (issue #286): the annotation seam — called at menu-open time
    * with the live selection (raw editor-doc offsets AND their canonical
    * mapping, since annotation ranges live in canonical space like the
@@ -551,6 +564,23 @@ export interface AnnotationSelection {
    * with what is visibly painted, table grids included.
    */
   idsAtHead: readonly string[];
+}
+
+/** Issue #343: the App-provided half of the margin copy-link control. */
+export interface MarginLinkSeam {
+  /** The record under the selection head, or null ⇒ no control on this line. */
+  resolve(sel: AnnotationSelection): MarginLinkTarget | null;
+  /** Writes the text; resolves/returns false when the write did not land. */
+  copy(text: string): Promise<boolean> | boolean;
+}
+
+/** Issue #343: the record a margin copy-link addresses. */
+export interface MarginLinkTarget {
+  id: string;
+  /** Rest tooltip and accessible name — names the target's kind (issue #227). */
+  label: string;
+  /** The share URL at click time; null copies nothing (the controller's rule). */
+  getUrl(): string | null;
 }
 
 /** PRD 020 Req 18: the App-provided half of the heading copy-link control. */
@@ -1355,6 +1385,113 @@ function headingLinkControl(seam: MutableRefObject<HeadingLinkSeam | undefined>)
   );
 }
 
+/**
+ * Issue #343 (PRD 020 Req 14, PRD 022 Req 10): the annotation copy-link
+ * control — one per view, on the selection head's line only, when the head
+ * rests in a painted comment or highlight and the owner passed the hosted
+ * seam. SPEC43 §3's smart-edit pattern again: a zero-size inline anchor at
+ * the line's start and an absolutely positioned button (styles.css
+ * `.margin-link-btn`) hanging into .cm-content's left padding column — the
+ * SAME column and right edge as the smart-edit hash, one button-height
+ * above it, so the two stack at the margin and no document glyph moves.
+ * The button and its Req 14 confirmation contract come from the shared
+ * `createHeadingLinkButton` factory; the announced text lands in the view's
+ * own live region (editorHeadingLiveRegion). `eq` compares the record and
+ * its label, so a caret moving within one range keeps its DOM (and a
+ * running confirmation).
+ */
+class MarginLinkWidget extends WidgetType {
+  private ctrl: { click(): Promise<void>; dispose(): void } | null = null;
+  private live: HTMLElement | null = null;
+  constructor(
+    private readonly target: MarginLinkTarget,
+    private readonly seam: MutableRefObject<MarginLinkSeam | undefined>
+  ) {
+    super();
+  }
+  override eq(other: MarginLinkWidget) {
+    return other.target.id === this.target.id && other.target.label === this.target.label;
+  }
+  override toDOM(view: EditorView) {
+    const doc = view.dom.ownerDocument;
+    const live = editorHeadingLiveRegion(view);
+    this.live = live;
+    const anchor = doc.createElement('span');
+    anchor.className = 'margin-link-anchor';
+    const { btn, ctrl } = createHeadingLinkButton(doc, {
+      className: 'margin-link-btn',
+      testid: 'margin-copy-link',
+      label: this.target.label,
+      getUrl: () => this.target.getUrl(),
+      copy: (text) => this.seam.current?.copy(text) ?? false,
+      setLiveText: (text) => {
+        live.textContent = text;
+      },
+    });
+    this.ctrl = ctrl;
+    // The press never moves the caret or collapses the selection the
+    // control addresses — the smart-edit button's mousedown precedent.
+    btn.addEventListener('mousedown', (e) => e.preventDefault());
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      void ctrl.click();
+    });
+    anchor.appendChild(btn);
+    return anchor;
+  }
+  override destroy() {
+    this.ctrl?.dispose();
+    if (this.live) this.live.textContent = '';
+  }
+}
+
+/**
+ * Issue #343: the extension the margin-link compartment mounts — a
+ * ViewPlugin like `headingLinkControl`, recomputed on selection and
+ * document changes AND on a reconfigure: that is how the painted ranges
+ * (the `highlights` prop) arrive, so the answer can change under a resting
+ * caret when a record is added, removed or remapped. `selectionOf` is the
+ * component's canonical selection (annotationSelection), pre-filtered by
+ * the caller to null when no painted range covers the head, so the
+ * canonicalization never runs for a caret in plain text.
+ */
+function marginLinkControl(
+  seam: MutableRefObject<MarginLinkSeam | undefined>,
+  selectionOf: (view: EditorView) => AnnotationSelection | null
+): Extension {
+  const compute = (view: EditorView): DecorationSet => {
+    const cfg = seam.current;
+    if (!cfg) return Decoration.none;
+    const sel = selectionOf(view);
+    const target = sel ? cfg.resolve(sel) : null;
+    if (!target) return Decoration.none;
+    const head = view.state.doc.lineAt(view.state.selection.main.head);
+    // side: -2 — parked before the smart-edit anchor (side -1) at the same
+    // line start; both are zero-size, so the order only fixes DOM stability.
+    return Decoration.set(
+      Decoration.widget({ widget: new MarginLinkWidget(target, seam), side: -2 }).range(head.from)
+    );
+  };
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = compute(view);
+      }
+      update(update: ViewUpdate) {
+        if (
+          update.selectionSet ||
+          update.docChanged ||
+          update.transactions.some((tr) => tr.reconfigured)
+        ) {
+          this.decorations = compute(update.view);
+        }
+      }
+    },
+    { decorations: (v) => v.decorations }
+  );
+}
+
 const VIM_MOTIONS: Partial<Record<VimEditAction, (view: EditorView) => void>> = {
   left: (v) => void cursorCharLeft(v),
   right: (v) => void cursorCharRight(v),
@@ -1417,6 +1554,7 @@ export default function Editor({
   themeVariant,
   readOnly = false,
   headingLink,
+  marginLink,
   onAnnotationMenu,
   onAnnotationAction,
 }: EditorProps) {
@@ -1462,6 +1600,11 @@ export default function Editor({
   const headingComp = useRef(new Compartment());
   const headingLinkRef = useRef(headingLink);
   headingLinkRef.current = headingLink;
+  // Issue #343: the margin copy-link rides its own compartment, its seam
+  // read through a ref so identity churn never rebuilds the control.
+  const marginComp = useRef(new Compartment());
+  const marginLinkRef = useRef(marginLink);
+  marginLinkRef.current = marginLink;
   // SPEC43 §4: the Smart Edit menu — open state + anchor + the built model.
   const [smartMenu, setSmartMenu] = useState<{ x: number; y: number; entries: SmartMenuEntry[] } | null>(null);
   // SPEC37 §4: the margin chips for the cursor's cell (null = hidden).
@@ -1565,6 +1708,17 @@ export default function Editor({
       text,
       idsAtHead,
     };
+  };
+
+  /**
+   * Issue #343: the margin copy-link's question — the canonical selection
+   * only when a painted range covers the head (the cheap check first, so a
+   * caret in plain text never canonicalizes a gridded buffer), else null.
+   */
+  const marginSelection = (view: EditorView): AnnotationSelection | null => {
+    const head = view.state.selection.main.head;
+    const painted = docHighlightRanges(view.state, highlightsRef.current ?? []);
+    return painted.some((h) => head >= h.from && head <= h.to) ? annotationSelection(view) : null;
   };
 
   /** §6.2: context is computed fresh at open time — never stale offsets. */
@@ -2051,6 +2205,10 @@ export default function Editor({
       // at the end of the cursor's heading line — present only when the
       // owner passed the hosted seam.
       headingComp.current.of(headingLinkRef.current ? headingLinkControl(headingLinkRef) : []),
+      // Issue #343: the annotation copy-link, stacked above the smart-edit
+      // button on the head's line — present only when the owner passed the
+      // hosted seam.
+      marginComp.current.of(marginLinkRef.current ? marginLinkControl(marginLinkRef, marginSelection) : []),
       // SPEC43 §3.2: the smart-edit button, in the content area's left
       // padding — same geometry with or without line numbers.
       smartComp.current.of(smartEditButton(gutterTitle(), openMenuAtGutter)),
@@ -2645,6 +2803,17 @@ export default function Editor({
   // PRESENCE live (a file gaining or losing an address); the callbacks
   // themselves read through headingLinkRef, so identity churn never
   // rebuilds the control mid-confirmation.
+  // Issue #343: the margin copy-link follows its seam's presence the same way.
+  const hasMarginLink = !!marginLink;
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: marginComp.current.reconfigure(
+        hasMarginLink ? marginLinkControl(marginLinkRef, marginSelection) : []
+      ),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMarginLink]);
+
   const hasHeadingLink = !!headingLink;
   useEffect(() => {
     viewRef.current?.dispatch({

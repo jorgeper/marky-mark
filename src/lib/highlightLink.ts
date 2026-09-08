@@ -1,5 +1,9 @@
 /**
- * PRD 022 Req 10 (issue #233): the active highlight's copy-link control.
+ * PRD 022 Req 10 (issue #233): the active annotation's copy-link control —
+ * a highlight's, and since issue #343 (PRD 023 §20 amended) a comment's
+ * too: the same margin placement for both kinds, the same `#hl-<id>` URL
+ * the comment card's own `copy-link-comment` control copies (that card-side
+ * control stays — one link, two placements).
  *
  * Grafted onto the live preview DOM like the heading affordance
  * (`headingLinks.ts` in `@marky-mark/editor`) and built from the same
@@ -9,17 +13,17 @@
  * the glyph is SVG and the caption a pseudo-element — so `getDocText()`
  * over the root stays byte-identical and every comment anchor resolves.
  *
- * At most one button per preview root: it appears with the active highlight,
- * absolutely positioned in the left margin beside the highlight's first
+ * At most one button per preview root: it appears with the addressed record
+ * (the active one, or — issue #343 — the one under a selection's start),
+ * absolutely positioned in the left margin beside the record's first
  * painted `mark.hl` fragment (mirroring the heading affordance's
- * margin-side placement), and leaves when the highlight deactivates or its
+ * margin-side placement), and leaves when the record deactivates or its
  * entry no longer paints a mark. The caller re-runs `updateHighlightLink`
  * whenever activation or the painted marks change — including after a
  * re-injection wiped the doc's children — and gates it hosted-only
  * (PRD 020 Req 15); this module only manages the DOM it is told about.
  */
 import { createHeadingLinkButton, ensureCopyLinkLiveRegion } from '@marky-mark/editor';
-import { COPY_LINK_HIGHLIGHT_LABEL } from './shareLinks';
 
 /** The active highlight's copy-link button; also its `data-testid`. */
 export const HIGHLIGHT_LINK_CLASS = 'mm-hl-link';
@@ -28,20 +32,22 @@ interface Graft {
   btn: HTMLButtonElement;
   ctrl: { click(): Promise<void>; dispose(): void };
   id: string;
+  label: string;
 }
 
 /** Per-root graft state, so re-runs reposition instead of re-creating. */
 const grafts = new WeakMap<HTMLElement, Graft>();
 
 /**
- * Make the root's one copy-link button match the active highlight: `id`
+ * Make the root's one copy-link button match the addressed record: `id`
  * null — or painting no mark — removes it; otherwise it is (re)created for
- * that entry and positioned level with the first mark fragment's top line.
+ * that entry, labelled for its kind (`label`, the issue #227 name-the-target
+ * rule), and positioned level with the first mark fragment's top line.
  */
 export function updateHighlightLink(
   root: HTMLElement,
   id: string | null,
-  opts: { getUrl(): string | null; copy(text: string): Promise<boolean> | boolean }
+  opts: { label: string; getUrl(): string | null; copy(text: string): Promise<boolean> | boolean }
 ): void {
   const prev = grafts.get(root) ?? null;
   const mark =
@@ -56,7 +62,7 @@ export function updateHighlightLink(
   }
   let g = prev;
   // A re-injection detaches the old button even when the id is unchanged.
-  if (!g || g.id !== id || !root.contains(g.btn)) {
+  if (!g || g.id !== id || g.label !== opts.label || !root.contains(g.btn)) {
     if (prev) {
       prev.ctrl.dispose();
       prev.btn.remove();
@@ -69,7 +75,7 @@ export function updateHighlightLink(
       // the placement class hoists it to the margin (styles.css).
       className: `mm-heading-link ${HIGHLIGHT_LINK_CLASS}`,
       testid: HIGHLIGHT_LINK_CLASS,
-      label: COPY_LINK_HIGHLIGHT_LABEL,
+      label: opts.label,
       getUrl: opts.getUrl,
       copy: opts.copy,
       setLiveText: (text) => {
@@ -83,7 +89,7 @@ export function updateHighlightLink(
       void ctrl.click();
     });
     root.appendChild(btn);
-    g = { btn, ctrl, id };
+    g = { btn, ctrl, id, label: opts.label };
     grafts.set(root, g);
   }
   // Beside the first painted line: the first mark fragment's top, in the
