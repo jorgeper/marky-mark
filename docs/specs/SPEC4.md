@@ -38,6 +38,14 @@ the goal condition.
 4. **Faint bottom shadow**: the toolbar gets a subtle downward box-shadow (e.g.
    `0 2px 10px rgba(0,0,0,0.08)` — tint may adapt per theme via a `--mm-toolbar-shadow`
    variable with that default). Visible whenever the toolbar is shown.
+
+   > **Amended (issue #349, 2026-09-08):** the toolbar's shadow takes the
+   > floating-panel geometry the page's shadow used to have — `--mm-panel-shadow`'s
+   > 24px blur and 2px spread — cast downward (`--mm-toolbar-shadow: 0 4px 24px
+   > 2px rgba(0, 0, 0, 0.12)`), so the top pane reads as resting over the page and
+   > the ground. Still visible in both the static and the auto-hide bar. The
+   > comment navigator pill (SPEC14 §3), which shared the token, keeps the old
+   > faint value through its own `--mm-nav-shadow`.
 5. The toolbar element exposes its state (`data-visible="true|false"` or a class) so
    tests can assert it deterministically.
 
