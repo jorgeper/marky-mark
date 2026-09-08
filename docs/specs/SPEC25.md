@@ -94,3 +94,15 @@ already fall back on (tables, cross-block, ambiguity — same fallbacks).
    no `.skip/.only/.todo` in tests/; reserved-name scan prints nothing.
 3. README's Edit-mode bullet mentions the split toggle hotkey;
    ARCHITECTURE.md notes the selection-carry mechanism.
+
+## Amended by issue #357 (2026-09-08): both carries speak canonical offsets
+
+- **§1.2 — amended.** The carried range is CANONICAL. The Editor applies it
+  after the SPEC40 grids have adopted (the grid effect, not the mount
+  effect), through the same `selectSourceRange` the SPEC23 mirror uses, so
+  it crosses the canonical ↔ display seam (SPEC40 §2) into the right cell or
+  the right prose position below a grid. E638 pins it (a preview-only click
+  below two grids, then ⌘E).
+- **§2.1 — amended.** The tracked editor selection is the report's
+  canonical `selFrom`/`selTo` (SPEC23 §4 as amended), so the range parked
+  for the preview and the find-bar prefill slice the canonical text.

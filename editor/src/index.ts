@@ -65,6 +65,10 @@ export * from './lib/fluidCursor';
 export * from './lib/fluidSelection';
 export * from './lib/fluidDeletion';
 export * from './lib/fluidInsertion';
+// SPEC40 §2 (issue #357): the canonical ↔ display seam and the geometry it
+// is built on — hosts translate through these, never by their own arithmetic.
+export * from './lib/gridOffsets';
+export * from './lib/gridSeam';
 export * from './lib/headingLinks';
 export * from './lib/hotkeys';
 export * from './lib/imageResize';

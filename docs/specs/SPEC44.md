@@ -258,3 +258,14 @@ band — the layering problem issue #123 solved for the ranged selection.
   mark (`.mm-code-sel`, E261) is unchanged and nests inside the span as
   before; live preview's `.mm-lp-code` needs no rule because the caret
   line is always revealed raw (PRD 006 §8). E626 pins the contract.
+
+## Amended by issue #357 (2026-09-08): click-to-place crosses the seam
+
+- **§4.1 — amended.** The clicked caret is a CANONICAL offset resolved
+  against the canonical text; it enters the editor through
+  `selectSourceRange`, which translates it through the SPEC40 §2 seam — a
+  click below two grids lands the caret on the clicked file character, not
+  the same offset in the padded display. The head-row anchor (issue #345)
+  is stamped from the report's canonical `canonHead`/`headLine` (SPEC23 §4
+  as amended) — `mapOffsetByLineFlat` is no longer the report's mapper (it
+  remains for §3.1's rendered-text purpose). E638 pins the placement.

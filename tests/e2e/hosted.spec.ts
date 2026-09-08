@@ -7794,6 +7794,167 @@ test('E576: a #heading visit that comes up in edit mode lands the EDITOR on the 
     .toBeLessThanOrEqual(6);
 });
 
+// SPEC40 §2 (issue #357): fragment landings below two grid tables — the
+// heading's canonical line crosses the seam to the editor line it is shown
+// on, and the highlight's canonical range paints on the display text.
+const SEAM_HOSTED_DOC = [
+  '# Seam',
+  '',
+  'intro paragraph above the grids.',
+  '',
+  '| Name | Detail |',
+  '| --- | --- |',
+  '| quick brown fox | lazy dog |',
+  '| second | row two |',
+  '| third | row three |',
+  '| fourth | row four |',
+  '| fifth | row five |',
+  '| sixth | row six |',
+  '',
+  '| Key | Value |',
+  '| --- | --- |',
+  `| zq | ${Array.from({ length: 30 }, (_, i) => `seam${String(i + 1).padStart(2, '0')}`).join(' ')} |`,
+  '| b | short |',
+  '',
+  '## Tail Heading',
+  '',
+  'The linked phrase sits below both tables.',
+  '',
+  ...Array.from({ length: 60 }, (_, i) => [`trailing paragraph ${i} gives the editor room.`, '']).flat(),
+].join('\n');
+/** Canonical lines the two tables occupy (T1: 8, T2: 4). */
+const SEAM_HOSTED_TABLE_LINES = 12;
+
+test('E642: issue #357 — a #heading visit landing below two grid tables puts the heading\'s DISPLAY line at the top of the editor with the caret on its text, in plain edit and in the split, where the preview shows the heading', async ({
+  page,
+  request,
+}) => {
+  test.slow();
+  // E576's boot pins, on mary's settings blob (no other test writes it).
+  const token = await signIn(request, 'mary');
+  const { id, unique } = await pathWorkspace(request, token, 'e642');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/seam.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: SEAM_HOSTED_DOC,
+  });
+  const headingLine = SEAM_HOSTED_DOC.split('\n').indexOf('## Tail Heading') + 1;
+  const url = `${HOSTED}/${unique}/seam.md#tail-heading`;
+  const modeSwitch = page.getByTestId('mode-switch');
+  await signInTo(page, 'mary', id);
+  await openFromSidebar(page, 'seam.md');
+
+  const settingsBlob = `${HOSTED}/api/me/files/settings.json`;
+  const headers = { Authorization: `Bearer ${token}` };
+  const visit = async (splitEdit: boolean) => {
+    for (let attempt = 3; ; attempt--) {
+      const res = await request.get(settingsBlob, { headers });
+      const stored = res.status() === 200 ? ((await res.json()) as Record<string, unknown>) : {};
+      const put = await request.put(settingsBlob, {
+        headers,
+        data: JSON.stringify({ ...stored, lastViewMode: 'edit', splitEdit, tableGridView: true }),
+      });
+      expect(put.status()).toBe(200);
+      await page.goto('about:blank');
+      await page.goto(url);
+      await expect(page.getByTestId('docname')).toContainText('seam.md');
+      const landedIn = await modeSwitch.getAttribute('data-mode');
+      const landedSplit = (await page.getByTestId('split-divider').count()) > 0;
+      if ((landedIn === 'edit' && landedSplit === splitEdit) || attempt === 1) return;
+    }
+  };
+  const expectEditorLanded = async () => {
+    await expect(modeSwitch).toHaveAttribute('data-mode', 'edit');
+    const grid = page.getByTestId('editor').locator('.cm-line.mm-table-mode-line');
+    await expect.poll(() => grid.count()).toBeGreaterThan(SEAM_HOSTED_TABLE_LINES + 4);
+    // The heading's editor line is its canonical line plus the grids' extra rows.
+    const shown = headingLine + (await grid.count()) - SEAM_HOSTED_TABLE_LINES;
+    await expect.poll(() => editorTopGutterLine(page), { timeout: 20000 }).toBeGreaterThan(shown - 3);
+    expect(await editorTopGutterLine(page)).toBeLessThan(shown + 3);
+    await expect(page.locator('.cm-activeLine')).toHaveText('## Tail Heading');
+    await expect.poll(() => editorCaret(page)).toEqual({ column: 3, collapsed: true, text: '## Tail Heading' });
+    await expect(page.getByTestId('heading-miss-notice')).toHaveCount(0);
+  };
+
+  await visit(false);
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  await expectEditorLanded();
+
+  await visit(true);
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  await expectEditorLanded();
+  // The preview half follows the editor's CANONICAL top line to the heading.
+  await expect
+    .poll(
+      async () => {
+        const { before, after } = await previewTopAnchorLines(page);
+        return Math.min(Math.abs(before - headingLine), Math.abs(after - headingLine));
+      },
+      { timeout: 20000 }
+    )
+    .toBeLessThanOrEqual(6);
+  await expect(page.locator('[data-testid="split-preview"] h2', { hasText: 'Tail Heading' })).toBeInViewport();
+});
+
+test('E643: issue #357 — a #hl- visit landing below two grid tables in split edit flashes the preview mark and paints the editor\'s highlight over exactly the phrase on its display line, in the editor viewport', async ({
+  page,
+  request,
+}) => {
+  test.slow();
+  const token = await signIn(request, 'alan');
+  const { id, unique } = await pathWorkspace(request, token, 'e643');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/seam.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: SEAM_HOSTED_DOC,
+  });
+  await signInTo(page, 'alan', id);
+  await openFromSidebar(page, 'seam.md');
+  await addHighlight(page, 'linked phrase');
+  const cid = await page.locator('mark.hl').first().getAttribute('data-cid');
+  await expect
+    .poll(async () => await readAs(request, token, id, 'seam.md.comments.json'), { timeout: 10_000 })
+    .toContain(cid!);
+
+  // Come up in split edit (E576's pin), then the deep link with E430's flash observer.
+  const settingsBlob = `${HOSTED}/api/me/files/settings.json`;
+  const headers = { Authorization: `Bearer ${token}` };
+  const res = await request.get(settingsBlob, { headers });
+  const stored = res.status() === 200 ? ((await res.json()) as Record<string, unknown>) : {};
+  const put = await request.put(settingsBlob, {
+    headers,
+    data: JSON.stringify({ ...stored, lastViewMode: 'edit', splitEdit: true, tableGridView: true }),
+  });
+  expect(put.status()).toBe(200);
+  await page.goto('about:blank');
+  await page.goto(`${HOSTED}/${unique}/seam.md#hl-${cid}`);
+  await page.addInitScript((hl: string) => {
+    const seen = new MutationObserver(() => {
+      if (document.querySelector(`mark.hl.flash[data-cid="${hl}"]`)) {
+        (window as unknown as { __hlFlashSeen?: boolean }).__hlFlashSeen = true;
+        seen.disconnect();
+      }
+    });
+    seen.observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+  }, cid!);
+  await page.reload();
+  await expect(page.getByTestId('docname')).toContainText('seam.md');
+  await expect(page.getByTestId('mode-switch')).toHaveAttribute('data-mode', 'edit');
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __hlFlashSeen?: boolean }).__hlFlashSeen === true), {
+      timeout: 15_000,
+    })
+    .toBe(true);
+  // The editor paints the highlight on the display text — the canonical
+  // anchor crossed the grids — and the preview-led sync brought it into view.
+  const grid = page.getByTestId('editor').locator('.cm-line.mm-table-mode-line');
+  await expect.poll(() => grid.count()).toBeGreaterThan(SEAM_HOSTED_TABLE_LINES + 4);
+  const painted = page.locator(`.cm-content .mm-hl[data-cid="${cid}"]`);
+  await expect.poll(() => painted.evaluateAll((els) => els.map((e) => e.textContent ?? '').join(''))).toBe('linked phrase');
+  await expect(painted.first()).toBeInViewport();
+  await expect(page.locator('[data-testid="split-preview"] mark.hl').first()).toBeInViewport();
+  await expect(page.getByTestId('highlight-miss-notice')).toHaveCount(0);
+});
+
 test('E571: reclaiming a former name ends the redirect — a new workspace created under the old name is what /<old> opens, and the renamed one stays at its new name', async ({
   page,
   request,

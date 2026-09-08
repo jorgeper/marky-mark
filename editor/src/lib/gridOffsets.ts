@@ -46,6 +46,13 @@ export interface SpanGeometry {
    * mapping is possible and everything inside the span skips.
    */
   display: { parsed: ParsedDisplay; map: DisplayMap } | null;
+  /**
+   * SPEC40 §2 (issue #357): the span's display parse whether or not it
+   * round-trips — the line seam (gridSeam.ts) needs the per-line kinds and
+   * rows exactly as `canonicalLineMapper` reads them; null when the span
+   * does not parse as a display table at all (canonicalizeAll leaves it raw).
+   */
+  parsed: ParsedDisplay | null;
 }
 
 export interface DocRange {
@@ -72,11 +79,11 @@ export function spanGeometry(
     const laid = layoutTable(parsed.model, width);
     if (laid.text === raw.slice(span.from, span.to)) display = { parsed, map: laid.map };
   }
-  return { from: span.from, to: span.to, canonFrom, canon, display };
+  return { from: span.from, to: span.to, canonFrom, canon, display, parsed };
 }
 
 /** A canonical-text location inside a table: cell plus normalized content offset. */
-interface CellLoc {
+export interface CellLoc {
   row: number; // −1 header
   col: number;
   /** Offset into the cell's whitespace-normalized content (the display model's cell). */
@@ -140,8 +147,11 @@ export function rawIndexForNormalized(rawContent: string, n: number): number {
   return lastContentEnd;
 }
 
-/** Canonical table lines: [start, end] per line, relative to the canonical span text. */
-function canonLines(canon: string): Array<{ start: number; end: number }> {
+/**
+ * Canonical table lines: [start, end] per line, relative to the canonical
+ * span text. Issue #357: exported for the total seam (gridSeam.ts).
+ */
+export function canonLines(canon: string): Array<{ start: number; end: number }> {
   const out: Array<{ start: number; end: number }> = [];
   let pos = 0;
   for (const line of canon.split('\n')) {
@@ -152,13 +162,13 @@ function canonLines(canon: string): Array<{ start: number; end: number }> {
 }
 
 /** Line index (0 header, 1 delimiter, 2+ rows) of a canonical-relative offset. */
-function canonLineIndexAt(lines: Array<{ start: number; end: number }>, offset: number): number {
+export function canonLineIndexAt(lines: Array<{ start: number; end: number }>, offset: number): number {
   for (let i = 0; i < lines.length; i++) if (offset <= lines[i].end) return i;
   return lines.length - 1;
 }
 
 /** The canonical cell holding a canonical-relative offset, or null on the delimiter line. */
-function canonCellAt(canon: string, offset: number): CellLoc | null {
+export function canonCellAt(canon: string, offset: number): CellLoc | null {
   const lines = canonLines(canon);
   const li = canonLineIndexAt(lines, offset);
   if (li === 1) return null; // the delimiter row paints nothing
@@ -172,8 +182,12 @@ function canonCellAt(canon: string, offset: number): CellLoc | null {
   return { row: li === 0 ? -1 : li - 2, col, contentOffset: normalizedOffset(rawContent, within) };
 }
 
-/** Where a canonical offset sits relative to the spans: outside (shifted) or inside span `i`. */
-function locate(
+/**
+ * Where a canonical offset sits relative to the spans: outside (shifted) or
+ * inside span `i`. Issue #357: exported for the total seam (gridSeam.ts), so
+ * both mappers agree on which span owns an offset.
+ */
+export function locate(
   geoms: readonly SpanGeometry[],
   offset: number
 ): { kind: 'outside'; pos: number } | { kind: 'inside'; index: number } {

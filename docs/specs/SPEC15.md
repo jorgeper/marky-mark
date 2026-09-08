@@ -129,3 +129,10 @@ animation of the follower, per-keystroke re-sync while typing (§1.6).
    `grep -rEn '\.(skip|only|todo)\(' tests/` prints nothing.
 5. README updated per §6; version files untouched (they stay at
    0.2.0-alpha.3); no new runtime dependencies.
+
+## Amended by issue #357 (2026-09-08)
+
+- **§3.2 — amended.** `topLine()` returns, and `scrollToLine(line)` takes,
+  the CANONICAL fractional line (through the SPEC40 §2 seam) — the same
+  coordinates as the preview's `data-mm-line` anchors, so sync scrolling
+  lands on the same text with a grid above it. E639 pins it.

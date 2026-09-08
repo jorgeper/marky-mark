@@ -121,3 +121,36 @@ stay reserved.
 3. README's table passage describes the default grid view + the global
    toggle. ARCHITECTURE.md's table section is updated: grid set,
    detection, the removed mode surface.
+
+## Amended by issue #357 (2026-09-08): the ONE canonical ↔ display seam
+
+- **§2.6 — added.** The package exports one translation seam
+  (`editor/src/lib/gridSeam.ts`: `gridSeam(raw, geometry)` → `GridSeam`,
+  `IDENTITY_SEAM`; `gridSeamOf(state)` and the shared `gridGeometry(state)`
+  in `tableMode.ts`) built on the issue #344 span geometry
+  (`gridOffsets.ts`). It is TOTAL — `canonicalToDisplay` /
+  `displayToCanonical` for offsets and `canonicalLineToDisplay` /
+  `displayLineToCanonical` for 1-based, fractional lines always answer with
+  a number: identity (the frozen `IDENTITY_SEAM`, no allocation) with no
+  span tracked; the span shift outside every span; the cell's display
+  fragment inside one (wrapped fragments included); and a snap where there
+  is no honest cell home — the canonical delimiter line ↔ the grid's
+  alignment separator, a between-row rule → the next row's first content,
+  padding and pipes → the nearest content of their row, an untrusted
+  display → line-and-column. Lines agree with `canonicalLineAt` /
+  `canonicalLineMapper`: a canonical row maps to its FIRST display line,
+  every display line of a wrapped row maps back to the one canonical row,
+  the fractional part rides along. The nullable painting API
+  (`canonToDocRanges`, `docToCanonOffset`) and its PRD 022 Req 12 skip rule
+  are unchanged; the seam is layered on the same geometry.
+- **§2.7 — added.** Every crossing goes through it: `selectSourceRange`
+  (SPEC23 §1, SPEC25 §1, SPEC44 §4), the `EditStateReport`'s canonical
+  fields (SPEC23 §4), the annotation seam's fallback (PRD 023 §19),
+  `EditorSyncHandle.topLine` / `scrollToLine` / `goToLine` / `goToHeading`
+  (SPEC15 §3.2, SPEC45, PRD 012 Req 6, PRD 020 Req 19), and the grid
+  toggle (§1.2), where a RANGED selection now survives a collapse in
+  canonical terms (both ends cross the seam) as it already survived a
+  gridify. The App reads the canonical text (`canonicalOf`) wherever it
+  indexes with canonical offsets or lines (the mirror region, the head
+  anchor, the preview caret/selection mappers, the find prefill).
+  U1371–U1378 cover the seam; E634–E643 the crossings.

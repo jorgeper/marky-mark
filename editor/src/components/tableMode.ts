@@ -14,7 +14,6 @@ import { Decoration, EditorView, ViewPlugin, keymap, type ViewUpdate } from '@co
 import {
   allTableRegions,
   cellAt,
-  cellContentSpan,
   cellNavTarget,
   clampSelectionToCell,
   displayCellAt,
@@ -32,6 +31,8 @@ import {
   type TableModel,
   type WholeCellBounds,
 } from '../lib/tableEdit';
+import { spanGeometry, type SpanGeometry } from '../lib/gridOffsets';
+import { IDENTITY_SEAM, gridSeam, type GridSeam } from '../lib/gridSeam';
 
 /**
  * SPEC40: the grid is how tables LOOK in the editor — no mode. While the
@@ -469,6 +470,47 @@ function spanDisplayRows(span: MappedSpan, offset: number): number[] | null {
   return rows.length ? rows : null;
 }
 
+/**
+ * PRD 022 Req 12 / SPEC40 §2 (issue #344): the geometry of every tracked
+ * table-grid span — its editor-doc range, its canonical (collapsed) text and
+ * start, and its display map — built once per call for the mapping in both
+ * directions (lib/gridOffsets.ts). Outside every span the two texts are
+ * byte-identical modulo each earlier span's length delta (canonicalizeAll
+ * splices ONLY the span regions); inside one, each span's collapsed text is
+ * measured by collapsing that span alone, so its own delta falls out of the
+ * whole-text length difference. GridSet.spans is sorted by `from` (the
+ * documented invariant). Empty when no grid is tracked. Issue #357: moved
+ * here from Editor.tsx so the seam below and the grid toggle share the one
+ * builder — nothing re-derives it.
+ */
+export function gridGeometry(state: EditorState): SpanGeometry[] {
+  const set = state.field(tableModeField, false);
+  if (!set?.spans.length) return [];
+  const raw = state.doc.toString();
+  const out: SpanGeometry[] = [];
+  let delta = 0; // editor-doc position − canonical position, so far
+  for (const s of set.spans) {
+    const collapsed = canonicalizeAll(raw, { spans: [s], width: set.width });
+    const canonLen = s.to - s.from - (raw.length - collapsed.length);
+    const canon = collapsed.slice(s.from, s.from + canonLen);
+    out.push(spanGeometry(raw, s, canon, s.from - delta, set.width));
+    delta += s.to - s.from - canonLen;
+  }
+  return out;
+}
+
+/**
+ * SPEC40 §2 (issue #357): the ONE canonical ↔ display seam for this state —
+ * every canonical offset or line entering the editor and every editor
+ * offset or line leaving it translates through it (lib/gridSeam.ts).
+ * `IDENTITY_SEAM`, allocation-free, when no grid is tracked.
+ */
+export function gridSeamOf(state: EditorState): GridSeam {
+  const set = state.field(tableModeField, false);
+  if (!set?.spans.length) return IDENTITY_SEAM;
+  return gridSeam(state.doc.toString(), gridGeometry(state));
+}
+
 /** SPEC40 §2.2: grid every untracked valid table (history-transparent). */
 export function gridifyAll(view: EditorView, canonicalHint?: string): void {
   const set = view.state.field(tableModeField, false) ?? null;
@@ -582,28 +624,23 @@ export function collapseAllGrids(view: EditorView): void {
     return;
   }
   const text = view.state.doc.toString();
-  const head = view.state.selection.main.head;
   const changes: Array<{ from: number; to: number; insert: string }> = [];
-  let anchor: number | null = null;
-  let delta = 0; // earlier spans shrink — the final anchor shifts with them
   for (const span of [...set.spans].sort((a, b) => a.from - b.from)) {
     const collapsed = collapseSpan(text, span);
     if (collapsed === null) continue;
     changes.push({ from: span.from, to: span.to, insert: collapsed });
-    if (head >= span.from && head <= span.to) {
-      const region: Region = { start: span.from, end: span.to };
-      const parsed = parseDisplay(text, region)!;
-      const loc = displayCellAt(text, region, parsed, head);
-      if (loc) {
-        const cs = cellContentSpan(collapsed, { start: 0, end: collapsed.length }, loc.row, loc.col);
-        if (cs) anchor = span.from + delta + Math.min(cs.start + loc.contentOffset, cs.end);
-      }
-    }
-    delta += collapsed.length - (span.to - span.from);
   }
+  // SPEC40 §1.2 (issue #357): the collapsed text IS the canonical text, so
+  // BOTH ends of the selection cross the seam — a ranged selection (a cell
+  // word, a prose phrase below a grid) survives the toggle in canonical
+  // terms instead of collapsing to the mapped caret.
+  const seam = gridSeamOf(view.state);
+  const sel = view.state.selection.main;
+  const anchor = seam.displayToCanonical(sel.anchor);
+  const head = seam.displayToCanonical(sel.head);
   view.dispatch({
     ...(changes.length ? { changes } : {}),
-    ...(anchor !== null ? { selection: { anchor } } : {}),
+    selection: { anchor, head },
     effects: setGridSet.of(null),
     annotations: Transaction.addToHistory.of(false),
   });

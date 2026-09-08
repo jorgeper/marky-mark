@@ -54,8 +54,7 @@ import { isHeadingLine } from '../lib/headingLine';
 import { headingTextColumn } from '../lib/headingCaret';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
 import type { CompiledPattern } from '../lib/searchCore';
-import { mapOffsetByLineFlat } from '../lib/activePosition';
-import { canonToDocRanges, docToCanonOffset, spanGeometry, type SpanGeometry } from '../lib/gridOffsets';
+import { canonToDocRanges, docToCanonOffset } from '../lib/gridOffsets';
 import { intersectCodeSelection, type CodeRange } from '../lib/codeSelection';
 import type { DiffLineSets } from '../lib/diffLines';
 import { fluidAttribute, type FluidEffectMap } from '../lib/fluid';
@@ -149,6 +148,8 @@ import {
   type GridSpan,
   canonicalLineAt,
   canonicalLineMapper,
+  gridGeometry,
+  gridSeamOf,
 } from './tableMode';
 import { diffLineMarks, diffRemovedBlocks, type DiffLineMark } from './diffMarks';
 
@@ -213,9 +214,19 @@ export interface EditorSearchHandle {
 
 
 export interface EditorSyncHandle {
-  /** Fractional 1-based source line at the top of the viewport. */
+  /**
+   * Fractional 1-based source line at the top of the viewport — CANONICAL
+   * (SPEC40 §2, issue #357): every display line of a wrapped grid row
+   * reports that row's one canonical line, so the host's `data-mm-line`
+   * anchors and this number speak the same coordinates.
+   */
   topLine(): number;
-  /** Scroll so the given fractional line sits at the top of the viewport. */
+  /**
+   * Scroll so the given fractional CANONICAL line sits at the top of the
+   * viewport (issue #357: a canonical row inside a wrapped grid row lands on
+   * its first display line). `goToLine` / `goToHeading` take canonical
+   * lines too.
+   */
   scrollToLine(line: number): void;
   /**
    * PRD 012 Req 6: scroll to a 1-based source line AND place the caret on it —
@@ -305,15 +316,30 @@ export type FocusEditor = (opts?: { caret?: number }) => void;
  * shape the host's `__mmEdit` seam and the split follower read.
  */
 export interface EditStateReport {
-  /** SPEC44: head in CANONICAL text coordinates (grid whitespace mapped out). */
+  /**
+   * SPEC44 / SPEC40 §2 (issue #357): head in CANONICAL text coordinates —
+   * through the grid seam, so a caret in a grid cell names the file's
+   * character (never the padded display's).
+   */
   canonHead: number;
+  /** The head in RAW editor-document coordinates. */
   head: number;
+  /** SPEC40 §2 (issue #357): the head's CANONICAL 1-based line. */
   headLine: number;
+  /**
+   * SPEC23 §1 / SPEC25 §2 (issue #357): the main range's ends in CANONICAL
+   * coordinates, ordered — what the host slices its buffer with (the
+   * reverse mirror, the carry into preview, the find prefill).
+   */
   selFrom: number;
   selTo: number;
-  /** SPEC39 §2.1 (issue #356): the main range's anchor and head as set (unordered). */
+  /**
+   * SPEC39 §2.1 (issue #356): the main range's anchor and head as set
+   * (unordered), RAW editor-document offsets — the drag tests read them.
+   */
   selAnchor: number;
   selHead: number;
+  /** The raw editor text of the main range. */
   selText: string;
   focused: boolean;
   /** SPEC39 §2.1 (issue #356): whether this report comes from an update that set the selection. */
@@ -958,33 +984,6 @@ export interface HighlightRange {
 }
 
 /**
- * PRD 022 Req 12 / SPEC40 §2 (issue #344): the geometry of every tracked
- * table-grid span — its editor-doc range, its canonical (collapsed) text and
- * start, and its display map — built once per call for the mapping in both
- * directions (lib/gridOffsets.ts). Outside every span the two texts are
- * byte-identical modulo each earlier span's length delta (canonicalizeAll
- * splices ONLY the span regions); inside one, each span's collapsed text is
- * measured by collapsing that span alone, so its own delta falls out of the
- * whole-text length difference. GridSet.spans is sorted by `from` (the
- * documented invariant). Empty when no grid is tracked.
- */
-function gridGeometry(state: EditorState): SpanGeometry[] {
-  const set = state.field(tableModeField, false);
-  if (!set?.spans.length) return [];
-  const raw = state.doc.toString();
-  const out: SpanGeometry[] = [];
-  let delta = 0; // editor-doc position − canonical position, so far
-  for (const s of set.spans) {
-    const collapsed = canonicalizeAll(raw, { spans: [s], width: set.width });
-    const canonLen = s.to - s.from - (raw.length - collapsed.length);
-    const canon = collapsed.slice(s.from, s.from + canonLen);
-    out.push(spanGeometry(raw, s, canon, s.from - delta, set.width));
-    delta += s.to - s.from - canonLen;
-  }
-  return out;
-}
-
-/**
  * SPEC39 §2.1 (issue #346): the VISIBLE text of a selection confined to one
  * grid cell — its fragments' selected parts joined per SPEC38's rule, no
  * pipes, padding or newlines — for the clipboard. Null when the selection is
@@ -1138,14 +1137,53 @@ const highlightsExt = (
 const hostSelection = Annotation.define<boolean>();
 
 /**
+ * SPEC23 §4 + SPEC24 §1 (issue #357): one report for `onEditState` — the
+ * canonical fields (`canonHead`, `headLine`, `selFrom`, `selTo`) through the
+ * grid seam, the raw ones (`head`, `selAnchor`, `selHead`) as the editor
+ * holds them. One builder for the update listener and the mount seed, so
+ * the two can never disagree on which coordinates a field speaks.
+ */
+function editStateReport(
+  view: EditorView,
+  state: EditorState,
+  rest: Pick<EditStateReport, 'selectionSet' | 'origin'>
+): EditStateReport {
+  const main = state.selection.main;
+  const seam = gridSeamOf(state);
+  const a = seam.displayToCanonical(main.from);
+  const b = seam.displayToCanonical(main.to);
+  return {
+    canonHead: seam.displayToCanonical(main.head),
+    head: main.head,
+    headLine: seam.displayLineToCanonical(state.doc.lineAt(main.head).number),
+    selFrom: Math.min(a, b),
+    selTo: Math.max(a, b),
+    selAnchor: main.anchor,
+    selHead: main.head,
+    selText: state.sliceDoc(main.from, main.to),
+    focused: view.hasFocus,
+    ...rest,
+  };
+}
+
+/**
  * SPEC23 §1 / SPEC25 §1: select a source range, clamped into the document.
  * `reveal` centres the range in the viewport; without it the dispatch is
  * scroll-neutral (SPEC23 §1.3, amended by issue #278).
+ *
+ * SPEC40 §2 (issue #357): `from`/`to` are CANONICAL offsets (the host's
+ * coordinates); both ends cross the grid seam before the dispatch, so a
+ * range below a grid lands on the same text and one inside a cell lands in
+ * that cell — where the SPEC39 §2.1 clamp then confines it (a two-cell
+ * range becomes the anchor's cell).
  */
 function selectSourceRange(view: EditorView, from: number, to: number, reveal: boolean): void {
   const len = view.state.doc.length;
-  const anchor = Math.max(0, Math.min(from, len));
-  const head = Math.max(anchor, Math.min(to, len));
+  const seam = gridSeamOf(view.state);
+  const a = seam.canonicalToDisplay(Math.min(from, to));
+  const b = seam.canonicalToDisplay(Math.max(from, to));
+  const anchor = Math.max(0, Math.min(Math.min(a, b), len));
+  const head = Math.max(anchor, Math.min(Math.max(a, b), len));
   view.dispatch({
     selection: { anchor, head },
     effects: reveal ? EditorView.scrollIntoView(anchor, { y: 'center' }) : [],
@@ -1558,6 +1596,9 @@ export default function Editor({
 }: EditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // SPEC23 §4 (issue #357): set by the mount effect, consumed by the grid
+  // effect — the mount-time seed report waits until the grids have adopted.
+  const seedRef = useRef(false);
 
   const gutterComp = useRef(new Compartment());
   const diffComp = useRef(new Compartment());
@@ -1697,15 +1738,15 @@ export default function Editor({
     // which the rendered-text mapping could not place (Highlight and Comment
     // "did nothing"). Each offset maps through the same span geometry the
     // painting uses (display cell → canonical cell content); one that has no
-    // honest home in a span (a separator line, an untrusted display) falls
-    // back to the line-flat rule the edit-state seam's canonHead uses, and a
-    // RANGED selection with such an end collapses to its caret so no
-    // mis-anchored range is ever offered (SPEC39 §2.1 already clamps a grid
-    // selection to one cell's content, so this is the belt to that brace).
+    // honest home in a span (a separator line, an untrusted display) takes
+    // the total seam's snap (issue #357: the same `displayToCanonical` the
+    // edit-state report's canonHead uses), and a RANGED selection with such
+    // an end collapses to its caret so no mis-anchored range is ever offered
+    // (SPEC39 §2.1 already clamps a grid selection to one cell's content, so
+    // this is the belt to that brace).
     const text = canonicalizeAll(raw, gridSet);
     const geoms = gridGeometry(view.state);
-    const flat = (p: number) => mapOffsetByLineFlat(raw, text, p);
-    const head = docToCanonOffset(geoms, sel.head, raw) ?? flat(sel.head);
+    const head = docToCanonOffset(geoms, sel.head, raw) ?? gridSeamOf(view.state).displayToCanonical(sel.head);
     const from = docToCanonOffset(geoms, sel.from, raw);
     const to = docToCanonOffset(geoms, sel.to, raw);
     const ranged = sel.from < sel.to && from !== null && to !== null && from < to;
@@ -2334,27 +2375,14 @@ export default function Editor({
           }
         }
         if ((u.selectionSet || u.docChanged) && onEditStateRef.current) {
-          const main = u.state.selection.main;
-          const canonHeadOf = (st: EditorState, h: number) => {
-            const gridSet = st.field(tableModeField, false);
-            if (!gridSet || gridSet.spans.length === 0) return h;
-            const raw = st.doc.toString();
-            return mapOffsetByLineFlat(raw, canonicalizeAll(raw, gridSet), h);
-          };
-          onEditStateRef.current({
-            canonHead: canonHeadOf(u.state, main.head),
-            head: main.head,
-            headLine: u.state.doc.lineAt(main.head).number,
-            selFrom: main.from,
-            selTo: main.to,
-            selAnchor: main.anchor,
-            selHead: main.head,
-            selText: u.state.sliceDoc(main.from, main.to),
-            focused: u.view.hasFocus,
-            selectionSet: u.selectionSet,
-            // Issue #310: a host-placed selection is told apart by its annotation.
-            origin: u.transactions.some((tr) => tr.annotation(hostSelection)) ? 'host' : 'editor',
-          });
+          // SPEC40 §2 (issue #357): canonical fields through the grid seam.
+          onEditStateRef.current(
+            editStateReport(u.view, u.state, {
+              selectionSet: u.selectionSet,
+              // Issue #310: a host-placed selection is told apart by its annotation.
+              origin: u.transactions.some((tr) => tr.annotation(hostSelection)) ? 'host' : 'editor',
+            })
+          );
         }
       }),
       // SPEC39 §2.1 (issue #346): ⌘C / ⌘X over a selection confined to one
@@ -2413,12 +2441,8 @@ export default function Editor({
     viewRef.current = view;
     view.focus();
 
-    // SPEC25 §1: apply a carried selection (beats the parked-history one).
-    if (pendingSelectionRef?.current) {
-      const { from, to } = pendingSelectionRef.current;
-      pendingSelectionRef.current = null;
-      selectSourceRange(view, from, to, true); // the carried selection is revealed
-    }
+    // SPEC25 §1: the carried selection is applied by the grid effect below
+    // (issue #357) — after the grids adopt, so it crosses the seam.
 
     if (insertRef) {
       insertRef.current = (text) => {
@@ -2536,31 +2560,11 @@ export default function Editor({
       };
     }
 
-    // SPEC23 §4: seed the seam with the mount-time cursor.
-    if (onEditStateRef.current) {
-      const main = view.state.selection.main;
-      const gridSet = view.state.field(tableModeField, false);
-      const canonHead =
-        !gridSet || gridSet.spans.length === 0
-          ? main.head
-          : mapOffsetByLineFlat(view.state.doc.toString(), canonicalizeAll(view.state.doc.toString(), gridSet), main.head);
-      onEditStateRef.current({
-        canonHead,
-        head: main.head,
-        headLine: view.state.doc.lineAt(main.head).number,
-        selFrom: main.from,
-        selTo: main.to,
-        selAnchor: main.anchor,
-        selHead: main.head,
-        selText: view.state.sliceDoc(main.from, main.to),
-        focused: view.hasFocus,
-        selectionSet: false,
-        // Issue #310: nobody moved this caret — a follow here would race a
-        // preview the user is already scrolling (E58); the split mount's own
-        // settle realign covers the opening alignment.
-        origin: 'host',
-      });
-    }
+    // SPEC23 §4: the mount-time seed report is sent by the grid effect below
+    // (issue #357) — after the grids adopt, so its canonical fields cross the
+    // seam with the geometry in place (a parked grid-form document restored
+    // into a fresh view would otherwise seed raw offsets as canonical).
+    seedRef.current = true;
 
     if (syncRef) {
       const dom = view.scrollDOM;
@@ -2569,9 +2573,12 @@ export default function Editor({
       // never disagree. Focus follows so typing continues where the click
       // landed. `columnOf` picks the caret's place on the line: its start for
       // `goToLine`, the heading text for `goToHeading` (issue #300).
+      // SPEC40 §2 (issue #357): `line` is CANONICAL — the host's line; it
+      // crosses the seam to the editor line it starts on.
       const landCaret = (line: number, columnOf: (text: string) => number) => {
         const doc = view.state.doc;
-        const n = Math.min(Math.max(Math.round(line), 1), doc.lines);
+        const shown = gridSeamOf(view.state).canonicalLineToDisplay(line);
+        const n = Math.min(Math.max(Math.round(shown), 1), doc.lines);
         const target = doc.line(n);
         const pos = target.from + Math.min(columnOf(target.text), target.length);
         view.dispatch({
@@ -2586,14 +2593,19 @@ export default function Editor({
           const block = view.lineBlockAtHeight(y);
           const n = view.state.doc.lineAt(block.from).number;
           const frac = block.height > 0 ? Math.min(Math.max((y - block.top) / block.height, 0), 1) : 0;
-          return n + frac;
+          // SPEC15 §3.2 / SPEC40 §2 (issue #357): reported CANONICAL — the
+          // preview's `data-mm-line` anchors are canonical lines.
+          return gridSeamOf(view.state).displayLineToCanonical(n + frac);
         },
         scrollToLine(line) {
           // CM's own scrollIntoView iterates its height measurements until the
           // position truly sits at the viewport top — manual scrollTop math
           // over estimated block heights lands many lines off in long docs.
+          // SPEC40 §2 (issue #357): `line` is canonical; a row inside a
+          // wrapped grid row lands on its first display line.
           const doc = view.state.doc;
-          const n = Math.min(Math.max(Math.round(line), 1), doc.lines);
+          const shown = gridSeamOf(view.state).canonicalLineToDisplay(line);
+          const n = Math.min(Math.max(Math.round(shown), 1), doc.lines);
           view.dispatch({ effects: EditorView.scrollIntoView(doc.line(n).from, { y: 'start' }) });
         },
         goToLine(line) {
@@ -2750,6 +2762,29 @@ export default function Editor({
     if (!view) return;
     if (tableGridView) gridifyAll(view, valueRef.current);
     else collapseAllGrids(view);
+    // SPEC25 §1: apply a carried selection (beats the parked-history one).
+    // SPEC40 §2 (issue #357): here, on the mount pass, rather than in the
+    // mount effect — the grids have adopted by now, so the canonical range
+    // crosses the seam into the right cell (`selectSourceRange`); it is
+    // consumed once, so a later toggle of the view finds nothing.
+    if (pendingSelectionRef?.current) {
+      const { from, to } = pendingSelectionRef.current;
+      pendingSelectionRef.current = null;
+      selectSourceRange(view, from, to, true); // the carried selection is revealed
+    }
+    // SPEC23 §4: seed the seam with the mount-time cursor — once per mount.
+    if (seedRef.current && onEditStateRef.current) {
+      seedRef.current = false;
+      onEditStateRef.current(
+        editStateReport(view, view.state, {
+          selectionSet: false,
+          // Issue #310: nobody moved this caret — a follow here would race a
+          // preview the user is already scrolling (E58); the split mount's own
+          // settle realign covers the opening alignment.
+          origin: 'host',
+        })
+      );
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableGridView]);
 

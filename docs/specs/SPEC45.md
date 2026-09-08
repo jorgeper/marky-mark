@@ -25,3 +25,9 @@ either pane keeps the editor caret line and the preview's `mm-active-word`
 mark within a small vertical tolerance of each other; scrolling far away
 falls back to interpolation without jumps; both ends still clamp
 mutually reachable (E57/E58 stay green). E57/E58 may not be weakened.
+
+## Amended by issue #357 (2026-09-08)
+
+The interpolation legs read `topLine()` and call `scrollToLine()` in
+CANONICAL lines (SPEC15 §3.2 as amended); the head-row anchor is stamped
+from the report's canonical `canonHead`/`headLine`.

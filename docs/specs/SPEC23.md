@@ -205,3 +205,29 @@ highlighter. README: one bullet under Edit mode covering the trio.
    `@lezer/highlight` entry (§3.3); `src-tauri/Cargo.toml` unchanged;
    version files untouched.
 4. README + ARCHITECTURE.md updated per §6.
+
+## Amended by issue #357 (2026-09-08): the mirror crosses the canonical ↔ display seam
+
+- **§1.3 — amended.** The mapped range is in CANONICAL coordinates (the
+  file's text, what `data-mm-line` stamps and `mapSelectionToSource` speak).
+  Every canonical offset entering the editor — the mirrored range, a
+  preview-click caret (SPEC44 §4), the SPEC25 §1 carry — translates through
+  the editor package's ONE seam (`gridSeam` / `gridSeamOf`,
+  `editor/src/lib/gridSeam.ts`, SPEC40 §2) inside `selectSourceRange` before
+  the dispatch: identity with no SPEC40 grid tracked, the span shift below a
+  grid, the cell's display position inside one. The SPEC39 §2.1 clamp then
+  confines a range that landed inside a cell. No caller does its own delta
+  arithmetic.
+- **§1.4 — amended.** Before the covering-line fallback, a selection that
+  starts inside a table cell and could not be placed whole (it runs on into
+  another cell) maps the selected part of its FIRST cell — what SPEC39 §2.1
+  would keep of it — so a two-cell preview selection lands as that cell's
+  text, never the whole table.
+- **§4 — amended.** The `onEditState` report (`EditStateReport`) leaves
+  the editor CANONICAL where the host slices text: `selFrom`/`selTo`
+  (ordered), `canonHead` and `headLine` cross the seam; `head`, `selAnchor`,
+  `selHead` and `selText` stay raw and are documented as such. The dev-shim
+  `window.__mmEdit` keeps `selFrom`/`selTo` RAW (the issue #356 drag tests
+  read display bounds off them) and adds `canonFrom`/`canonTo`/`canonHead`.
+  The seed report is sent once the grids have adopted, so a parked grid-form
+  document never seeds raw offsets as canonical. E634–E641 pin the contract.

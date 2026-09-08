@@ -75,10 +75,23 @@ declare global {
      * 'browser'; desktop and web builds never set it.
      */
     __mmEdit?: {
+      /** RAW editor-document head. */
       head: number;
+      /** SPEC40 §2 (issue #357): the head's CANONICAL offset and line. */
+      canonHead?: number;
       headLine: number;
+      /**
+       * The ordered main range in RAW editor-document offsets — the SPEC39
+       * §2.1 drag tests (issue #356) read display bounds off these.
+       */
       selFrom: number;
       selTo: number;
+      /**
+       * SPEC40 §2 (issue #357): the same range in CANONICAL offsets — what
+       * the host slices its buffer with; equal to selFrom/selTo without a grid.
+       */
+      canonFrom: number;
+      canonTo: number;
       /** SPEC39 §2.1 (issue #356): the main range's anchor and head, unordered — a drag's anchor must never move. */
       selAnchor: number;
       selHead: number;

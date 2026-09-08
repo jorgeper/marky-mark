@@ -1,15 +1,21 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
+  bootEditorOn,
   caretInto,
+  clickCharBoundary,
   dragAcrossText,
+  editorTopGutterLine,
   freshApp,
   fsRead,
   fsWrite,
   menuSave,
   openGridDoc,
   openSettings,
+  previewTopAnchorLines,
   saveSettings,
+  selectPhraseInPane,
+  selectSpanInPane,
   smartEditAnnotation,
   wordRect,
 } from './helpers';
@@ -1193,4 +1199,318 @@ test('E633: issue #356 — with the grid view off, selection is ordinary text: a
 
   await dragAcrossText(page, EDITOR_PANE, 'fox', 'lazy');
   await expect.poll(async () => (await editState(page)).selText).toBe('fox | lazy');
+});
+
+// ---------------------------------------------------------------------------
+// SPEC40 §2 (issue #357): the canonical ↔ display seam, end to end. Two grid
+// tables — the first tall enough (six rows, each with its own rule line) that
+// raw and canonical lines drift well apart, the second with a cell that wraps
+// at the split width — above a heading and prose, in split edit.
+
+const SEAM_WORDS = Array.from({ length: 30 }, (_, i) => `seam${String(i + 1).padStart(2, '0')}`);
+const SEAM_CELL = SEAM_WORDS.join(' ');
+const SEAM_PHRASE = 'mirrored phrase sits below both tables';
+const SEAM_T1 = [
+  '| Name | Detail |',
+  '| --- | --- |',
+  '| quick brown fox | lazy dog |',
+  '| second | row two |',
+  '| third | row three |',
+  '| fourth | row four |',
+  '| fifth | row five |',
+  '| sixth | row six |',
+].join('\n');
+const SEAM_T2 = `| Key | Value |\n| --- | --- |\n| zq | ${SEAM_CELL} |\n| b | short |`;
+/** Canonical lines the two tables occupy (T1: 8, T2: 4). */
+const SEAM_TABLE_LINES = 12;
+
+function seamDoc(trailing = 0): string {
+  const tail = Array.from({ length: trailing }, (_, i) => `trailing paragraph ${i} gives the panes room to scroll.\n\n`).join('');
+  return `# Seam\n\nintro paragraph above the grids.\n\n${SEAM_T1}\n\n${SEAM_T2}\n\n## Tail Heading\n\nHere the ${SEAM_PHRASE} in prose.\n\nAnother paragraph of prose follows the first one.\n\n${tail}`;
+}
+const PREVIEW_PANE = '[data-testid="split-preview"] .doc';
+const lineOf = (doc: string, needle: string): number => doc.slice(0, doc.indexOf(needle)).split('\n').length;
+
+/** Boot `doc` in split edit (grid view on unless patched off) and let the mount realign settle. */
+async function openSeamSplit(page: Page, path: string, doc: string, patch: Record<string, unknown> = {}): Promise<void> {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await bootEditorOn(page, path, doc, { splitEdit: true, tableGridView: true, ...patch });
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  const grid = page.getByTestId('editor').locator('.cm-line.mm-table-mode-line');
+  if (patch.tableGridView === false) await expect(grid).toHaveCount(0);
+  else await expect.poll(() => grid.count()).toBeGreaterThan(SEAM_TABLE_LINES + 4); // rules + wrapped rows
+  await page.waitForTimeout(300); // the mount-time realign settles
+}
+
+/** The editor's RAW text as CodeMirror lays it out: every .cm-line, newline-joined. */
+const rawEditorText = (page: Page) =>
+  page
+    .getByTestId('editor')
+    .locator('.cm-content')
+    .evaluate((el) => Array.from(el.querySelectorAll('.cm-line')).map((l) => l.textContent ?? '').join('\n'));
+
+/** The seam's report, raw and canonical. */
+const seamState = (page: Page) =>
+  page.evaluate(() => ({
+    selText: window.__mmEdit?.selText ?? '',
+    selFrom: window.__mmEdit?.selFrom ?? -1,
+    selTo: window.__mmEdit?.selTo ?? -1,
+    canonFrom: window.__mmEdit?.canonFrom ?? -1,
+    canonTo: window.__mmEdit?.canonTo ?? -1,
+    canonHead: window.__mmEdit?.canonHead ?? -1,
+    headLine: window.__mmEdit?.headLine ?? -1,
+    focused: window.__mmEdit?.focused ?? false,
+  }));
+
+/** How many extra editor lines the grids add over their canonical lines. */
+const gridExtraLines = async (page: Page) =>
+  (await page.getByTestId('editor').locator('.cm-line.mm-table-mode-line').count()) - SEAM_TABLE_LINES;
+
+/** Blur the editor the way a user does before a preview drag (E80's model). */
+const blurIntoPreview = (page: Page) => page.getByTestId('split-preview').click({ position: { x: 10, y: 10 } });
+
+test('E634: issue #357 — a preview prose phrase below two grids mirrors into the editor as exactly that phrase: selText equals it, canonFrom/canonTo are its canonical offsets, the raw range sits past the grids\' extra bytes', async ({
+  page,
+}) => {
+  const doc = seamDoc();
+  await openSeamSplit(page, '/docs/seam634.md', doc);
+  await blurIntoPreview(page);
+  await selectPhraseInPane(page, PREVIEW_PANE, SEAM_PHRASE);
+  await expect.poll(async () => (await seamState(page)).selText).toBe(SEAM_PHRASE);
+  const at = doc.indexOf(SEAM_PHRASE);
+  const st = await seamState(page);
+  expect([st.canonFrom, st.canonTo]).toEqual([at, at + SEAM_PHRASE.length]);
+  expect(st.headLine).toBe(lineOf(doc, SEAM_PHRASE));
+  const raw = await rawEditorText(page);
+  expect(raw.slice(st.selFrom, st.selTo)).toBe(SEAM_PHRASE);
+  expect(st.selFrom).toBeGreaterThan(at); // the grids' padding sits between
+  // The preview's own selection survived the mirror (SPEC23 §1.3).
+  expect(await page.evaluate(() => document.getSelection()?.toString())).toBe(SEAM_PHRASE);
+});
+
+test('E635: issue #357 — a word selected in a preview table cell selects that word in the matching grid cell: the first table\'s flat cell, then the second table\'s wrapped cell, each on a grid line', async ({
+  page,
+}) => {
+  const doc = seamDoc();
+  await openSeamSplit(page, '/docs/seam635.md', doc);
+  await blurIntoPreview(page);
+  const editor = page.getByTestId('editor');
+  for (const word of ['brown', 'seam17', 'seam03']) {
+    await selectPhraseInPane(page, PREVIEW_PANE, word);
+    await expect.poll(async () => (await seamState(page)).selText).toBe(word);
+    const st = await seamState(page);
+    expect([st.canonFrom, st.canonTo]).toEqual([doc.indexOf(word), doc.indexOf(word) + word.length]);
+    expect(st.headLine).toBe(lineOf(doc, word));
+    // The raw range is the word on a grid line, inside its pipe-bounded cell.
+    const raw = await rawEditorText(page);
+    expect(raw.slice(st.selFrom, st.selTo)).toBe(word);
+    const lineIdx = raw.slice(0, st.selFrom).split('\n').length - 1;
+    const line = raw.split('\n')[lineIdx];
+    const col = st.selFrom - (raw.slice(0, st.selFrom).lastIndexOf('\n') + 1);
+    const cell = line.slice(line.lastIndexOf('|', col) + 1, line.indexOf('|', col));
+    expect(cell.trim()).toContain(word);
+    await expect(editor.locator('.cm-line').nth(lineIdx)).toHaveClass(/mm-table-mode-line/);
+    // The tinted selection is drawn on that grid line (the unfocused editor still draws it).
+    await expect.poll(() => editor.locator('.cm-selectionBackground').count()).toBeGreaterThan(0);
+  }
+});
+
+test('E636: issue #357 — a preview selection from the end of one cell into the next lands in the editor clamped to the FIRST cell\'s selected text: non-empty, no pipe, no page error, no stray range in the selection log', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  const doc = seamDoc();
+  await openSeamSplit(page, '/docs/seam636.md', doc);
+  await blurIntoPreview(page);
+  await page.evaluate(() => {
+    window.__mmSelLog = [];
+  });
+  await selectSpanInPane(page, PREVIEW_PANE, 'fox', 'lazy');
+  await expect.poll(async () => (await seamState(page)).selText).toBe('fox');
+  const st = await seamState(page);
+  expect(st.selText).not.toContain('|');
+  expect([st.canonFrom, st.canonTo]).toEqual([doc.indexOf('fox'), doc.indexOf('fox') + 3]);
+  // Every logged range stays inside the first cell's content.
+  const raw = await rawEditorText(page);
+  const cs = raw.indexOf('quick brown fox');
+  const ce = cs + 'quick brown fox'.length;
+  const log = await page.evaluate(() => window.__mmSelLog ?? []);
+  expect(log.length).toBeGreaterThan(0);
+  for (const e of log) {
+    expect(Math.min(e.anchor, e.head)).toBeGreaterThanOrEqual(cs);
+    expect(Math.max(e.anchor, e.head)).toBeLessThanOrEqual(ce);
+  }
+  expect(errors).toEqual([]);
+});
+
+test('E637: issue #357 — an editor selection below two grids mirrors into the split preview as mark.mm-mirror-sel over exactly that phrase; a selection inside a grid cell mirrors onto that cell\'s text', async ({
+  page,
+}) => {
+  const doc = seamDoc();
+  await openSeamSplit(page, '/docs/seam637.md', doc);
+  const marks = page.locator(`${PREVIEW_PANE} mark.mm-mirror-sel`);
+  const markText = () => marks.evaluateAll((els) => els.map((m) => m.textContent ?? '').join(''));
+
+  await dragAcrossText(page, EDITOR_PANE, 'mirrored', 'tables');
+  await expect.poll(async () => (await seamState(page)).selText).toBe(SEAM_PHRASE);
+  await expect.poll(markText).toBe(SEAM_PHRASE);
+  // No mark strays outside the phrase's paragraph.
+  expect(await marks.evaluateAll((els) => els.every((m) => m.closest('p')?.textContent?.includes('mirrored phrase')))).toBe(true);
+
+  const brown = await wordRect(page, EDITOR_PANE, 'brown');
+  await page.mouse.dblclick(brown.x + brown.width / 2, brown.y + brown.height / 2);
+  await expect.poll(async () => (await seamState(page)).selText).toBe('brown');
+  await expect.poll(markText).toBe('brown');
+  expect(await marks.evaluateAll((els) => els.every((m) => m.closest('td') !== null))).toBe(true);
+});
+
+test('E638: issue #357 — a plain split-preview click below two grids places the editor caret on the clicked CANONICAL offset and scrolls neither pane; in preview-only mode the same click then ⌘E lands the same caret', async ({
+  page,
+}) => {
+  const doc = seamDoc();
+  await openSeamSplit(page, '/docs/seam638.md', doc);
+  const editor = page.locator('[data-testid="editor"] .cm-scroller');
+  const preview = page.getByTestId('split-preview');
+  // Bring the paragraph below the grids into the preview's viewport first
+  // (the tall grids push it under the fold), then let the follower settle.
+  await preview.evaluate((el) => (el.scrollTop = el.scrollHeight));
+  await page.waitForTimeout(400);
+  await expect(page.locator(`${PREVIEW_PANE} p`, { hasText: 'follows' })).toBeInViewport();
+  const edBefore = await editor.evaluate((el) => el.scrollTop);
+  const pvBefore = await preview.evaluate((el) => el.scrollTop);
+  const target = doc.indexOf('follows') + 2;
+  await clickCharBoundary(page, PREVIEW_PANE, 'follows', 2);
+  await expect.poll(async () => (await seamState(page)).canonHead).toBe(target);
+  const st = await seamState(page);
+  expect(st.canonFrom).toBe(target);
+  expect(st.canonTo).toBe(target);
+  expect(st.focused).toBe(false);
+  expect(st.headLine).toBe(lineOf(doc, 'follows'));
+  await page.waitForTimeout(400);
+  expect(Math.abs((await editor.evaluate((el) => el.scrollTop)) - edBefore)).toBeLessThan(2);
+  expect(Math.abs((await preview.evaluate((el) => el.scrollTop)) - pvBefore)).toBeLessThan(2);
+
+  // Preview-only: the click parks the caret; Mod+E carries it (SPEC25 §1)
+  // through the seam once the grids have adopted.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('doc')).toContainText('Another paragraph');
+  await page.waitForTimeout(250);
+  await clickCharBoundary(page, '[data-testid="doc"]', 'follows', 2);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  await expect.poll(async () => (await seamState(page)).canonHead).toBe(target);
+  await expect(page.locator('.cm-content .cm-activeLine')).toContainText('follows');
+});
+
+test('E639: issue #357 — sync scroll speaks canonical lines: the editor scrolled to the wrapped grid row puts the preview on that table, and the preview scrolled to the prose below the grids brings the editor to that paragraph\'s DISPLAY line', async ({
+  page,
+}) => {
+  const doc = seamDoc(40);
+  await openSeamSplit(page, '/docs/seam639.md', doc);
+  await expect(page.getByTestId('sync-scroll-toggle')).toHaveAttribute('data-state', 'on');
+  const editor = page.getByTestId('editor');
+  const scroller = editor.locator('.cm-scroller');
+  const preview = page.getByTestId('split-preview');
+  // Park the caret at the document's end, far from both legs, so the
+  // SPEC45 cue window never applies and the SPEC15 line interpolation runs.
+  await editor.locator('.cm-line').first().click();
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
+  await expect.poll(async () => (await seamState(page)).headLine).toBeGreaterThan(50);
+  await page.waitForTimeout(400);
+
+  // Editor leads: the wrapped row's first display line at the viewport top.
+  // CodeMirror renders only the viewport, so come back to the top (the caret
+  // stays at the end) before the grid line can be found in the DOM.
+  await scroller.evaluate((sc) => (sc.scrollTop = 0));
+  await expect.poll(() => editorTopGutterLine(page)).toBe(1);
+  await page.waitForTimeout(300);
+  const t2Line = lineOf(doc, '| Key |');
+  const rowRaw = await scroller.evaluate((sc) => {
+    const lines = Array.from(sc.querySelectorAll('.cm-line'));
+    const row = lines.find((l) => l.classList.contains('mm-table-mode-line') && (l.textContent ?? '').includes('zq'))!;
+    sc.scrollTop = row.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop;
+    return lines.indexOf(row) + 1;
+  });
+  expect(rowRaw).toBeGreaterThan(t2Line + 2 + 4); // the raw line really drifted below the canonical one
+  await expect.poll(() => editorTopGutterLine(page)).toBe(rowRaw);
+  await expect
+    .poll(async () => {
+      const { before, after } = await previewTopAnchorLines(page);
+      return before <= t2Line && after >= t2Line;
+    })
+    .toBe(true);
+
+  // Preview leads: the paragraph below the grids at the preview's top.
+  const pLine = lineOf(doc, 'Another paragraph');
+  await preview.evaluate((sc, line) => {
+    const el = sc.querySelector<HTMLElement>(`[data-mm-line="${line}"]`)!;
+    sc.scrollTop = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop;
+  }, pLine);
+  const expected = pLine + (await gridExtraLines(page));
+  await expect.poll(() => editorTopGutterLine(page)).toBeGreaterThanOrEqual(expected - 2);
+  expect(await editorTopGutterLine(page)).toBeLessThanOrEqual(expected + 2);
+});
+
+test('E640: issue #357 — Table ▸ grid toggle keeps a ranged selection: the prose phrase below the grids stays selected off and on again, and so does a word inside a cell', async ({
+  page,
+}) => {
+  const doc = seamDoc();
+  await openSeamSplit(page, '/docs/seam640.md', doc);
+  const editor = page.getByTestId('editor');
+  const grid = editor.locator('.cm-line.mm-table-mode-line');
+  const toggle = async (expectGrid: boolean) => {
+    await page.getByTestId('smart-edit-gutter').click();
+    await page.getByTestId('smart-edit-table').click();
+    await page.getByTestId('smart-edit-toggle-grid').click();
+    if (expectGrid) await expect.poll(() => grid.count()).toBeGreaterThan(SEAM_TABLE_LINES);
+    else await expect(grid).toHaveCount(0);
+    await page.waitForTimeout(300); // the re-fit settles before the next gesture
+  };
+
+  await dragAcrossText(page, EDITOR_PANE, 'mirrored', 'tables');
+  await expect.poll(async () => (await seamState(page)).selText).toBe(SEAM_PHRASE);
+  await toggle(false);
+  await expect.poll(async () => (await seamState(page)).selText).toBe(SEAM_PHRASE);
+  expect((await seamState(page)).canonFrom).toBe(doc.indexOf(SEAM_PHRASE));
+  await toggle(true);
+  await expect.poll(async () => (await seamState(page)).selText).toBe(SEAM_PHRASE);
+  expect((await seamState(page)).canonFrom).toBe(doc.indexOf(SEAM_PHRASE));
+
+  const brown = await wordRect(page, EDITOR_PANE, 'brown');
+  await page.mouse.dblclick(brown.x + brown.width / 2, brown.y + brown.height / 2);
+  await expect.poll(async () => (await seamState(page)).selText).toBe('brown');
+  await toggle(false);
+  await expect.poll(async () => (await seamState(page)).selText).toBe('brown');
+  expect((await seamState(page)).canonFrom).toBe(doc.indexOf('brown'));
+  await toggle(true);
+  await expect.poll(async () => (await seamState(page)).selText).toBe('brown');
+  expect((await seamState(page)).canonFrom).toBe(doc.indexOf('brown'));
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+});
+
+test('E641: issue #357 — with the grid view off the seam is the identity: a preview phrase below raw tables and a word in a raw cell mirror as exactly the raw text, canonical and raw offsets equal', async ({
+  page,
+}) => {
+  const doc = seamDoc();
+  await openSeamSplit(page, '/docs/seam641.md', doc, { tableGridView: false });
+  await blurIntoPreview(page);
+  await selectPhraseInPane(page, PREVIEW_PANE, SEAM_PHRASE);
+  await expect.poll(async () => (await seamState(page)).selText).toBe(SEAM_PHRASE);
+  let st = await seamState(page);
+  expect([st.selFrom, st.selTo, st.canonFrom, st.canonTo]).toEqual([
+    doc.indexOf(SEAM_PHRASE),
+    doc.indexOf(SEAM_PHRASE) + SEAM_PHRASE.length,
+    doc.indexOf(SEAM_PHRASE),
+    doc.indexOf(SEAM_PHRASE) + SEAM_PHRASE.length,
+  ]);
+  await selectPhraseInPane(page, PREVIEW_PANE, 'brown');
+  await expect.poll(async () => (await seamState(page)).selText).toBe('brown');
+  st = await seamState(page);
+  expect([st.selFrom, st.selTo, st.canonFrom, st.canonTo]).toEqual([
+    doc.indexOf('brown'),
+    doc.indexOf('brown') + 5,
+    doc.indexOf('brown'),
+    doc.indexOf('brown') + 5,
+  ]);
 });

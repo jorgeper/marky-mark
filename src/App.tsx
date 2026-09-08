@@ -1217,7 +1217,17 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     (s: Omit<EditStateReport, 'origin'>) => {
       if (stateRef.current.platform?.kind !== 'browser') return;
       const { selectionSet, ...rest } = s;
-      window.__mmEdit = { nav: window.__mmEdit?.nav ?? false, ...rest };
+      // SPEC40 §2 (issue #357): the report's selFrom/selTo are CANONICAL;
+      // the seam keeps selFrom/selTo RAW (the #356 drag tests read display
+      // bounds off them) and exposes the canonical pair as canonFrom/canonTo.
+      window.__mmEdit = {
+        nav: window.__mmEdit?.nav ?? false,
+        ...rest,
+        canonFrom: s.selFrom,
+        canonTo: s.selTo,
+        selFrom: Math.min(s.selAnchor, s.selHead),
+        selTo: Math.max(s.selAnchor, s.selHead),
+      };
       // SPEC39 §2.1 (issue #356): every selection-setting update, in order.
       if (selectionSet) (window.__mmSelLog ??= []).push({ anchor: s.selAnchor, head: s.selHead });
     },
@@ -1230,6 +1240,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       headLine: 1,
       selFrom: 0,
       selTo: 0,
+      canonFrom: 0,
+      canonTo: 0,
       selAnchor: 0,
       selHead: 0,
       selText: '',
@@ -1252,7 +1264,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     if (!pane.contains(range.startContainer) || !pane.contains(range.endContainer)) return null;
     const text = sel.toString();
     if (!text.trim()) return null;
-    const buffer = stateRef.current.buffer;
+    // SPEC40 §2 (issue #357): the CANONICAL text — the `data-mm-line` stamps
+    // and the offsets handed to the editor speak it; the live buffer is the
+    // grid's display text while a grid shows (SPEC38 §3.5).
+    const buffer = canonicalOf(stateRef.current.buffer);
     const lines = buffer.split('\n');
     const stamped = Array.from(pane.querySelectorAll<HTMLElement>('[data-mm-line]'));
     const blockOf = (node: Node): HTMLElement | null => {
@@ -1279,6 +1294,23 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     if (toLine < fromLine) toLine = fromLine;
     const hit = mapSelectionToSource(buffer, fromLine, toLine, text);
     if (hit) return hit;
+    // SPEC23 §1.4 (issue #357): a selection that starts inside a table cell
+    // and could not be placed whole (it runs on into another cell, whose
+    // text no source line joins with a space) maps the selected part of its
+    // FIRST cell — what SPEC39 §2.1 keeps of it in the editor — before the
+    // line-range fallback would hand over the whole table.
+    const startNode =
+      range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? (range.startContainer as HTMLElement)
+        : range.startContainer.parentElement;
+    const startCell = startNode?.closest<HTMLElement>('td, th');
+    if (startCell && pane.contains(startCell) && !startCell.contains(range.endContainer)) {
+      const part = document.createRange();
+      part.setStart(range.startContainer, range.startOffset);
+      part.setEnd(startCell, startCell.childNodes.length);
+      const cellHit = mapSelectionToSource(buffer, fromLine, toLine, part.toString());
+      if (cellHit) return cellHit;
+    }
     // Fallback: the covering source line range — never a wrong guess.
     const starts: number[] = [0];
     for (let n = 0; n < lines.length - 1; n++) starts.push(starts[n] + lines[n].length + 1);
@@ -1286,7 +1318,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     let hi = Math.min(toLine, lines.length);
     while (hi > lo && lines[hi - 1].trim() === '') hi--;
     return { from: starts[lo - 1], to: starts[hi - 1] + lines[hi - 1].length };
-  }, []);
+  }, [canonicalOf]);
 
   /**
    * Issue #178: resolve a collapsed DOM position inside a preview pane to the
@@ -1304,7 +1336,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         : range.startContainer.parentElement;
     const blockEl = base?.closest<HTMLElement>('[data-mm-line]');
     if (!blockEl) return null;
-    const buffer = stateRef.current.buffer;
+    const buffer = canonicalOf(stateRef.current.buffer); // SPEC40 §2 (issue #357): canonical, like the stamps
     const lines = buffer.split('\n');
     const blockLine = Number(blockEl.dataset.mmLine);
     const stamped = Array.from(pane.querySelectorAll<HTMLElement>('[data-mm-line]'));
@@ -1330,7 +1362,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       rs,
       blockText,
     };
-  }, []);
+  }, [canonicalOf]);
 
   /**
    * Issue #178: map a COLLAPSED caret sitting in a preview pane to a source
@@ -1413,8 +1445,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     if (st.mode === 'preview') {
       prefill = document.getSelection()?.toString() ?? '';
     } else {
-      const { from, to } = lastEditorSelRef.current;
-      prefill = st.buffer.slice(from, to);
+      const { from, to } = lastEditorSelRef.current; // canonical (issue #357)
+      prefill = canonicalOf(st.buffer).slice(from, to);
     }
     if (prefill.trim() && prefill.length <= 200) setFindQuery(prefill);
     setFindOpen(true);
@@ -1499,7 +1531,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   const stampHeadAnchor = useCallback(
     (pane: HTMLElement, head: number, headLine: number) => {
       clearHeadAnchor(pane);
-      const buffer = stateRef.current.buffer;
+      // SPEC40 §2 (issue #357): `head`/`headLine` arrive canonical, so the
+      // text they index must be the canonical one too.
+      const buffer = canonicalOf(stateRef.current.buffer);
       const stamped = Array.from(pane.querySelectorAll<HTMLElement>('[data-mm-line]'));
       if (stamped.length === 0) return;
       const anchors = stamped.map((el) => Number(el.dataset.mmLine));
@@ -1539,7 +1573,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         return;
       }
     },
-    [clearHeadAnchor]
+    [clearHeadAnchor, canonicalOf]
   );
 
   /**
@@ -1641,7 +1675,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           stampHead();
         }
         if (!s.focused || s.selFrom === s.selTo) return;
-        const buffer = stateRef.current.buffer;
+        // SPEC40 §2 (issue #357): selFrom/selTo are canonical; slice the
+        // canonical text, not the grid's display buffer.
+        const buffer = canonicalOf(stateRef.current.buffer);
         const needle = visibleTextForRange(buffer, s.selFrom, s.selTo);
         if (!needle.replace(/\s+/g, ' ').trim()) return;
         // Region: the stamped blocks covering the selection's source lines.
@@ -1671,7 +1707,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         }
       }, 150);
     },
-    [seamEditState, clearMirrorMarks, stampHeadAnchor]
+    [seamEditState, clearMirrorMarks, stampHeadAnchor, canonicalOf]
   );
 
   /** SPEC20 §2: transient feedback chip; each message restarts the 4s clock. */
