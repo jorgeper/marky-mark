@@ -278,14 +278,18 @@ export function deleteTableAt(text: string, offset: number): { text: string; fro
 // SPEC37 §1.5: the aligned-mode helpers.
 
 /** A row line's cells with absolute spans: pipe-bounded region + trimmed content. */
-interface CellSpan {
+export interface CellSpan {
   cellStart: number;
   cellEnd: number;
   contentStart: number;
   contentEnd: number;
 }
 
-function lineCellSpans(text: string, lineStart: number, lineEnd: number): CellSpan[] {
+/**
+ * Issue #344: exported for the grid annotation mapping (gridOffsets.ts), which
+ * needs the same per-cell content spans over the CANONICAL table text.
+ */
+export function lineCellSpans(text: string, lineStart: number, lineEnd: number): CellSpan[] {
   const line = text.slice(lineStart, lineEnd);
   const pipes: number[] = [];
   for (let i = 0; i < line.length; i++) {

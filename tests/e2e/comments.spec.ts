@@ -20,6 +20,7 @@ import {
   NAV_P3,
   openCommentsPane,
   openFolderRoot,
+  openGridDoc,
   openPath,
   openSettings,
   openViewMenu,
@@ -2987,4 +2988,414 @@ test('E473: PRD 023 §13 — outside pointerdown, scroll and selection collapse 
   await expect(page.getByTestId('composer')).toHaveCount(0);
   await expect(page.locator('mark.hl')).toHaveCount(0);
   expect(await fsRead(page, WELCOME_SIDECAR)).toBeNull();
+});
+
+// --- Issue #344: every context paints, code backgrounds, table grids -------
+
+const CONTEXT_DOC = '/docs/every-context.md';
+/**
+ * Issue #344 Req 1: one document carrying every context a highlight or
+ * comment can sit in — prose, bold, italic, strikethrough, inline code, a
+ * labelled and an unlabelled fence, a blockquote, bullet / numbered / task
+ * items, a heading, link text, a table cell, a callout body. Each context
+ * gets one highlight ("<ctx> alpha") and one comment ("<ctx> beta"), so every
+ * record is a distinct data-cid whose exact text is unique in the document.
+ */
+const CONTEXT_SOURCE = [
+  '# Heading alpha and heading beta',
+  '',
+  'Plain prose alpha and prose beta here.',
+  '',
+  'Some **bold alpha and bold beta** text.',
+  '',
+  'Some *italic alpha and italic beta* text.',
+  '',
+  'Some ~~struck alpha and struck beta~~ text.',
+  '',
+  'Call `code alpha and code beta` now.',
+  '',
+  '```ts',
+  'const fenceAlpha = 1;',
+  'const fenceBeta = 2;',
+  'const fenceGhost = 3;',
+  '```',
+  '',
+  '```',
+  'plain fence alpha',
+  'plain fence beta',
+  '```',
+  '',
+  '> quote alpha and quote beta',
+  '',
+  '- bullet alpha and bullet beta',
+  '',
+  '1. number alpha and number beta',
+  '',
+  '- [ ] task alpha and task beta',
+  '',
+  'See [link alpha and link beta](https://example.com/z) after.',
+  '',
+  '| Name | Detail |',
+  '| --- | --- |',
+  '| cell alpha and cell beta | other cell text |',
+  '',
+  '> [!NOTE]',
+  '> callout alpha and callout beta',
+  '',
+].join('\n');
+
+/** cid → the rendered `exact` each record anchors to (also its visible source text). */
+const CONTEXT_RECORDS: Array<[hl: string, hlExact: string, comment: string, commentExact: string]> = [
+  ['h-head', 'Heading alpha', 'c-head', 'heading beta'],
+  ['h-prose', 'prose alpha', 'c-prose', 'prose beta'],
+  ['h-bold', 'bold alpha', 'c-bold', 'bold beta'],
+  ['h-italic', 'italic alpha', 'c-italic', 'italic beta'],
+  ['h-strike', 'struck alpha', 'c-strike', 'struck beta'],
+  ['h-code', 'code alpha', 'c-code', 'code beta'],
+  ['h-fence-l', 'fenceAlpha = 1', 'c-fence-l', 'fenceBeta = 2'],
+  ['h-fence-u', 'plain fence alpha', 'c-fence-u', 'plain fence beta'],
+  ['h-quote', 'quote alpha', 'c-quote', 'quote beta'],
+  ['h-bullet', 'bullet alpha', 'c-bullet', 'bullet beta'],
+  ['h-number', 'number alpha', 'c-number', 'number beta'],
+  ['h-task', 'task alpha', 'c-task', 'task beta'],
+  ['h-link', 'link alpha', 'c-link', 'link beta'],
+  ['h-cell', 'cell alpha', 'c-cell', 'cell beta'],
+  ['h-callout', 'callout alpha', 'c-callout', 'callout beta'],
+];
+const CONTEXT_COLORS = ['yellow', 'green', 'orange', 'pink'];
+
+/** The editor text every record must paint over — its exact text, in every mode. */
+const CONTEXT_PAINT: Record<string, string> = Object.fromEntries(
+  CONTEXT_RECORDS.flatMap(([h, hx, c, cx]) => [
+    [h, hx],
+    [c, cx],
+  ])
+);
+
+/**
+ * Caret placements inside each highlight's range: the line to click and how
+ * many ArrowRights from line start land INSIDE the range whether the line's
+ * syntax is revealed (caret on the line) or hidden (live preview / views).
+ */
+const CONTEXT_CARETS: Array<[cid: string, line: string, rights: number]> = [
+  ['h-head', 'Heading alpha', 5],
+  ['h-prose', 'prose alpha', 8],
+  ['h-bold', 'bold alpha', 9],
+  ['h-italic', 'italic alpha', 9],
+  ['h-strike', 'struck alpha', 9],
+  ['h-code', 'code alpha', 8],
+  ['h-fence-l', 'fenceAlpha', 9],
+  ['h-fence-u', 'plain fence alpha', 5],
+  ['h-quote', 'quote alpha', 4],
+  ['h-bullet', 'bullet alpha', 5],
+  ['h-number', 'number alpha', 6],
+  ['h-task', 'task alpha', 8],
+  ['h-link', 'link alpha', 8],
+  ['h-cell', 'cell alpha', 4],
+  ['h-callout', 'callout alpha', 6],
+];
+
+async function seedContextDoc(page: import('@playwright/test').Page): Promise<void> {
+  await fsWrite(page, CONTEXT_DOC, CONTEXT_SOURCE);
+  const base = { author: 'Reader', createdAt: '2026-01-01T00:00:00.000Z' };
+  const anchor = (exact: string) => ({ exact, prefix: '', suffix: '', start: 0, end: exact.length });
+  const comments = CONTEXT_RECORDS.flatMap(([h, hx, c, cx], i) => [
+    { kind: 'highlight', id: h, ...base, color: CONTEXT_COLORS[i % 4], anchor: anchor(hx) },
+    { kind: 'comment', id: c, ...base, body: `${c} note`, resolved: false, thread: [], anchor: anchor(cx) },
+  ]);
+  // Req 6: a RESOLVED comment inside the labelled fence body — the ghost treatment.
+  comments.push({
+    kind: 'comment',
+    id: 'c-ghost',
+    ...base,
+    body: 'resolved fence note',
+    resolved: true,
+    thread: [],
+    anchor: anchor('fenceGhost = 3'),
+  });
+  await fsWrite(page, `${CONTEXT_DOC}.comments.json`, JSON.stringify({ version: '2.0.0', comments }, null, 2));
+  await page.goto(`/#open=${CONTEXT_DOC}`);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Heading alpha and heading beta');
+}
+
+/** Issue #344 Req 2: with the caret inside each range, the mark still covers exactly its text. */
+async function expectCaretPaint(page: import('@playwright/test').Page, editor: Locator): Promise<void> {
+  for (const [cid, line, rights] of CONTEXT_CARETS) {
+    await caretInto(page, line, rights);
+    const hl = editor.locator(`.mm-hl[data-cid="${cid}"]`);
+    await expect.poll(async () => (await hl.allTextContents()).join(''), { message: `${cid} with caret inside` }).toBe(
+      CONTEXT_PAINT[cid]
+    );
+  }
+}
+
+test('E608: issue #344 — every context (prose, bold, italic, strike, inline code, both fences, quote, bullet/numbered/task, heading, link, grid cell, callout) paints its highlight and its comment over exactly the anchored text in split edit and plain edit, with the caret inside each range; active/flash land on code, fence and cell records and a resolved fence comment ghosts', async ({
+  page,
+}) => {
+  await seedContextDoc(page);
+  const editor = page.getByTestId('editor');
+
+  // Split edit (the default), grid on (the default), live preview off.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  await expect(editor.locator('.cm-line.mm-table-mode-line').first()).toBeVisible();
+  await expectSyntaxPaint(editor, CONTEXT_PAINT);
+  await expect(editor.locator('.mm-hl[data-cid="h-code"]').first()).toHaveAttribute('data-color', 'green');
+  await expect(editor.locator('.mm-hl[data-cid="c-code"]').first()).not.toHaveAttribute('data-color', /./);
+  await expect(editor.locator('.mm-hl.ghost[data-cid="c-ghost"]').first()).toBeVisible();
+  await expect.poll(async () => (await editor.locator('.mm-hl[data-cid="c-ghost"]').allTextContents()).join('')).toBe(
+    'fenceGhost = 3'
+  );
+  await expectCaretPaint(page, editor);
+
+  // Plain edit.
+  await page.keyboard.press('Control+e');
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await saveSettings(page);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  await expectSyntaxPaint(editor, CONTEXT_PAINT);
+  await expectCaretPaint(page, editor);
+
+  // Req 6 (PRD 023 §18): activating a card lands the active cue and the
+  // reveal flash on the decoration — inside inline code, a fence body and a
+  // grid cell alike (the E590 tail, in the contexts this issue opened up).
+  await openCommentsPane(page);
+  await page.waitForTimeout(300); // the mapping's 200ms debounce (E445)
+  for (const cid of ['c-code', 'c-fence-l', 'c-cell']) {
+    await page.locator(`[data-testid="comment-card"][data-cid="${cid}"]`).click();
+    await expect(editor.locator(`.mm-hl.active[data-cid="${cid}"]`).first()).toBeVisible();
+    await expect(editor.locator(`.mm-hl.flash[data-cid="${cid}"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-testid="comment-card"][data-cid="${cid}"]`)).toHaveClass(/active/);
+  }
+});
+
+test('E609: issue #344 — with live preview on (PRD 006 hidden syntax) every record paints over exactly its visible text, and keeps doing so with the caret inside each range while the syntax is revealed', async ({
+  page,
+}) => {
+  await seedContextDoc(page);
+  await openSettings(page, 'editor');
+  await page.getByTestId('editor-live-preview').check();
+  await saveSettings(page);
+  const editor = page.getByTestId('editor');
+
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  await expect(editor.locator('.mm-lp-code').first()).toBeVisible();
+  await expectSyntaxPaint(editor, CONTEXT_PAINT);
+  await expectCaretPaint(page, editor);
+
+  // Plain edit, still live.
+  await page.keyboard.press('Control+e');
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await saveSettings(page);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  await expectSyntaxPaint(editor, CONTEXT_PAINT);
+  await expectCaretPaint(page, editor);
+});
+
+test('E610: issue #344 (SPEC23 §3) — over inline code and both fence bodies the highlight nests INSIDE the code span and its tint resolves above --mm-code-bg, in Crisp and in One Dark, and inside the live-preview code span too', async ({
+  page,
+}) => {
+  await seedContextDoc(page);
+  await openSettings(page);
+  await page.getByTestId('settings-theme-light').selectOption('crisp');
+  await page.getByTestId('settings-theme-dark').selectOption('one-dark');
+  const useDark = page.getByTestId('use-dark-theme');
+  if (!(await useDark.isChecked())) await useDark.check();
+  await saveSettings(page);
+  const themeBg = () => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor);
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect.poll(themeBg).toBe('rgb(255, 255, 255)'); // Crisp
+
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.mm-hl[data-cid="h-code"]').first()).toBeVisible();
+
+  // The DOM nesting assertion: the mark is a descendant of the code span
+  // (so its background paints above the code background and below the
+  // text), and its resolved background is the tint, not transparent and
+  // not the code background itself.
+  const probe = (cid: string, codeSel: string) =>
+    editor.locator(`.mm-hl[data-cid="${cid}"]`).first().evaluate((el, sel) => {
+      const code = el.closest(sel) as HTMLElement | null;
+      return {
+        nested: code !== null,
+        bg: getComputedStyle(el).backgroundColor,
+        codeBg: code ? getComputedStyle(code).backgroundColor : null,
+      };
+    }, codeSel);
+  const expectTinted = async (cid: string, codeSel: string) => {
+    const r = await probe(cid, codeSel);
+    expect(r.nested, `${cid} nested in ${codeSel}`).toBe(true);
+    expect(r.bg, `${cid} tint`).not.toBe('rgba(0, 0, 0, 0)');
+    expect(r.bg, `${cid} tint`).not.toBe('transparent');
+    expect(r.bg, `${cid} tint differs from the code background`).not.toBe(r.codeBg);
+  };
+  const CODE_CASES: Array<[string, string]> = [
+    ['h-code', '.mm-md-code'], // inline code: the SPEC23 §3 highlighter's span
+    ['h-fence-l', '.mm-md-code'], // labelled (mounted) fence: codeBodyMark
+    ['h-fence-u', '.mm-md-code'], // unlabelled fence: the highlighter's span
+    ['c-fence-l', '.mm-md-code'], // a comment record, the fixed comment tint
+  ];
+  for (const [cid, sel] of CODE_CASES) await expectTinted(cid, sel);
+
+  // Dark theme: same nesting, same visible tint.
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect.poll(themeBg).toBe('rgb(40, 44, 52)'); // One Dark
+  for (const [cid, sel] of CODE_CASES) await expectTinted(cid, sel);
+
+  // PRD 006 live preview: inline code becomes .mm-lp-code — nested the same way.
+  await page.keyboard.press('Control+e');
+  await openSettings(page, 'editor');
+  await page.getByTestId('editor-live-preview').check();
+  await saveSettings(page);
+  await page.keyboard.press('Control+e');
+  await expect(editor.locator('.mm-lp-code').first()).toBeVisible();
+  await expectTinted('h-code', '.mm-lp-code');
+  await expectTinted('c-code', '.mm-lp-code');
+});
+
+const GRID_DOC = '/docs/grid-annotations.md';
+const GRID_SIDECAR = `${GRID_DOC}.comments.json`;
+const GRID_SOURCE = 'top\n\n| Name | Detail |\n| --- | --- |\n| quick brown fox | lazy dog |\n\nbottom\n';
+
+/** After a reload the restart restores the document (in edit mode); judge the round trip in preview. */
+async function restoredInPreview(page: import('@playwright/test').Page): Promise<void> {
+  await expect(page.getByTestId('docname')).toContainText('grid-annotations.md', { timeout: 15000 });
+  await expect(page.getByTestId('doc').or(page.getByTestId('editor')).first()).toBeVisible();
+  if (await page.getByTestId('editor').count()) await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('doc')).toBeVisible();
+}
+
+type SidecarRecord = { kind: string; color?: string; anchor: { exact: string } };
+const gridRecords = async (page: import('@playwright/test').Page): Promise<SidecarRecord[]> => {
+  const raw = await fsRead(page, GRID_SIDECAR);
+  return raw ? (JSON.parse(raw).comments as SidecarRecord[]) : [];
+};
+
+test('E611: issue #344 (SPEC40 §2, PRD 023 §19) — grid view ON: a cell selection turned into a highlight (menu row) or a comment (hotkey) anchors to the canonical cell text, a selection pushed past the cell edge stays clipped to one cell (SPEC39 §2.1), and after save + reload both records paint over the cell in the editor and in the preview', async ({
+  page,
+}) => {
+  await openGridDoc(page, GRID_DOC, GRID_SOURCE, 'top');
+  const editor = page.getByTestId('editor');
+  const selText = () => page.evaluate(() => window.__mmEdit?.selText);
+
+  // Select the whole first cell by extending the head through it (a
+  // Shift+End would put the head in the LAST cell, and SPEC39 §2.1 clamps
+  // a ranged selection to its head's cell).
+  const extend = async (n: number) => {
+    for (let i = 0; i < n; i++) await page.keyboard.press('Shift+ArrowRight');
+  };
+  await caretInto(page, 'quick brown', 2);
+  await extend('quick brown fox'.length);
+  await expect.poll(selText).toBe('quick brown fox');
+  await smartEditAnnotation(page, 'highlight', 'hl-yellow');
+  await expect.poll(async () => (await gridRecords(page)).map((r) => r.anchor.exact), { timeout: 5000 }).toEqual([
+    'quick brown fox',
+  ]);
+  // …and it paints in the grid at once.
+  await expect.poll(async () => (await editor.locator('.mm-hl[data-color="yellow"]').allTextContents()).join('')).toBe(
+    'quick brown fox'
+  );
+
+  // A comment via the hotkey over the second cell.
+  await caretInto(page, 'lazy dog', 20);
+  await extend('lazy dog'.length);
+  await expect.poll(selText).toBe('lazy dog');
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
+  await page.getByTestId('composer-input').fill('a note on a cell');
+  await page.getByTestId('composer-submit').click();
+  await expect.poll(async () => (await gridRecords(page)).map((r) => r.anchor.exact), { timeout: 5000 }).toEqual([
+    'quick brown fox',
+    'lazy dog',
+  ]);
+
+  // SPEC39 §2.1: a selection dragged past the cell edge is clipped to the
+  // cell, so Highlight makes exactly one record whose exact stays inside it.
+  await caretInto(page, 'quick brown', 8);
+  await extend('brown fox'.length + 4); // four presses past the cell's content end
+  await expect.poll(selText).toBe('brown fox');
+  await smartEditAnnotation(page, 'highlight', 'hl-green');
+  await expect.poll(async () => (await gridRecords(page)).length, { timeout: 5000 }).toBe(3);
+  const records = await gridRecords(page);
+  expect(records.filter((r) => r.color === 'green').map((r) => r.anchor.exact)).toEqual(['brown fox']);
+  for (const r of records) expect(r.anchor.exact).not.toMatch(/[|↩]|\s{2}/);
+
+  // Save, reload: the preview paints both cells' records over the cell text…
+  await menuSave(page);
+  await page.reload();
+  await restoredInPreview(page);
+  const doc = page.getByTestId('doc');
+  await expect(doc).toContainText('quick brown fox');
+  await expect(doc.locator('td mark.hl[data-color="yellow"]').first()).toHaveText('quick brown fox');
+  await expect(doc.locator('td mark.hl:not([data-color])').first()).toHaveText('lazy dog');
+  // …and so does the editor, over the grid.
+  await page.keyboard.press('Control+e');
+  await expect(editor.locator('.cm-line.mm-table-mode-line').first()).toBeVisible();
+  await expect.poll(async () => (await editor.locator('.mm-hl[data-color="yellow"]').allTextContents()).join('')).toBe(
+    'quick brown fox'
+  );
+  await expect.poll(async () => (await editor.locator('.mm-hl[data-color="green"]').allTextContents()).join('')).toBe(
+    'brown fox'
+  );
+  await expect.poll(async () => (await editor.locator('.mm-hl:not([data-color])').allTextContents()).join('')).toBe(
+    'lazy dog'
+  );
+});
+
+test('E612: issue #344 — grid view OFF: stored table records paint over the raw pipe-table text, and a cell selection → Highlight → save + reload round-trips over the raw table in the editor and in the preview', async ({
+  page,
+}) => {
+  await fsWrite(page, GRID_DOC, GRID_SOURCE);
+  const base = { author: 'Reader', createdAt: '2026-01-01T00:00:00.000Z' };
+  await fsWrite(
+    page,
+    GRID_SIDECAR,
+    JSON.stringify({
+      version: '2.0.0',
+      comments: [
+        { kind: 'highlight', id: 'h-cell', ...base, color: 'yellow', anchor: { exact: 'quick brown', prefix: '', suffix: ' fox', start: 0, end: 11 } },
+        { kind: 'comment', id: 'c-cell', ...base, body: 'dog note', resolved: false, thread: [], anchor: { exact: 'lazy dog', prefix: '', suffix: '', start: 0, end: 8 } },
+      ],
+    })
+  );
+  await page.goto(`/#open=${GRID_DOC}`);
+  await expect(page.getByTestId('doc')).toContainText('quick brown fox');
+  await openSettings(page, 'editor');
+  await expect(page.getByTestId('settings-table-grid')).toBeChecked();
+  await page.getByTestId('settings-table-grid').uncheck();
+  await saveSettings(page);
+
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(0);
+  await expectSyntaxPaint(editor, { 'h-cell': 'quick brown', 'c-cell': 'lazy dog' });
+
+  // Select "fox" in the raw line and highlight it.
+  await caretInto(page, 'quick brown fox', 14);
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+ArrowRight');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('fox');
+  await smartEditAnnotation(page, 'highlight', 'hl-green');
+  await expect.poll(async () => (await gridRecords(page)).filter((r) => r.color === 'green').map((r) => r.anchor.exact), {
+    timeout: 5000,
+  }).toEqual(['fox']);
+
+  await menuSave(page);
+  await page.reload();
+  await restoredInPreview(page);
+  const doc = page.getByTestId('doc');
+  await expect(doc).toContainText('quick brown fox');
+  await expect(doc.locator('td mark.hl[data-color="green"]').first()).toHaveText('fox');
+  await page.keyboard.press('Control+e');
+  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(0);
+  await expectSyntaxPaint(editor, { 'h-cell': 'quick brown', 'c-cell': 'lazy dog' });
+  await expect.poll(async () => (await editor.locator('.mm-hl[data-color="green"]').allTextContents()).join('')).toBe('fox');
 });

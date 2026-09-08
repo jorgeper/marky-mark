@@ -7371,10 +7371,12 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   const resolveAnnotationModel = (sel: AnnotationSelection): AnnotationMenuModel => {
     const model = annotationMenuModel({
       gate: annotationGate,
-      // The editor's own doc text and offsets (grid form included) — its
-      // visible text is what the rendered cache is matched against, and a
-      // range inside a table grid simply fails to map (disabled, never
-      // mis-anchored). Caret-mark hits arrive pre-resolved (idsAtHead).
+      // The editor's CANONICAL text and canonical offsets (issue #344, PRD
+      // 023 §19): the package collapses every table grid and maps the
+      // selection through the same span geometry its painting uses, so a
+      // grid-cell selection anchors to the file's text rather than failing
+      // to map against the rendered cache (Highlight/Comment "did nothing"
+      // in a grid). Caret-mark hits arrive pre-resolved (idsAtHead).
       source: sel.text,
       rendered: editRenderedTextRef.current,
       selFrom: sel.from,

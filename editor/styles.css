@@ -825,7 +825,13 @@
    tokens with the tokens' own documented defaults as fallbacks.
    No cursor affordance at rest: a plain click is ordinary caret placement;
    the ⌘/Ctrl activation gesture (issue #341) advertises itself through the
-   modifier cue below. */
+   modifier cue below.
+   SPEC23 §3 (issue #344): the decoration is emitted at Prec.highest
+   (Editor.tsx highlightsExt), so over inline code and fence bodies it nests
+   INSIDE .mm-md-code / .mm-lp-code exactly like .mm-code-sel above — the
+   tint paints above --mm-code-bg and below the code text. Nesting only:
+   these strengths are unchanged, and nothing here doubles a translucent
+   theme's code background. */
 .editor-wrap .cm-content .mm-hl {
   background: var(--mm-comment-tint, rgba(121, 192, 255, 0.45));
   border-radius: 2px;

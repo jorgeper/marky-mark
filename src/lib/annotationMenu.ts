@@ -5,10 +5,12 @@
  * to the editor package's SmartMenuAnnotations, and resolves the invoked row
  * against the same object — one rule for what each entry does.
  *
- * Coordinate spaces: `selFrom`/`selTo`/`head` index the editor DOCUMENT text
- * (`source`, table-grid form included — the editor resolves caret-mark hits
- * itself and hands in `idsAtCaret`); `anchor` is rendered-plain-text offsets
- * (the space `createAnchor` and the preview use).
+ * Coordinate spaces: `selFrom`/`selTo`/`head` index the editor's CANONICAL
+ * text (`source` — issue #344, PRD 023 §19: table grids arrive collapsed to
+ * their file form with the offsets mapped, so a grid-cell selection anchors
+ * to real file text; the editor resolves caret-mark hits itself and hands in
+ * `idsAtCaret`); `anchor` is rendered-plain-text offsets (the space
+ * `createAnchor` and the preview use).
  */
 
 import {
@@ -72,7 +74,7 @@ export interface AnnotationGate {
 
 export interface AnnotationMenuInput {
   gate: AnnotationGate;
-  /** The editor document text (table-grid form included). */
+  /** The editor's canonical text (table grids collapsed — issue #344). */
   source: string;
   /** The rendered plain text (cached for edit mode; the preview's docText). */
   rendered: string;

@@ -55,6 +55,7 @@ import { headingTextColumn } from '../lib/headingCaret';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
 import type { CompiledPattern } from '../lib/searchCore';
 import { mapOffsetByLineFlat, wordAt } from '../lib/activePosition';
+import { canonToDocRanges, docToCanonOffset, spanGeometry, type SpanGeometry } from '../lib/gridOffsets';
 import { intersectCodeSelection, type CodeRange } from '../lib/codeSelection';
 import type { DiffLineSets } from '../lib/diffLines';
 import { fluidAttribute, type FluidEffectMap } from '../lib/fluid';
@@ -535,7 +536,13 @@ export interface AnnotationSelection {
   /** Whether the editor view holds focus — split-mode hotkeys treat an
    * unfocused editor's caret as stale context (PRD 023 §12, issue #286). */
   focused: boolean;
-  /** The editor document text the offsets index (table-grid form included). */
+  /**
+   * The text the offsets index. Issue #344 (PRD 023 §19): the CANONICAL
+   * text — every table grid collapsed to its file form — with `from`/`to`/
+   * `head` mapped through the same grid geometry the highlight painting
+   * uses, so a grid-cell selection anchors to text that exists in the file.
+   * Without a tracked grid this is the editor document verbatim.
+   */
   text: string;
   /**
    * Painted annotation ids covering the caret, document order — resolved
@@ -942,67 +949,64 @@ export interface HighlightRange {
 }
 
 /**
- * PRD 022 Req 12: canonical-text offset → editor-doc offset, exact and
- * piecewise. Outside every table-grid span the two texts are byte-identical
- * modulo each earlier span's length delta (canonicalizeAll splices ONLY the
- * span regions), so an offset there maps by shifting; an offset INSIDE a
- * collapsed table returns null and the caller skips the range — the grid's
- * padded lines have no honest per-character home, and skipping is the
- * contract (never painted at a visibly wrong position).
+ * PRD 022 Req 12 / SPEC40 §2 (issue #344): the geometry of every tracked
+ * table-grid span — its editor-doc range, its canonical (collapsed) text and
+ * start, and its display map — built once per call for the mapping in both
+ * directions (lib/gridOffsets.ts). Outside every span the two texts are
+ * byte-identical modulo each earlier span's length delta (canonicalizeAll
+ * splices ONLY the span regions); inside one, each span's collapsed text is
+ * measured by collapsing that span alone, so its own delta falls out of the
+ * whole-text length difference. GridSet.spans is sorted by `from` (the
+ * documented invariant). Empty when no grid is tracked.
  */
-function canonToDocOffset(
-  offset: number,
-  spans: readonly { from: number; to: number }[],
-  canonLens: readonly number[]
-): number | null {
+function gridGeometry(state: EditorState): SpanGeometry[] {
+  const set = state.field(tableModeField, false);
+  if (!set?.spans.length) return [];
+  const raw = state.doc.toString();
+  const out: SpanGeometry[] = [];
   let delta = 0; // editor-doc position − canonical position, so far
-  for (let i = 0; i < spans.length; i++) {
-    const canonFrom = spans[i].from - delta;
-    const canonTo = canonFrom + canonLens[i];
-    if (offset < canonFrom) return offset + delta;
-    if (offset < canonTo) return null;
-    delta += spans[i].to - spans[i].from - canonLens[i];
+  for (const s of set.spans) {
+    const collapsed = canonicalizeAll(raw, { spans: [s], width: set.width });
+    const canonLen = s.to - s.from - (raw.length - collapsed.length);
+    const canon = collapsed.slice(s.from, s.from + canonLen);
+    out.push(spanGeometry(raw, s, canon, s.from - delta, set.width));
+    delta += s.to - s.from - canonLen;
   }
-  return offset + delta;
+  return out;
 }
 
 /**
  * PRD 022 Req 12: the painted ranges, re-derived per draw like the diff
  * decorations — the owner's offsets are canonical-text coordinates, mapped
- * through the table-grid set (each span's collapsed length measured with
- * the same canonicalizeAll every canonical-text path uses). Anything that
- * does not fit the current document is skipped, not clamped into a lie: a
- * stale range (owner debounce) may lapse for a beat, but nothing ever
- * paints at a visibly wrong position durably.
+ * through the table-grid geometry above. Issue #344: an offset inside a
+ * grid span used to return null (the grid's padded lines had "no honest
+ * per-character home"); it now resolves through the span's cell map, so a
+ * record inside a table cell paints over the cell's display text — one
+ * piece per wrapped fragment, never the padding, pipes, separator lines or
+ * the `↩` marker. The skip rule stands: anything that does not fit the
+ * current document (ends in two cells, a delimiter line, a span whose
+ * display no longer round-trips, a stale range from the owner's debounce)
+ * is skipped, not clamped into a lie — nothing ever paints at a visibly
+ * wrong position durably.
  */
 function docHighlightRanges(state: EditorState, ranges: readonly HighlightRange[]): HighlightRange[] {
-  const set = state.field(tableModeField, false);
-  let spans: readonly GridSpan[] = [];
-  let canonLens: number[] = [];
-  if (set?.spans.length) {
-    // GridSet.spans is sorted by `from` (the documented invariant). Collapsed
-    // length of each grid span — collapse one at a time, so each span's own
-    // delta falls out of the whole-text length difference.
-    const raw = state.doc.toString();
-    spans = set.spans;
-    canonLens = spans.map(
-      (s) => s.to - s.from - (raw.length - canonicalizeAll(raw, { spans: [s], width: set.width }).length)
-    );
-  }
+  const geoms = gridGeometry(state);
   const out: HighlightRange[] = [];
   for (const h of ranges) {
     if (h.to <= h.from) continue;
-    const from = canonToDocOffset(h.from, spans, canonLens);
-    const to = canonToDocOffset(h.to, spans, canonLens);
-    if (from === null || to === null || from < 0 || to <= from || to > state.doc.length) continue;
-    out.push({
-      id: h.id,
-      from,
-      to,
-      ...(h.color ? { color: h.color } : {}),
-      ...(h.active ? { active: true } : {}),
-      ...(h.ghost ? { ghost: true } : {}),
-    });
+    const pieces = canonToDocRanges(geoms, h.from, h.to);
+    if (!pieces) continue;
+    for (const { from, to } of pieces) {
+      if (from < 0 || to <= from || to > state.doc.length) continue;
+      out.push({
+        id: h.id,
+        from,
+        to,
+        ...(h.color ? { color: h.color } : {}),
+        ...(h.active ? { active: true } : {}),
+        ...(h.ghost ? { ghost: true } : {}),
+      });
+    }
   }
   return out;
 }
@@ -1079,7 +1083,18 @@ const highlightsExt = (
     () => onClick.current
   );
   return [
-    EditorView.decorations.of((view) => highlightDecorations(view.state, ranges)),
+    // SPEC23 §3 (issue #344): at `Prec.highest`, the `.mm-code-sel` nesting
+    // applied to `.mm-hl` — CodeMirror opens the lowest-precedence mark first,
+    // so the highest-precedence one ends up deepest. At default precedence
+    // the mark wrapped the highlighter's `.mm-md-code` (Prec.high), the
+    // mounted-fence `codeBodyMark` and PRD 006's `.mm-lp-code`, whose
+    // (usually opaque) `--mm-code-bg` then painted over the tint: a highlight
+    // or comment inside a fence body or an inline code span showed nothing.
+    // Nested inside the code span, the tint paints above the code background
+    // and below the code text, which stays legible; the strengths in
+    // styles.css are unchanged. The issue #122 `mm-code-*` token spans carry
+    // only a colour, so their nesting relative to the mark is immaterial.
+    Prec.highest(EditorView.decorations.of((view) => highlightDecorations(view.state, ranges))),
     EditorView.domEventHandlers({ mousedown }),
   ];
 };
@@ -1517,13 +1532,37 @@ export default function Editor({
   const annotationSelection = (view: EditorView): AnnotationSelection => {
     const sel = view.state.selection.main;
     const painted = docHighlightRanges(view.state, highlightsRef.current ?? []);
+    const idsAtHead = painted.filter((h) => sel.head >= h.from && sel.head <= h.to).map((h) => h.id);
+    const raw = view.state.doc.toString();
+    const gridSet = view.state.field(tableModeField, false);
+    if (!gridSet || gridSet.spans.length === 0) {
+      return { from: sel.from, to: sel.to, head: sel.head, focused: view.hasFocus, text: raw, idsAtHead };
+    }
+    // PRD 023 §19 / SPEC40 §2 (issue #344): the seam reports CANONICAL text
+    // and canonical offsets, so a selection made inside a grid cell anchors
+    // to the file's text — never to the grid's padded, wrapped display form,
+    // which the rendered-text mapping could not place (Highlight and Comment
+    // "did nothing"). Each offset maps through the same span geometry the
+    // painting uses (display cell → canonical cell content); one that has no
+    // honest home in a span (a separator line, an untrusted display) falls
+    // back to the line-flat rule the edit-state seam's canonHead uses, and a
+    // RANGED selection with such an end collapses to its caret so no
+    // mis-anchored range is ever offered (SPEC39 §2.1 already clamps a grid
+    // selection to one cell's content, so this is the belt to that brace).
+    const text = canonicalizeAll(raw, gridSet);
+    const geoms = gridGeometry(view.state);
+    const flat = (p: number) => mapOffsetByLineFlat(raw, text, p);
+    const head = docToCanonOffset(geoms, sel.head, raw) ?? flat(sel.head);
+    const from = docToCanonOffset(geoms, sel.from, raw);
+    const to = docToCanonOffset(geoms, sel.to, raw);
+    const ranged = sel.from < sel.to && from !== null && to !== null && from < to;
     return {
-      from: sel.from,
-      to: sel.to,
-      head: sel.head,
+      from: ranged ? from : head,
+      to: ranged ? to : head,
+      head,
       focused: view.hasFocus,
-      text: view.state.doc.toString(),
-      idsAtHead: painted.filter((h) => sel.head >= h.from && sel.head <= h.to).map((h) => h.id),
+      text,
+      idsAtHead,
     };
   };
 
