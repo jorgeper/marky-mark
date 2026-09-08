@@ -2106,7 +2106,7 @@ test('E602: SPEC4 §2.4 and PRD 025 Req 6 as amended by issue #349 — the toolb
   // The page's shadow falls on the ground to the RIGHT beside the comments
   // column as it does on the left beside the sidebar: the pixel 3px out from
   // either edge at mid-height is darker than the flat ground by the same
-  // amount — the panes no longer paint their fill over it.
+  // amount — the comments pane no longer paints a fill of its own over it.
   const midY = r.top + r.height / 2;
   const rightOut = await pixelAt(page, r.right + 2, midY);
   const leftOut = await pixelAt(page, r.left - 3, midY);

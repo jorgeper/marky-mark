@@ -148,10 +148,11 @@ implementation reference, and its pixel sizes are placeholders.
    > token (`0 0 10px rgba(0, 0, 0, 0.08)`), much tighter and fainter than
    > a floating panel's, diffusing softly around the page's top corners.
    > `--mm-panel-shadow` keeps its value and its floating-panel consumers;
-   > its 24px/2px geometry moved to the toolbar (SPEC4 §2.4). The page
-   > column paints above both pane wrappers, so the shadow shows on the
-   > comments column's ground to the right as it does on the sidebar's to
-   > the left; and the page's top-right corner reads rounded like the
+   > its 24px/2px geometry moved to the toolbar (SPEC4 §2.4). The comments
+   > pane paints no fill of its own (its wrapper's ground, beneath the
+   > page, is the column's colour), so the shadow shows on the comments
+   > column's ground to the right as it does on the sidebar's to the left;
+   > and the page's top-right corner reads rounded like the
    > top-left with the scroll bar present (the bar's track starts one
    > radius below the top edge).
 7. **Both side panes closed** (or absent, as in the static web build):

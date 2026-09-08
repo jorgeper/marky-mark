@@ -969,12 +969,21 @@ mark.hl.ghost[data-color] {
    own colour, so ground and column are one plane the page's shadow falls
    onto; no seam of its own (the .workspace-stack::after overlay is gone).
    The pane scrolls its card flow itself — it sits outside the document
-   scrollers. */
+   scrollers.
+   PRD 025 Req 6 amended by issue #349: the pane paints NO fill of its own —
+   positioned and later in DOM order than .workspace-stack, its
+   --mm-bg-elevated used to cover the page's shadow, cutting it off flat at
+   the page's right edge while the left side diffused onto the sidebar. The
+   ground is .comments-wrap's fill above: unpositioned, so it paints beneath
+   the page's shadow, and the same colour, so the column looks the same;
+   the shadow now falls on it symmetrically with the sidebar side. (A
+   z-index on the page column would do it too, but would flatten the fixed
+   menus inside the column under the toolbar shell.) */
 .comments-pane {
   position: relative;
   width: 300px;
   flex-shrink: 0;
-  background: var(--mm-bg-elevated, #f6f8fa);
+  background: transparent;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -2217,14 +2226,12 @@ mark.hl.ghost {
      pane open the left pill still sits at the page's own top-left corner,
      not over the pane's header. */
   position: relative;
-  /* PRD 025 Req 6 amended by issue #349: the page column paints ABOVE both
-     pane wrappers, so the page's shadow falls onto the comments column's
-     ground on the right exactly as it falls onto the sidebar's on the left —
-     .comments-pane (positioned, later in DOM order) used to paint its
-     --mm-bg-elevated fill over it. z-index 1 is the lowest step above the
-     panes' auto; the toolbar shell (80), the corner stack (60), .overlay
-     (100) and the find bar (120) all sit outside the column and above it. */
-  z-index: 1;
+  /* Issue #349: NO z-index here — the column must not become a stacking
+     context, or the fixed-position menus inside it (the editor's smart-edit
+     and table context menus, the tab menu) would flatten beneath the
+     .toolbar-shell (z 80) that overlays the page's top. The page's shadow
+     reaches the comments column's ground through .comments-pane's
+     transparent fill instead (see there). */
 }
 /* PRD 025 Reqs 4, 25 (issue #331): the split preview doubles the page — two
    panes plus the .split-divider's flow width (its 16px box less the 4px side
