@@ -604,7 +604,10 @@ export async function handleScratchpadResolve(
   // birth, minted exactly like the Req 3 migration would — "My scratchpad"
   // slugifies to `my-scratchpad`, deduped `-2`, `-3`… deployment-wide. The
   // unique name stays the workspace's manifest identity; its CANONICAL URL
-  // is the Req 10 `/<username>/scratchpad` form.
+  // is the Req 10 `/<username>/scratchpad` form. PRD 026 Req 2: the
+  // fallback word is the caller's, so the minting reads as the create
+  // route's does — though a constant display name can never slugify to
+  // nothing, so the fallback is never reached here.
   const scan = await scanUniqueNames(storage);
   const uniqueName = dedupeUniqueName(slugifyWorkspaceName(SCRATCHPAD_NAME) || WORKSPACE_SLUG_FALLBACK, scan.taken);
   const manifest: WorkspaceManifest = {
@@ -927,11 +930,12 @@ export async function handleWorkspaceApi(
         // charset (Req 9 — the body may be carrying a grandfathered stored
         // name), so this strict check on a CHANGED name is load-bearing: a
         // rename to `Team_Docs` is a 400 with the rule's own message, before
-        // any collision scan. An unchanged name never reaches here, which is
-        // what keeps a grandfathered workspace editable in its other fields.
-        // PRD 024 Req 9: unchanged, and since only a name that was
-        // legitimately current can be recorded below, no reserved word can
-        // ever reach `formerNames`.
+        // any collision scan. A name equal to the stored one never reaches
+        // here, which is what keeps a grandfathered workspace editable in its
+        // other fields. PRD 024 Req 9: the reserved-word refusal is the same
+        // as before that PRD, and since only a name that was legitimately
+        // current can be recorded below, no reserved word can ever reach
+        // `formerNames`.
         const problem = uniqueNameProblem(requested);
         if (problem) {
           sendJson(res, 400, { error: problem });

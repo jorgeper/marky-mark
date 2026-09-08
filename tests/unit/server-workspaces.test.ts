@@ -1319,7 +1319,7 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     const lower = await readManifest(id);
     expect(lower.uniqueName).toBe('team-docs');
     expect(lower.formerNames).toEqual(['Team_Docs']);
-    // Whereas a grandfathered `Team-Docs` → `team-docs` is a case-only change
+    // Whereas a grandfathered `Other-Docs` → `other-docs` is a case-only change
     // (PRD 024 Req 2): 200, the name lowercased, nothing recorded.
     const other = await create('placeholder-2');
     await seedStoredName(other, 'Other-Docs');
