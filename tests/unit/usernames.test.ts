@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { deriveUsername, identityLocalPart, slugifyUsername } from '../../src/lib/usernames';
+import { UNIQUE_NAME_MAX_LENGTH, uniqueNameFormatProblem } from '../../src/lib/workspaceNames';
 
-// PRD 020 Req 12: the pure username-derivation rules — the server stores one
-// result per user forever (server/usernames.ts), so everything decidable
-// without storage is proven here.
+// PRD 020 Req 12 (slugify amended by PRD 026 Req 11): the pure
+// username-derivation rules — the server stores one result per user forever
+// (server/usernames.ts), so everything decidable without storage is proven
+// here.
 
 describe('PRD 020 Req 12 username derivation', () => {
   it('U1064: the derivation source is the identity local part — AAD alias for members, email local part for guests', () => {
@@ -25,12 +27,13 @@ describe('PRD 020 Req 12 username derivation', () => {
     );
   });
 
-  it('U1065: slugifyUsername lowercases and collapses runs outside the Req 1 charset, with a fallback for nothing usable', () => {
-    expect(slugifyUsername('Ada.Lovelace')).toBe('ada.lovelace');
-    expect(slugifyUsername('jane_gmail.com#EXT#')).toBe('jane_gmail.com-ext-');
-    expect(slugifyUsername('grace hopper (guest)')).toBe('grace-hopper-guest-');
-    // Nothing usable at all still yields a charset-legal base for dedupe.
-    expect(slugifyUsername('数学')).toBe('-');
+  it('U1065: slugifyUsername is the shared PRD 026 Req 2 slugifier — lowercase-dash output, dashes trimmed, `user` for nothing usable (PRD 026 Req 11)', () => {
+    expect(slugifyUsername('Ada.Lovelace')).toBe('ada-lovelace');
+    // No trailing dash survives a run that ends the local part.
+    expect(slugifyUsername('jane_gmail.com#EXT#')).toBe('jane-gmail-com-ext');
+    expect(slugifyUsername('grace hopper (guest)')).toBe('grace-hopper-guest');
+    // Nothing usable at all yields the `user` fallback, never a bare dash.
+    expect(slugifyUsername('数学')).toBe('user');
     expect(slugifyUsername('')).toBe('user');
   });
 
@@ -52,5 +55,57 @@ describe('PRD 020 Req 12 username derivation', () => {
         new Set(['jane']),
       ),
     ).toBe('jane-2');
+  });
+
+  it('U1323: PRD 026 Req 11 — a first-seen dotted or underscored local part derives a lowercase-dash username', () => {
+    expect(slugifyUsername('jane.doe')).toBe('jane-doe');
+    expect(slugifyUsername('j_smith')).toBe('j-smith');
+    // End to end from the identity: jane.doe@contoso.com is jane-doe.
+    expect(deriveUsername({ username: 'jane.doe@contoso.com' }, new Set())).toBe('jane-doe');
+    expect(deriveUsername({ username: 'J_Smith@contoso.com' }, new Set())).toBe('j-smith');
+  });
+
+  it('U1324: PRD 026 Req 11 — a local part with nothing usable derives `user`, and `user` dedupes like any other name', () => {
+    for (const localPart of ['数学', '!!!', '']) {
+      expect(slugifyUsername(localPart)).toBe('user');
+    }
+    expect(deriveUsername({ username: '日本語@contoso.com' }, new Set())).toBe('user');
+    expect(deriveUsername({ username: '!!!@contoso.com' }, new Set(['user']))).toBe('user-2');
+  });
+
+  it('U1325: PRD 026 Req 11 — dedupe and the reserved route words are unchanged under the shared slugifier', () => {
+    expect(deriveUsername({ username: 'jane.doe@contoso.com' }, new Set(['jane-doe']))).toBe('jane-doe-2');
+    expect(deriveUsername({ username: 'jane.doe@contoso.com' }, new Set(['jane-doe', 'jane-doe-2']))).toBe(
+      'jane-doe-3',
+    );
+    for (const alias of ['api', 'assets', 'scratch', 'scratchpad']) {
+      expect(deriveUsername({ username: `${alias}@contoso.com` }, new Set())).toBe(`${alias}-2`);
+    }
+  });
+
+  it('U1326: PRD 026 Req 11 — every username the derivation mints satisfies Req 1, including a clamped long local part', () => {
+    const longLocalPart = `${'a'.repeat(99)}.${'b'.repeat(20)}`;
+    const clamped = slugifyUsername(longLocalPart);
+    // The cut lands right after the dash that replaced the dot; it goes too.
+    expect(clamped).toBe('a'.repeat(99));
+    expect(clamped.length).toBeLessThanOrEqual(UNIQUE_NAME_MAX_LENGTH);
+    expect(slugifyUsername('a'.repeat(150)).length).toBe(UNIQUE_NAME_MAX_LENGTH);
+    const identities = [
+      'jane.doe@contoso.com',
+      'j_smith@contoso.com',
+      'Ada.Lovelace@contoso.com',
+      'grace hopper (guest)@contoso.com',
+      'jane_gmail.com#EXT#@contoso.onmicrosoft.com',
+      '数学@contoso.com',
+      '!!!@contoso.com',
+      `${longLocalPart}@contoso.com`,
+      'scratch@contoso.com',
+    ];
+    for (const username of identities) {
+      for (const taken of [new Set<string>(), new Set(['jane-doe', 'j-smith', 'user', 'ada-lovelace'])]) {
+        const derived = deriveUsername({ username }, taken);
+        expect(uniqueNameFormatProblem(derived), `${username} → ${derived}`).toBeNull();
+      }
+    }
   });
 });
