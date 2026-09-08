@@ -2209,10 +2209,10 @@ mark.hl.ghost {
    spreads the column. Only the @media print block goes edge to edge.
    Req 6 (amended by issue #340): the stack is the page COLUMN — the strip
    band over the page proper — and paints nothing of its own: the ground
-   shows through it, and the fill, radius, outline and --mm-page-shadow of
-   Req 6 (issue #349) belong to `.workspace-stack > .workspace` below, the white document
-   surface, so the shadow starts at the page's top corners under the strip
-   and never runs up the band's sides. This REPLACES the
+   shows through it, and the fill, radius, outline and --mm-page-shadow
+   (issue #349) of Req 6 belong to `.workspace-stack > .workspace` below,
+   the white document surface, so the shadow starts at the page's top
+   corners under the strip and never runs up the band's sides. This REPLACES the
    .workspace-stack::after "seam painted once" overlay of PRD 013 Reqs 10–12
    / SPEC36 §4.1 (retired): no pseudo-element remains on the stack, and
    nothing clips the shadow — neither the stack nor .body-row sets
@@ -2244,9 +2244,9 @@ mark.hl.ghost {
    surface below the strip band (the editor and the split preview). It, not
    the column, is the sheet: --mm-bg fill, --mm-radius-small top corners
    (the tabs' radius), --mm-page-shadow cast onto the ground (issue #349:
-   the page's own tighter, fainter token — no longer --mm-panel-shadow, which
-   stays the floating panels'), and a 1px
-   --mm-border outline on all four sides. Its top corners sit level with the
+   the page's own tighter, fainter token — no longer --mm-panel-shadow,
+   which stays the floating panels'), and a 1px --mm-border outline on all
+   four sides. Its top corners sit level with the
    band's bottom edge, so the shadow begins there — the band, the sidebar
    and the ground above that corner are one flat plane with nothing painted
    between them. The top hairline runs under the strip and is broken by the

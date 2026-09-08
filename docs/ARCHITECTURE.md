@@ -440,8 +440,9 @@ migrates to `themeLight`):
 ## v4 chrome (SPEC4)
 
 - **Auto-hiding toolbar**: the bar is an absolutely-positioned overlay
-  (`.toolbar-shell`, translateY transition, faint bottom shadow via
-  `--mm-toolbar-shadow`). Visible for `TOOLBAR_GRACE_MS` (2.5 s) after launch,
+  (`.toolbar-shell`, translateY transition, bottom shadow via
+  `--mm-toolbar-shadow` — the panel shadow's geometry cast downward since
+  issue #349). Visible for `TOOLBAR_GRACE_MS` (2.5 s) after launch,
   then hidden; a 20 px top hot zone reveals it on hover, and it re-hides
   `TOOLBAR_HIDE_DELAY_MS` (400 ms) after the pointer leaves. It stays pinned
   while the menu popover or any modal is open, or focus is inside the bar.

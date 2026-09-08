@@ -1169,6 +1169,51 @@ const colorTokenOf = (page: Page, name: string) =>
     return c;
   }, name);
 
+/** Chromium's serialised box-shadow, taken apart: `rgba(r, g, b, a) x y blur spread`. */
+const parseShadow = (shadow: string) => {
+  const m = shadow.match(/^rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\) (-?[\d.]+)px (-?[\d.]+)px ([\d.]+)px ([\d.]+)px$/);
+  if (!m) throw new Error(`unexpected computed shadow: ${shadow}`);
+  return {
+    rgb: [Number(m[1]), Number(m[2]), Number(m[3])],
+    alpha: m[4] === undefined ? 1 : Number(m[4]),
+    x: Number(m[5]),
+    y: Number(m[6]),
+    blur: Number(m[7]),
+    spread: Number(m[8]),
+  };
+};
+
+/** A shadow token's value as the browser computes it: painted through a
+ *  probe child of the theme root, as colorTokenOf does for colours. */
+const shadowTokenOf = (page: Page, name: string) =>
+  page.locator('.theme-root').evaluate((el, n) => {
+    const probe = document.createElement('div');
+    probe.style.boxShadow = `var(${n})`;
+    el.appendChild(probe);
+    const v = getComputedStyle(probe).boxShadow;
+    probe.remove();
+    return v;
+  }, name);
+
+/** The painted colour of the one CSS pixel at (x, y): a 1×1 clip of a
+ *  screenshot, decoded in-page through an <img> + <canvas> (the suite runs
+ *  at device scale 1, so the clip is exactly one pixel). */
+async function pixelAt(page: Page, x: number, y: number): Promise<number[]> {
+  const png = await page.screenshot({ clip: { x: Math.floor(x), y: Math.floor(y), width: 1, height: 1 } });
+  return page.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, 1, 1).data;
+    return [d[0], d[1], d[2]];
+  }, png.toString('base64'));
+}
+
 /** The sheet treatment an element carries, from computed styles: its radius
  *  shorthand, its shadow, and its border widths as [top, right, bottom,
  *  left]. Passed to `Locator.evaluate`, so it runs in the page. */
@@ -1245,15 +1290,7 @@ async function assertPageAndTabs(page: Page): Promise<void> {
   // (the page's shadow at tab scale). No stacking. The active tab has no
   // bottom edge; an inactive tab's bottom edge is the hairline itself.
   expect(await tokenOf(page, '--mm-tab-shadow')).not.toBe('');
-  // The token's value as the browser computes it, through a probe box.
-  const tabShadow = await page.locator('.theme-root').evaluate((el) => {
-    const probe = document.createElement('div');
-    probe.style.boxShadow = 'var(--mm-tab-shadow)';
-    el.appendChild(probe);
-    const v = getComputedStyle(probe).boxShadow;
-    probe.remove();
-    return v;
-  });
+  const tabShadow = await shadowTokenOf(page, '--mm-tab-shadow');
   const tabStyles = await page.locator('.file-tab').evaluateAll((els) =>
     els.map((el) => {
       const s = getComputedStyle(el);
@@ -1985,51 +2022,6 @@ test('E594: issue #339 (PRD 025 Req 11 amended) — the comments pane\'s scroll 
 // page's rounded top-right corner and right-hand shadow are no longer
 // painted over by the scroller's gutter or the comments column.
 
-/** Chromium's serialised box-shadow, taken apart: `rgba(r, g, b, a) x y blur spread`. */
-const parseShadow = (shadow: string) => {
-  const m = shadow.match(/^rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\) (-?[\d.]+)px (-?[\d.]+)px ([\d.]+)px ([\d.]+)px$/);
-  if (!m) throw new Error(`unexpected computed shadow: ${shadow}`);
-  return {
-    rgb: [Number(m[1]), Number(m[2]), Number(m[3])],
-    alpha: m[4] === undefined ? 1 : Number(m[4]),
-    x: Number(m[5]),
-    y: Number(m[6]),
-    blur: Number(m[7]),
-    spread: Number(m[8]),
-  };
-};
-
-/** A shadow token's value as the browser computes it, through a probe box
- *  under the theme root (the E353 idiom). */
-const shadowTokenOf = (page: Page, name: string) =>
-  page.locator('.theme-root').evaluate((el, n) => {
-    const probe = document.createElement('div');
-    probe.style.boxShadow = `var(${n})`;
-    el.appendChild(probe);
-    const v = getComputedStyle(probe).boxShadow;
-    probe.remove();
-    return v;
-  }, name);
-
-/** The painted colour of the one CSS pixel at (x, y): a 1×1 clip of a
- *  screenshot, decoded in-page through an <img> + <canvas> (the suite runs
- *  at device scale 1, so the clip is exactly one pixel). */
-async function pixelAt(page: Page, x: number, y: number): Promise<number[]> {
-  const png = await page.screenshot({ clip: { x: Math.floor(x), y: Math.floor(y), width: 1, height: 1 } });
-  return page.evaluate(async (b64) => {
-    const img = new Image();
-    img.src = `data:image/png;base64,${b64}`;
-    await img.decode();
-    const canvas = document.createElement('canvas');
-    canvas.width = img.width;
-    canvas.height = img.height;
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(img, 0, 0);
-    const d = ctx.getImageData(0, 0, 1, 1).data;
-    return [d[0], d[1], d[2]];
-  }, png.toString('base64'));
-}
-
 test('E602: SPEC4 §2.4 and PRD 025 Req 6 as amended by issue #349 — the toolbar casts the panel shadow\'s 24px/2px geometry downward, the page proper casts its own tighter and fainter --mm-page-shadow (blur ≤ 12px, no spread, alpha ≤ 0.09) that the tabs follow, --mm-panel-shadow and the comment-nav pill are unchanged, the page\'s top-right corner reads rounded with the scrollbar present, and its shadow shows on the ground right of the page beside the open comments column', async ({
   page,
 }) => {
@@ -2051,8 +2043,9 @@ test('E602: SPEC4 §2.4 and PRD 025 Req 6 as amended by issue #349 — the toolb
   await expect(page.locator('.theme-root')).toHaveClass(/autohide-scrollbars/);
 
   // A. Shadow B — the toolbar: the panel token's blur and spread, cast down.
-  const panel = parseShadow(await shadowTokenOf(page, '--mm-panel-shadow'));
-  expect(await shadowTokenOf(page, '--mm-panel-shadow')).toBe('rgba(0, 0, 0, 0.14) 0px 0px 24px 2px');
+  const panelToken = await shadowTokenOf(page, '--mm-panel-shadow');
+  expect(panelToken).toBe('rgba(0, 0, 0, 0.14) 0px 0px 24px 2px');
+  const panel = parseShadow(panelToken);
   const toolbar = parseShadow(await page.locator('.toolbar').evaluate((el) => getComputedStyle(el).boxShadow));
   expect(toolbar.blur).toBe(panel.blur);
   expect(toolbar.spread).toBe(panel.spread);
