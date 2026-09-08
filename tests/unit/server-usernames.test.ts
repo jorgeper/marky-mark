@@ -5,7 +5,7 @@ import { createApp } from '../../server/app';
 import { createMockAuthProvider } from '../../server/providers/mock/auth';
 import { createMockDirectoryProvider } from '../../server/providers/mock/directory';
 import type { AuthUser, StorageProvider } from '../../server/providers/types';
-import { ensureUsername, usernameClaimBlob, usernameRecordBlob } from '../../server/usernames';
+import { ensureUsername, resolveUsernameOwner, usernameClaimBlob, usernameRecordBlob } from '../../server/usernames';
 import { createMemoryStorage } from './storage-contract';
 
 // PRD 020 Req 12+13: username assignment and scratch-by-username resolution
@@ -171,5 +171,26 @@ describe('PRD 020 Req 12 assignment races (storage seam)', () => {
     expect(
       await ensureUsername(provider, user('user-2', 'jane_gmail.com#EXT#@contoso.onmicrosoft.com', 'jane@gmail.com')),
     ).toBe('jane');
+  });
+
+  it('U1327: PRD 026 Req 11 — a stored legacy dot/underscore username reads back untouched and still resolves to its owner', async () => {
+    const { provider, blobs } = createMemoryStorage();
+    // Records minted under PRD 020's wider charset, seeded straight into
+    // storage as an older deployment left them.
+    await provider.write(usernameRecordBlob('user-1'), JSON.stringify({ username: 'jane.doe' }));
+    await provider.write(usernameClaimBlob('jane.doe'), JSON.stringify({ userId: 'user-1' }));
+    await provider.write(usernameRecordBlob('user-2'), JSON.stringify({ username: 'j_smith' }));
+    await provider.write(usernameClaimBlob('j_smith'), JSON.stringify({ userId: 'user-2' }));
+    const before = blobs.size;
+    // The record wins — never re-derived to jane-doe / j-smith, never normalised.
+    expect(await ensureUsername(provider, user('user-1', 'jane.doe@contoso.com'))).toBe('jane.doe');
+    expect(await ensureUsername(provider, user('user-2', 'j_smith@contoso.com'))).toBe('j_smith');
+    // Resolution through the claim keeps working, whatever the visited casing.
+    expect(await resolveUsernameOwner(provider, 'jane.doe')).toBe('user-1');
+    expect(await resolveUsernameOwner(provider, 'Jane.Doe')).toBe('user-1');
+    expect(await resolveUsernameOwner(provider, 'j_smith')).toBe('user-2');
+    // Nothing was minted or rewritten along the way.
+    expect(blobs.size).toBe(before);
+    expect(JSON.parse(blobs.get(usernameRecordBlob('user-1'))!)).toEqual({ username: 'jane.doe' });
   });
 });

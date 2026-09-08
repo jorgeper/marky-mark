@@ -148,8 +148,8 @@ export function recordFormerName(
  * after one). Every non-empty result satisfies Req 1. Nothing usable (`!!!`,
  * `日本語`) yields the empty string: the fallback word is the caller's —
  * `WORKSPACE_SLUG_FALLBACK` for the migration planner and the server's
- * name-only create, `user` for username derivation (issue #351), and none at
- * all for the New Workspace dialog (Req 6).
+ * name-only create, `user` for username derivation (Req 11,
+ * `usernames.ts`), and none at all for the New Workspace dialog (Req 6).
  */
 export function slugifyWorkspaceName(text: string): string {
   return text

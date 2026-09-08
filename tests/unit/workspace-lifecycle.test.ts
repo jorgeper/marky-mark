@@ -228,7 +228,7 @@ describe('PRD 007 Req 10 + PRD 020 Req 2 (amended by PRD 026 Req 4+6): the New W
     });
   });
 
-  it('U1323: PRD 026 Req 4+6 — validation stops at the first failure in dialog order: an empty display name wins over an empty URL name', () => {
+  it('U1328: PRD 026 Req 4+6 — validation stops at the first failure in dialog order: an empty display name wins over an empty URL name', () => {
     expect(validateNewWorkspaceForm(emptyNewWorkspaceForm())).toEqual({
       ok: false,
       error: 'A display name is required.',
@@ -242,7 +242,7 @@ describe('PRD 007 Req 10 + PRD 020 Req 2 (amended by PRD 026 Req 4+6): the New W
     });
   });
 
-  it('U1324: PRD 026 Req 6 — the one trailing dash typing keeps is stripped at submit, so `foo-` submits as `foo`', () => {
+  it('U1329: PRD 026 Req 6 — the one trailing dash typing keeps is stripped at submit, so `foo-` submits as `foo`', () => {
     const result = validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), name: 'Foo', uniqueName: 'foo-' });
     expect(result).toEqual({
       ok: true,
@@ -253,7 +253,7 @@ describe('PRD 007 Req 10 + PRD 020 Req 2 (amended by PRD 026 Req 4+6): the New W
     expect(settleUrlName('')).toBe('');
   });
 
-  it('U1325: PRD 026 Req 6 — the typing normaliser is the slugifier plus one trailing dash while a separator is being typed', () => {
+  it('U1330: PRD 026 Req 6 — the typing normaliser is the slugifier plus one trailing dash while a separator is being typed', () => {
     const table: Array<[string, string]> = [
       ['Foo Bar', 'foo-bar'],
       ['foo--bar', 'foo-bar'],
@@ -282,7 +282,7 @@ describe('PRD 007 Req 10 + PRD 020 Req 2 (amended by PRD 026 Req 4+6): the New W
     }
   });
 
-  it('U1326: PRD 026 Req 6 — the trailing dash is not kept once the slug has reached the length limit', () => {
+  it('U1331: PRD 026 Req 6 — the trailing dash is not kept once the slug has reached the length limit', () => {
     const full = 'x'.repeat(UNIQUE_NAME_MAX_LENGTH);
     // A separator after a full-length slug: the slug is clamped and the dash
     // has no room, so the field never exceeds the limit.
@@ -294,7 +294,7 @@ describe('PRD 007 Req 10 + PRD 020 Req 2 (amended by PRD 026 Req 4+6): the New W
     expect(normalizeUrlNameTyping(`${almost}-`)).toHaveLength(UNIQUE_NAME_MAX_LENGTH);
   });
 
-  it('U1327: PRD 026 Req 7 — the address preview is the origin plus the share-link path, or an ellipsis placeholder while the name is empty', () => {
+  it('U1332: PRD 026 Req 7 — the address preview is the origin plus the share-link path, or an ellipsis placeholder while the name is empty', () => {
     expect(urlNamePreview('https://docs.example', 'team-docs')).toBe('https://docs.example/team-docs');
     expect(urlNamePreview('https://docs.example', '')).toBe('https://docs.example/…');
     expect(URL_PREVIEW_PLACEHOLDER).toBe('…');
