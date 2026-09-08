@@ -57,11 +57,17 @@ export function NewWorkspaceDialog({
   // A plain state value on purpose: issue #354's "Use <suggestion>" action
   // sets it too (accepting a suggestion counts as touching).
   const [touched, setTouched] = useState(false);
+  // PRD 026 Req 6: the settled URL name — the one trailing dash typing may
+  // keep (`foo-`) is not part of the name, so the type-time check and the
+  // address preview both read the value as submit will see it.
+  const settled = settleUrlName(form.uniqueName);
   // PRD 020 Req 2 (amended by PRD 026 Req 6): problems appear while typing;
   // the empty field waits for submit to complain (WorkspaceNames does the
-  // same). The typing normaliser keeps the value inside the charset, so in
-  // practice only the reserved-word refusal can surface here.
-  const typedProblem = form.uniqueName === '' ? null : uniqueNameProblem(form.uniqueName);
+  // same). Checked on the settled value: the kept trailing dash is outside
+  // the strict charset, and must not flash the charset refusal at every
+  // separator typed. The normaliser keeps everything else inside the charset,
+  // so in practice only the reserved-word refusal can surface here.
+  const typedProblem = settled === '' ? null : uniqueNameProblem(settled);
   // Issue #245 (kept by PRD 026 Req 8): the URL name wears the refusal — an
   // error-coloured border and typed value — while it is the thing being
   // rejected, whether that came from typing, from submit finding it empty,
@@ -175,11 +181,7 @@ export function NewWorkspaceDialog({
           {/* PRD 026 Req 7: the rule and the live address, always visible,
               previewing the settled value so the trailing dash never shows
               in an address. The origin comes from the page, not the lib. */}
-          <UrlNameGuidance
-            origin={window.location.origin}
-            urlName={settleUrlName(form.uniqueName)}
-            testIdPrefix="new-workspace"
-          />
+          <UrlNameGuidance origin={window.location.origin} urlName={settled} testIdPrefix="new-workspace" />
         </div>
 
         <div className="field">

@@ -7244,11 +7244,14 @@ test('E598: PRD 026 Req 6 — the URL name normalises as typed: `Foo Bar` shows 
   await expect(url).toHaveValue('foo-');
   // The preview is the settled address — no dangling dash in it.
   await expect(preview).toHaveText(`${origin}/foo`);
+  // The kept dash is outside the strict charset, but the type-time check
+  // reads the settled value, so the separator does not flash a refusal.
+  await expect(typed).toHaveCount(0);
   await url.pressSequentially('Bar');
   await expect(url).toHaveValue('foo-bar');
   await expect(preview).toHaveText(`${origin}/foo-bar`);
-  // Nothing the normaliser lets through trips the charset rule, so no
-  // type-time problem line ever appeared.
+  // Nothing the normaliser lets through trips the charset rule once settled,
+  // so no type-time problem line ever appeared.
   await expect(typed).toHaveCount(0);
 
   // A double dash (typed or pasted) collapses to one.
