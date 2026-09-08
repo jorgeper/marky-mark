@@ -234,3 +234,27 @@ like a preview; the editor keeps one placement cue. Section by section:
 - **§7 — ARCHITECTURE.md's placement-cues paragraph is rewritten to this
   contract; SPEC45 carries a note that its anchor is the invisible head
   row.**
+
+---
+
+## Amended by issue #355 (2026-09-08): the caret-line tint is continuous through code
+
+Observed with the caret inside an inline code span on a raw table row: the
+`.mm-md-code` span's (usually opaque) `--mm-code-bg` painted above the
+line's own background, so the code sat as an untinted box in the §2.1
+band — the layering problem issue #123 solved for the ranged selection.
+
+- **§2.1 — amended.** On the caret line, every code construct (inline
+  code, a raw table cell holding code, a SPEC40 grid cell, a fenced-code
+  body line inside the issue #157 fence card) paints the caret-line tint
+  LAYERED OVER its `--mm-code-bg`: a three-class rule in
+  `editor/styles.css` (`.editor-wrap .cm-editor .cm-activeLine .mm-md-code`)
+  sets a two-stop `linear-gradient` of `var(--mm-active-line, …)` as the
+  image layer above the code background, so the computed
+  `background-image` is that gradient while `background-color` stays the
+  code background and the code text is untouched. The same span on a
+  non-caret line keeps `background-image: none`. Overriding the token
+  recolours the code layer in step with the line. The SPEC23 §3 selection
+  mark (`.mm-code-sel`, E261) is unchanged and nests inside the span as
+  before; live preview's `.mm-lp-code` needs no rule because the caret
+  line is always revealed raw (PRD 006 §8). E626 pins the contract.
