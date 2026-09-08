@@ -35,6 +35,10 @@ implementation reference, and its pixel sizes are placeholders.
 | 4 | Both side panes collapsed, editor only | [04-panes-collapsed-editor.png](images/025-centered-page-layout/04-panes-collapsed-editor.png) |
 | 5 | Both side panes collapsed, preview open | [05-panes-collapsed-preview.png](images/025-centered-page-layout/05-panes-collapsed-preview.png) |
 
+> Mockups 4 and 5 are **superseded by issue #348** (2026-09-08): with both
+> side panes collapsed the page is centred with its ground, radius, shadow
+> and outline, as in mockups 1–2 — not full width. The files are kept.
+
 ## Goals
 
 - The page — the surface carrying the editor (and the preview when open),
@@ -143,9 +147,27 @@ implementation reference, and its pixel sizes are placeholders.
    radius and no shadow. The text column stays centered at
    `--mm-content-width` inside it, exactly as the workspace centers `.doc`
    today (mockups 4 and 5).
+
+   > **Withdrawn (issue #348, 2026-09-08):** there is no full-width form.
+   > With both side panes closed (or absent, as in the static web build) the
+   > page is centred in the body row at its Req 3/4 max width with equal
+   > ground either side, and the page proper keeps its `--mm-radius-small`
+   > top corners, its `--mm-panel-shadow` and its four-sided 1px
+   > `--mm-border` outline exactly as with a pane open — one rule for zero,
+   > one or two panes (Req 8). Closing a pane removes only that pane; the
+   > page re-centres without changing width. Narrow windows still follow
+   > Req 5. Print is unaffected: on paper the page still spans the sheet
+   > flat. The `panes-none` class and its `flex: 1` / flat overrides are
+   > gone; E585, E589 and W19 assert the centred form and E595 covers the
+   > collapse.
 8. **One pane open, one closed:** the same rule as Req 2 with one fewer
    member — the open pane and the page form the cluster, centered as a
    unit, page keeps its radius and shadow. No special case.
+
+   > **Amended (issue #348, 2026-09-08):** this rule now covers **zero**
+   > panes too — with Req 7 withdrawn, the page alone is the cluster,
+   > centred as a unit with its radius, shadow and outline. No special case
+   > for any pane count.
 9. The page's width changes take effect instantly on toggle and on window
    resize. No width, transform or opacity transition is applied to the
    page, the sidebar, the comments column or the preview pane.
@@ -224,6 +246,12 @@ implementation reference, and its pixel sizes are placeholders.
     > page keeps its top hairline under the strip (only the side and bottom
     > edges, the radius and the shadow go), so the band and the tabs look
     > the same in every pane state.
+    >
+    > **Amended (issue #348, 2026-09-08):** nothing goes any more — with
+    > Req 7 withdrawn the page keeps its side and bottom edges, its radius
+    > and its shadow in every pane state, and the strip spans the centred
+    > page column's width (not the window's) with both panes closed. The
+    > band and the tabs still look the same in every pane state.
 19. The existing page-level control group at the strip's right end stays
     where it is. The edit/preview **mode** toggle (`edit-toggle`, the
     "Preview ⌘E" / "Edit ⌘E" button) moves from the toolbar into that
@@ -262,6 +290,11 @@ implementation reference, and its pixel sizes are placeholders.
     A, E, the comments-column placement in B, and Req 20; its page is
     therefore always in the both-panes-closed form unless comments are
     open.
+
+    > **Amended (issue #348, 2026-09-08):** "the both-panes-closed form"
+    > means the centred form of Req 8 as amended — the page column centred
+    > with equal ground either side, rounded, shadowed and outlined on four
+    > sides — never the full-width form of the withdrawn Req 7.
 28. All colours, radii and shadows introduced or changed resolve through
     chrome tokens per PRD 018; the style lint passes with no new literal
     colours outside a token definition. Every bundled theme renders the
