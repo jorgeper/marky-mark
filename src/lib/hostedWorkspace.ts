@@ -8,7 +8,7 @@
  * timestamps come in as arguments.
  */
 
-import { uniqueNameFormatProblem, uniqueNameProblem } from './workspaceNames.ts';
+import { legacyUniqueNameFormatProblem, uniqueNameProblem } from './workspaceNames.ts';
 
 // --- permission catalog (PRD 007 Req 13) -------------------------------------
 
@@ -149,9 +149,11 @@ export interface WorkspaceManifest {
   version: typeof MANIFEST_VERSION;
   name: string;
   /**
-   * PRD 020 Req 1: the workspace's deployment-unique name (1–100 chars from
-   * `[A-Za-z0-9._-]`, unique case-insensitively) — the identity URLs will be
-   * built from, beside the free-text display `name` above. Optional like the
+   * PRD 020 Req 1: the workspace's deployment-unique name (1–100 chars,
+   * unique case-insensitively) — the identity URLs will be built from,
+   * beside the free-text display `name` above. PRD 026 Req 1+9: a name
+   * chosen from now on is lowercase-dash; one stored under PRD 020's wider
+   * `[A-Za-z0-9._-]` charset stays valid as-is. Optional like the
    * `scratchpad` marker: manifests written before the field existed parse
    * unchanged, and the Req 3 migration is what fills it in.
    */
@@ -216,10 +218,13 @@ export function validateWorkspaceManifest(data: unknown): ManifestResult {
   // PRD 020 Req 1: the unique name is optional (pre-migration manifests still
   // parse) but a present one must be well-formed. Format only here — reserved
   // words and collisions are creation/rename policy, not manifest shape.
+  // PRD 026 Req 9: and the LEGACY format — a stored `Team_Docs` or
+  // `Design-Docs` predates the lowercase-dash rule and stays valid; only a
+  // name being chosen meets that rule (the create and rename routes).
   let uniqueName: string | undefined;
   if (data.uniqueName !== undefined) {
     if (typeof data.uniqueName !== 'string') return fail('manifest uniqueName must be a string');
-    const problem = uniqueNameFormatProblem(data.uniqueName);
+    const problem = legacyUniqueNameFormatProblem(data.uniqueName);
     if (problem) return fail(`manifest uniqueName is invalid: ${problem}`);
     uniqueName = data.uniqueName;
   }
@@ -228,14 +233,15 @@ export function validateWorkspaceManifest(data: unknown): ManifestResult {
   // failure is a 500 on every workspace route) but a present value must be an
   // array of well-formed unique names. Format only, exactly like `uniqueName`
   // above: reserved words and collisions are creation/rename policy, so
-  // history a later policy outlaws never makes the manifest unreadable.
+  // history a later policy outlaws never makes the manifest unreadable —
+  // and, PRD 026 Req 9, the legacy charset for the same reason.
   let formerNames: string[] | undefined;
   if (data.formerNames !== undefined) {
     if (!Array.isArray(data.formerNames)) return fail('manifest formerNames must be an array');
     const names: string[] = [];
     for (const entry of data.formerNames as unknown[]) {
       if (typeof entry !== 'string') return fail('manifest formerNames must be an array of strings');
-      const problem = uniqueNameFormatProblem(entry);
+      const problem = legacyUniqueNameFormatProblem(entry);
       if (problem) return fail(`manifest formerNames entry ${JSON.stringify(entry)} is invalid: ${problem}`);
       names.push(entry);
     }
@@ -393,9 +399,11 @@ export function buildNewWorkspaceManifest(
   // Untrusted fields stay `unknown` until each check narrows them — the same
   // shape-by-shape discipline validateWorkspaceManifest applies above.
   const { name, uniqueName, members, everyone } = body;
-  // PRD 020 Req 1+2: a provided unique name must be well-formed and not
-  // reserved — the stateless half of creation's enforcement; the collision
-  // check needs deployment state and lives with the route.
+  // PRD 020 Req 1+2 / PRD 026 Req 3: a provided unique name must meet the
+  // strict chosen-name rule and not be reserved — the stateless half of
+  // creation's enforcement, refused with the rule's own message so the 400
+  // reads exactly as the dialog's hint; the collision check needs deployment
+  // state and lives with the route.
   if (uniqueName !== undefined) {
     if (typeof uniqueName !== 'string') return fail('uniqueName must be a string');
     const problem = uniqueNameProblem(uniqueName);

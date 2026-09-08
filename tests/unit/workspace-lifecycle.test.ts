@@ -148,9 +148,19 @@ describe('PRD 007 Req 10 + PRD 020 Req 2: the New Workspace form', () => {
       ok: false,
       error: 'A unique name is required.',
     });
-    // Whitespace is outside the charset (never silently trimmed away).
+    // Whitespace is outside the charset (never silently trimmed away). PRD 026
+    // Req 1: the message is the strict lowercase-dash rule's own.
     const spaced = validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), uniqueName: 'design docs' });
-    expect(spaced).toEqual({ ok: false, error: 'A unique name may only use letters, digits, and . _ - characters.' });
+    expect(spaced).toEqual({
+      ok: false,
+      error: 'A unique name may only use lowercase letters, numbers and single dashes between them.',
+    });
+    // PRD 026 Req 1: PRD 020's wider charset no longer submits from the form.
+    const cased = validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), uniqueName: 'Design_Docs' });
+    expect(cased).toEqual({
+      ok: false,
+      error: 'A unique name may only use lowercase letters, numbers and single dashes between them.',
+    });
   });
 
   it('U285: a valid form becomes the POST body — unique name, trimmed friendly name, members, everyone-access', () => {
@@ -187,10 +197,12 @@ describe('PRD 007 Req 10 + PRD 020 Req 2: the New Workspace form', () => {
     expect(bare.ok && bare.request.name).toBe('design-docs');
     expect(bare.ok && bare.request.uniqueName).toBe('design-docs');
     // PRD 020 Req 1: reserved words are refused client-side with the same
-    // message the server would answer.
-    expect(validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), uniqueName: 'Scratchpad' })).toEqual({
+    // message the server would answer. (PRD 026 Req 1: a capitalised
+    // `Scratchpad` now trips the charset rule first, so the reserved refusal
+    // is reached with the lowercase form.)
+    expect(validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), uniqueName: 'scratchpad' })).toEqual({
       ok: false,
-      error: '"Scratchpad" is a reserved name.',
+      error: '"scratchpad" is a reserved name.',
     });
   });
 });
@@ -360,7 +372,13 @@ describe('PRD 020 Req 1+2: buildNewWorkspaceManifest and the unique name', () =>
   it('U1052: an invalid or reserved unique name is refused with the message the dialog shows verbatim', () => {
     expect(buildNewWorkspaceManifest({ uniqueName: 'has spaces', name: 'W' }, 'mock-ada', NOW)).toEqual({
       ok: false,
-      error: 'A unique name may only use letters, digits, and . _ - characters.',
+      error: 'A unique name may only use lowercase letters, numbers and single dashes between them.',
+    });
+    // PRD 026 Req 1+3: a name legal under PRD 020's charset but not the
+    // lowercase-dash rule is refused with the same message the dialog shows.
+    expect(buildNewWorkspaceManifest({ uniqueName: 'Design-Docs', name: 'W' }, 'mock-ada', NOW)).toEqual({
+      ok: false,
+      error: 'A unique name may only use lowercase letters, numbers and single dashes between them.',
     });
     expect(buildNewWorkspaceManifest({ uniqueName: 'scratch', name: 'W' }, 'mock-ada', NOW)).toEqual({
       ok: false,

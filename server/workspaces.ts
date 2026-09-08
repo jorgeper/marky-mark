@@ -37,6 +37,7 @@ import {
   planUniqueNameMigration,
   recordFormerName,
   slugifyWorkspaceName,
+  WORKSPACE_SLUG_FALLBACK,
   uniqueNameKey,
   uniqueNameProblem,
 } from '../src/lib/workspaceNames.ts';
@@ -605,7 +606,7 @@ export async function handleScratchpadResolve(
   // unique name stays the workspace's manifest identity; its CANONICAL URL
   // is the Req 10 `/<username>/scratchpad` form.
   const scan = await scanUniqueNames(storage);
-  const uniqueName = dedupeUniqueName(slugifyWorkspaceName(SCRATCHPAD_NAME), scan.taken);
+  const uniqueName = dedupeUniqueName(slugifyWorkspaceName(SCRATCHPAD_NAME) || WORKSPACE_SLUG_FALLBACK, scan.taken);
   const manifest: WorkspaceManifest = {
     ...built.manifest,
     uniqueName,
@@ -741,8 +742,13 @@ export async function handleWorkspaceApi(
       // PRD 020 Req 5+6: every workspace carries a unique name from birth —
       // its canonical path URL depends on one. A name-only body (an older
       // client) gets its display name minted into one exactly like the Req 3
-      // migration would: slugified, deduped deployment-wide.
-      built.manifest.uniqueName = dedupeUniqueName(slugifyWorkspaceName(built.manifest.name), scan.taken);
+      // migration would: slugified, deduped deployment-wide. PRD 026 Req 2:
+      // a display name with nothing usable slugifies to nothing — the
+      // fallback word is this caller's, not the slugifier's.
+      built.manifest.uniqueName = dedupeUniqueName(
+        slugifyWorkspaceName(built.manifest.name) || WORKSPACE_SLUG_FALLBACK,
+        scan.taken,
+      );
     }
     // PRD 007 Req 6 (issue #180): snapshot each initial member's display
     // name at add time — the creator's from their own token, the rest from
@@ -917,8 +923,12 @@ export async function handleWorkspaceApi(
       // name alone reclaims nothing and pays for no fan-out.
       let rename: { name: string; scan: UniqueNameScan } | null = null;
       if (requested !== undefined && requested !== existing.uniqueName) {
-        // Format already passed validateWorkspaceManifest, so the shared rule
-        // can only trip on a reserved word — same message the dialogs show.
+        // PRD 026 Req 3: validateWorkspaceManifest only proved the LEGACY
+        // charset (Req 9 — the body may be carrying a grandfathered stored
+        // name), so this strict check on a CHANGED name is load-bearing: a
+        // rename to `Team_Docs` is a 400 with the rule's own message, before
+        // any collision scan. An unchanged name never reaches here, which is
+        // what keeps a grandfathered workspace editable in its other fields.
         // PRD 024 Req 9: unchanged, and since only a name that was
         // legitimately current can be recorded below, no reserved word can
         // ever reach `formerNames`.

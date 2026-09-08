@@ -972,6 +972,17 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     return ((await res.json()) as { id: string }).id;
   };
 
+  /**
+   * PRD 026 Req 9: write a unique name straight into the stored blob, past
+   * the create route's strict rule — how a workspace named under PRD 020's
+   * wider charset (`Team_Docs`, `Design-Docs`) actually sits in a deployment.
+   */
+  const seedStoredName = async (id: string, uniqueName: string): Promise<void> => {
+    const stored = await provider.read(`workspaces/${id}/manifest.json`);
+    const manifest = JSON.parse(stored!.content) as WorkspaceManifest;
+    await provider.write(`workspaces/${id}/manifest.json`, JSON.stringify({ ...manifest, uniqueName }, null, 2));
+  };
+
   /** PUT the stored manifest back under a new unique name; answer what was stored. */
   const rename = async (id: string, uniqueName: string): Promise<WorkspaceManifest> => {
     const current = await readManifest(id);
@@ -981,13 +992,16 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
   };
 
   it('U1053: creation stores both names and rejects reserved or case-insensitively colliding unique names verbatim', async () => {
-    const created = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'Design-Docs', name: 'Design Docs' }));
+    // PRD 026 Req 1: a chosen name is lowercase-dash.
+    const created = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'design-docs', name: 'Design Docs' }));
     expect(created.status).toBe(201);
     const { id, manifest } = (await created.json()) as { id: string; manifest: WorkspaceManifest };
-    expect(manifest.uniqueName).toBe('Design-Docs');
+    expect(manifest.uniqueName).toBe('design-docs');
     expect(manifest.name).toBe('Design Docs');
-    // Case-insensitive collision: a differently-cased duplicate is a 409
-    // whose message the dialog can show as-is.
+    // Case-insensitive collision: a chosen lowercase name against a stored
+    // mixed-case one (a grandfathered PRD 020 name, seeded straight into
+    // storage) is a 409 whose message the dialog can show as-is.
+    await seedStoredName(id, 'Design-Docs');
     const collided = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'design-docs' }));
     expect(collided.status).toBe(409);
     expect(((await collided.json()) as { error: string }).error).toBe('The unique name "design-docs" is already taken.');
@@ -1013,10 +1027,12 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     expect(renamed.status).toBe(200);
     expect((await readManifest(b.id)).uniqueName).toBe('gamma');
 
-    // Colliding with another workspace (case-insensitively) is a 409…
-    const collide = await call('ada', 'PUT', `/api/workspaces/${b.id}/manifest`, JSON.stringify({ ...manifest, uniqueName: 'ALPHA' }));
+    // Colliding with another workspace (case-insensitively — `a` is stored
+    // as a seeded mixed-case `Alpha`) is a 409…
+    await seedStoredName(a.id, 'Alpha');
+    const collide = await call('ada', 'PUT', `/api/workspaces/${b.id}/manifest`, JSON.stringify({ ...manifest, uniqueName: 'alpha' }));
     expect(collide.status).toBe(409);
-    expect(((await collide.json()) as { error: string }).error).toBe('The unique name "ALPHA" is already taken.');
+    expect(((await collide.json()) as { error: string }).error).toBe('The unique name "alpha" is already taken.');
     // …a reserved word is a 400…
     const reserved = await call('ada', 'PUT', `/api/workspaces/${b.id}/manifest`, JSON.stringify({ ...manifest, uniqueName: 'scratchpad' }));
     expect(reserved.status).toBe(400);
@@ -1052,18 +1068,21 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     // Req 2: the previous name is appended when the name really changes.
     expect((await rename(id, 'hist-b')).formerNames).toEqual(['hist-a']);
     // Req 2: a case-only change updates the current name as today and is not
-    // a rename for history purposes.
-    const cased = await rename(id, 'Hist-B');
-    expect(cased.uniqueName).toBe('Hist-B');
+    // a rename for history purposes. PRD 026 Req 1 means the mixed-case side
+    // can only be the STORED one (a grandfathered name, seeded), so the
+    // change runs `Hist-B` → `hist-b`.
+    await seedStoredName(id, 'Hist-B');
+    const cased = await rename(id, 'hist-b');
+    expect(cased.uniqueName).toBe('hist-b');
     expect(cased.formerNames).toEqual(['hist-a']);
     // Req 4: chains are flat — one list, append order preserved, no old→new
     // mapping to follow.
-    expect((await rename(id, 'hist-c')).formerNames).toEqual(['hist-a', 'Hist-B']);
+    expect((await rename(id, 'hist-c')).formerNames).toEqual(['hist-a', 'hist-b']);
     // Req 3: the name becoming current leaves the list, and the one just
     // given up joins it — so the list never holds the current name.
     const back = await rename(id, 'hist-a');
     expect(back.uniqueName).toBe('hist-a');
-    expect(back.formerNames).toEqual(['Hist-B', 'hist-c']);
+    expect(back.formerNames).toEqual(['hist-b', 'hist-c']);
 
     // Req 3 at its simplest: after A → B → A the history is exactly [B].
     const pinged = await create('ping');
@@ -1118,9 +1137,9 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     const abandoned = await create('reclaim-me');
     await rename(abandoned, 'moved-on');
     expect((await readManifest(abandoned)).formerNames).toEqual(['reclaim-me']);
-    const created = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'Reclaim-Me' }));
+    const created = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'reclaim-me' }));
     expect(created.status).toBe(201);
-    expect(((await created.json()) as { manifest: WorkspaceManifest }).manifest.uniqueName).toBe('Reclaim-Me');
+    expect(((await created.json()) as { manifest: WorkspaceManifest }).manifest.uniqueName).toBe('reclaim-me');
     // …and Req 8: the old holder stops answering to it in the same request.
     expect((await readManifest(abandoned)).formerNames).toBeUndefined();
 
@@ -1131,8 +1150,8 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     await rename(giver, 'giver-3');
     expect((await readManifest(giver)).formerNames).toEqual(['giver', 'giver-2']);
     const taker = await create('taker');
-    const took = await rename(taker, 'GIVER');
-    expect(took.uniqueName).toBe('GIVER');
+    const took = await rename(taker, 'giver');
+    expect(took.uniqueName).toBe('giver');
     expect(took.formerNames).toEqual(['taker']);
     expect((await readManifest(giver)).formerNames).toEqual(['giver-2']);
     blobs.clear();
@@ -1214,21 +1233,118 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     // PRD 020 Req 5+6: every workspace has a canonical path URL, so creation
     // without an explicit unique name mints one from the display name —
     // slugified and deduped exactly like the Req 3 migration.
+    // PRD 026 Req 2: the slugifier strips the trailing punctuation's dash,
+    // so `Team Notes!` mints `team-notes` and the next one `team-notes-2`.
     const first = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: 'Team Notes!' }));
     expect(first.status).toBe(201);
     const a = (await first.json()) as { id: string; manifest: WorkspaceManifest };
-    expect(a.manifest.uniqueName).toBe('team-notes-');
+    expect(a.manifest.uniqueName).toBe('team-notes');
     const second = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: 'Team Notes~' }));
     const b = (await second.json()) as { id: string; manifest: WorkspaceManifest };
-    expect(b.manifest.uniqueName).toBe('team-notes--2');
+    expect(b.manifest.uniqueName).toBe('team-notes-2');
+    // PRD 026 Req 2: a display name with nothing usable slugifies to nothing;
+    // the route supplies the `workspace` fallback and dedupes it.
+    const bare = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: '!!!' }));
+    expect(((await bare.json()) as { manifest: WorkspaceManifest }).manifest.uniqueName).toBe('workspace');
+    const bare2 = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: '日本語' }));
+    expect(((await bare2.json()) as { manifest: WorkspaceManifest }).manifest.uniqueName).toBe('workspace-2');
     // PRD 020 Req 5: the listing row carries the unique name — what the
     // client resolves a visited path against, and builds canonical URLs from.
     const listed = (await (await call('ada', 'GET', '/api/workspaces')).json()) as {
       id: string;
       uniqueName?: string;
     }[];
-    expect(listed.find((r) => r.id === a.id)?.uniqueName).toBe('team-notes-');
-    expect(listed.find((r) => r.id === b.id)?.uniqueName).toBe('team-notes--2');
+    expect(listed.find((r) => r.id === a.id)?.uniqueName).toBe('team-notes');
+    expect(listed.find((r) => r.id === b.id)?.uniqueName).toBe('team-notes-2');
+    blobs.clear();
+  });
+
+  it('U1320: PRD 026 Req 3 — creation refuses a name failing the lowercase-dash rule with the shared rule\u2019s own message', async () => {
+    const charset = 'A unique name may only use lowercase letters, numbers and single dashes between them.';
+    // Legal under PRD 020's charset, refused now: uppercase, underscore, dot,
+    // edge and double dashes — each a 400 carrying exactly the text the New
+    // Workspace dialog shows as you type.
+    for (const bad of ['Design-Docs', 'team_docs', 'team.docs', '-team', 'team-', 'team--docs', 'Team Docs']) {
+      const res = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: bad, name: 'Team Docs' }));
+      expect(res.status, bad).toBe(400);
+      expect(((await res.json()) as { error: string }).error, bad).toBe(charset);
+    }
+    // The empty and over-length refusals keep their own distinct messages.
+    const empty = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: '', name: 'Team Docs' }));
+    expect(empty.status).toBe(400);
+    expect(((await empty.json()) as { error: string }).error).toBe('A unique name is required.');
+    const long = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'a'.repeat(101) }));
+    expect(((await long.json()) as { error: string }).error).toBe('A unique name must be at most 100 characters.');
+    // Nothing landed.
+    expect([...blobs.keys()]).toEqual([]);
+    // And the well-formed one does.
+    const ok = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'team-docs', name: 'Team Docs' }));
+    expect(ok.status).toBe(201);
+    blobs.clear();
+  });
+
+  it('U1321: PRD 026 Req 3+9 — a grandfathered name is untouched by a PUT that keeps it, and a rename must meet the strict rule', async () => {
+    const charset = 'A unique name may only use lowercase letters, numbers and single dashes between them.';
+    // A workspace named `Team_Docs` under PRD 020, seeded straight into
+    // storage: it reads back fine (manifest validation keeps the legacy
+    // charset)…
+    const id = await create('placeholder');
+    await seedStoredName(id, 'Team_Docs');
+    const stored = await readManifest(id);
+    expect(stored.uniqueName).toBe('Team_Docs');
+    // …and a PUT that changes only the display name is never re-validated
+    // against the strict rule: 200, and `Team_Docs` stays.
+    const friendly = await call('ada', 'PUT', `/api/workspaces/${id}/manifest`, JSON.stringify({ ...stored, name: 'Team Docs (renamed)' }));
+    expect(friendly.status).toBe(200);
+    const after = await readManifest(id);
+    expect(after.name).toBe('Team Docs (renamed)');
+    expect(after.uniqueName).toBe('Team_Docs');
+    expect(after.formerNames).toBeUndefined();
+    // A body that omits the field keeps the stored name too.
+    const { uniqueName: _drop, ...withoutUnique } = after;
+    expect((await call('ada', 'PUT', `/api/workspaces/${id}/manifest`, JSON.stringify(withoutUnique))).status).toBe(200);
+    expect((await readManifest(id)).uniqueName).toBe('Team_Docs');
+    // A rename to a name that fails the strict rule is a 400 with the same
+    // message the settings section shows — before any collision scan.
+    for (const bad of ['Team_Notes', 'Team-Docs', 'team.docs', 'team--docs']) {
+      const res = await call('ada', 'PUT', `/api/workspaces/${id}/manifest`, JSON.stringify({ ...after, uniqueName: bad }));
+      expect(res.status, bad).toBe(400);
+      expect(((await res.json()) as { error: string }).error, bad).toBe(charset);
+    }
+    expect((await readManifest(id)).uniqueName).toBe('Team_Docs');
+    // Renaming the grandfathered workspace to its lowercase-dash form is a
+    // 200 — and `Team_Docs` → `team-docs` is a real rename, so it is recorded.
+    const renamed = await call('ada', 'PUT', `/api/workspaces/${id}/manifest`, JSON.stringify({ ...after, uniqueName: 'team-docs' }));
+    expect(renamed.status).toBe(200);
+    const lower = await readManifest(id);
+    expect(lower.uniqueName).toBe('team-docs');
+    expect(lower.formerNames).toEqual(['Team_Docs']);
+    // Whereas a grandfathered `Team-Docs` → `team-docs` is a case-only change
+    // (PRD 024 Req 2): 200, the name lowercased, nothing recorded.
+    const other = await create('placeholder-2');
+    await seedStoredName(other, 'Other-Docs');
+    const cased = await call('ada', 'PUT', `/api/workspaces/${other}/manifest`, JSON.stringify({ ...(await readManifest(other)), uniqueName: 'other-docs' }));
+    expect(cased.status).toBe(200);
+    const casedAfter = await readManifest(other);
+    expect(casedAfter.uniqueName).toBe('other-docs');
+    expect(casedAfter.formerNames).toBeUndefined();
+    blobs.clear();
+  });
+
+  it('U1322: PRD 026 Req 1+9 — a chosen lowercase name colliding case-insensitively with a seeded mixed-case stored name is a 409', async () => {
+    const id = await create('placeholder');
+    await seedStoredName(id, 'Mixed-Case');
+    // Creation…
+    const created = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'mixed-case' }));
+    expect(created.status).toBe(409);
+    expect(((await created.json()) as { error: string }).error).toBe('The unique name "mixed-case" is already taken.');
+    // …and rename both compare through `uniqueNameKey`, so the grandfathered
+    // name keeps its claim on the lowercase-dash form.
+    const other = await create('someone-else');
+    const renamed = await call('ada', 'PUT', `/api/workspaces/${other}/manifest`, JSON.stringify({ ...(await readManifest(other)), uniqueName: 'mixed-case' }));
+    expect(renamed.status).toBe(409);
+    expect(((await renamed.json()) as { error: string }).error).toBe('The unique name "mixed-case" is already taken.');
+    expect((await readManifest(other)).uniqueName).toBe('someone-else');
     blobs.clear();
   });
 });

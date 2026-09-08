@@ -652,6 +652,31 @@ describe('PRD 020 Req 1 manifest unique name', () => {
     }
   });
 
+  it('U1319: PRD 026 Req 9 — a manifest whose uniqueName and formerNames carry PRD 020\u2019s charset still validates and round-trips', () => {
+    // Grandfathered names: uppercase, underscore, dot. Manifest validation
+    // holds stored names to the LEGACY rule, never the strict chosen-name
+    // rule, so nothing written before PRD 026 stops parsing (a parse failure
+    // is a 500 on every workspace route).
+    for (const stored of ['Team_Docs', 'Design-Docs', 'team.docs']) {
+      const result = validateWorkspaceManifest({ ...base(), uniqueName: stored, formerNames: ['Old_Name', 'old.name'] });
+      expect(result.ok, stored).toBe(true);
+      if (!result.ok) return;
+      expect(result.manifest.uniqueName).toBe(stored);
+      expect(result.manifest.formerNames).toEqual(['Old_Name', 'old.name']);
+      const reparsed = parseWorkspaceManifest(serializeWorkspaceManifest(result.manifest));
+      expect(reparsed.ok && reparsed.manifest.uniqueName).toBe(stored);
+      expect(reparsed.ok && reparsed.manifest.formerNames).toEqual(['Old_Name', 'old.name']);
+    }
+    // The legacy rule is still a rule: what PRD 020 never allowed stays a
+    // named error, in either field.
+    const spaced = validateWorkspaceManifest({ ...base(), uniqueName: 'Team Docs' });
+    expect(spaced.ok).toBe(false);
+    if (!spaced.ok) expect(spaced.error).toContain('letters, digits');
+    const history = validateWorkspaceManifest({ ...base(), formerNames: ['team/docs'] });
+    expect(history.ok).toBe(false);
+    if (!history.ok) expect(history.error).toContain('letters, digits');
+  });
+
   it('U1050: friendlyNameOf reads "friendly unset" out of name === uniqueName', () => {
     // PRD 020 Req 2: unset friendly name is stored as name === uniqueName.
     expect(friendlyNameOf({ name: 'design-docs', uniqueName: 'design-docs' })).toBeNull();
