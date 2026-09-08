@@ -1524,10 +1524,11 @@ export default function Editor({
     `${SMART_EDIT_NAME} (${displayCombo(smartPropsRef.current.hotkeys.smartMenu, smartPropsRef.current.isMac)})`;
 
   /**
-   * PRD 023 §7 (issue #286): the live selection in raw AND canonical
-   * coordinates — the annotation seam's argument, shared by the menu open
-   * and the App's hotkey path (smartRef.annotationSelection), so both
-   * resolve annotation context through one mapping.
+   * PRD 023 §7 (issue #286): the live selection as the annotation seam's
+   * argument — in the editor document's coordinates without a tracked grid,
+   * in CANONICAL coordinates with one (PRD 023 §19, issue #344) — shared by
+   * the menu open and the App's hotkey path (smartRef.annotationSelection),
+   * so both resolve annotation context through one mapping.
    */
   const annotationSelection = (view: EditorView): AnnotationSelection => {
     const sel = view.state.selection.main;

@@ -22,11 +22,11 @@
 
 import {
   displayCellAt,
+  displayCellBounds,
   displayPosOf,
   layoutTable,
   lineCellSpans,
   parseDisplay,
-  type CellSpan,
   type DisplayMap,
   type ParsedDisplay,
 } from './tableEdit';
@@ -76,7 +76,7 @@ export function spanGeometry(
 }
 
 /** A canonical-text location inside a table: cell plus normalized content offset. */
-export interface CellLoc {
+interface CellLoc {
   row: number; // −1 header
   col: number;
   /** Offset into the cell's whitespace-normalized content (the display model's cell). */
@@ -158,7 +158,7 @@ function canonLineIndexAt(lines: Array<{ start: number; end: number }>, offset: 
 }
 
 /** The canonical cell holding a canonical-relative offset, or null on the delimiter line. */
-function canonCellAt(canon: string, offset: number): { loc: CellLoc; cell: CellSpan } | null {
+function canonCellAt(canon: string, offset: number): CellLoc | null {
   const lines = canonLines(canon);
   const li = canonLineIndexAt(lines, offset);
   if (li === 1) return null; // the delimiter row paints nothing
@@ -169,10 +169,7 @@ function canonCellAt(canon: string, offset: number): { loc: CellLoc; cell: CellS
   const cell = spans[col];
   const rawContent = canon.slice(cell.contentStart, cell.contentEnd);
   const within = Math.max(0, Math.min(offset - cell.contentStart, rawContent.length));
-  return {
-    loc: { row: li === 0 ? -1 : li - 2, col, contentOffset: normalizedOffset(rawContent, within) },
-    cell,
-  };
+  return { row: li === 0 ? -1 : li - 2, col, contentOffset: normalizedOffset(rawContent, within) };
 }
 
 /** Where a canonical offset sits relative to the spans: outside (shifted) or inside span `i`. */
@@ -204,9 +201,9 @@ export function canonToDocOffset(geoms: readonly SpanGeometry[], offset: number)
   if (at.kind === 'outside') return at.pos;
   const g = geoms[at.index];
   if (!g.display) return null;
-  const hit = canonCellAt(g.canon, offset - g.canonFrom);
-  if (!hit) return null;
-  return g.from + displayPosOf(g.display.map, hit.loc);
+  const loc = canonCellAt(g.canon, offset - g.canonFrom);
+  if (!loc) return null;
+  return g.from + displayPosOf(g.display.map, loc);
 }
 
 /**
@@ -236,15 +233,15 @@ export function canonToDocRanges(geoms: readonly SpanGeometry[], from: number, t
   if (a.kind !== 'inside' || b.kind !== 'inside' || a.index !== b.index) return null;
   const g = geoms[a.index];
   if (!g.display) return null;
-  const ha = canonCellAt(g.canon, from - g.canonFrom);
-  const hb = canonCellAt(g.canon, to - g.canonFrom);
-  if (!ha || !hb || ha.loc.row !== hb.loc.row || ha.loc.col !== hb.loc.col) return null;
-  const cs = ha.loc.contentOffset;
-  const ce = hb.loc.contentOffset;
+  const start = canonCellAt(g.canon, from - g.canonFrom);
+  const end = canonCellAt(g.canon, to - g.canonFrom);
+  if (!start || !end || start.row !== end.row || start.col !== end.col) return null;
+  const cs = start.contentOffset;
+  const ce = end.contentOffset;
   if (ce <= cs) return null;
   const out: DocRange[] = [];
   const frags = g.display.map.fragments
-    .filter((f) => f.row === ha.loc.row && f.col === ha.loc.col)
+    .filter((f) => f.row === start.row && f.col === start.col)
     .sort((x, y) => x.frag - y.frag);
   for (const f of frags) {
     const s = Math.max(cs, f.contentOffset);
@@ -269,15 +266,11 @@ export function docToCanonOffset(geoms: readonly SpanGeometry[], offset: number,
     if (offset <= g.to) {
       if (!g.display) return null;
       const region = { start: g.from, end: g.to };
+      // A separator line names the row above with contentOffset 0 — not a
+      // cell the caret can be "in"; displayCellBounds reports the line kind.
+      if (displayCellBounds(raw, region, g.display.parsed, offset)?.kind !== 'cells') return null;
       const loc = displayCellAt(raw, region, g.display.parsed, offset);
       if (!loc) return null;
-      // A separator line names the row above with contentOffset 0 — not a
-      // cell the caret can be "in".
-      const lines = raw.slice(g.from, g.to).split('\n');
-      let li = 0;
-      let pos = g.from;
-      for (; li < lines.length - 1 && offset > pos + lines[li].length; li++) pos += lines[li].length + 1;
-      if (g.display.parsed.lineInfo[li]?.kind !== 'cells') return null;
       const cLines = canonLines(g.canon);
       const cli = loc.row === -1 ? 0 : loc.row + 2;
       if (cli >= cLines.length) return null;

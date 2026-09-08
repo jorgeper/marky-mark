@@ -97,8 +97,8 @@ describe('PRD 022 Req 12 / SPEC40 §2 (issue #344): canonical → display offset
 
   test('U1355: display → canonical is the inverse over every content character; a separator line maps to null', () => {
     const { raw, geoms } = build(24);
-    const canonChars = ['quick', 'brown', 'fox', 'jumps', 'Name', 'Detail', 'b'];
-    for (const word of canonChars) {
+    const words = ['quick', 'brown', 'fox', 'jumps', 'Name', 'Detail', 'b'];
+    for (const word of words) {
       const c = CANON.indexOf(word);
       for (let i = 0; i <= word.length; i++) {
         const doc = canonToDocOffset(geoms, c + i)!;
