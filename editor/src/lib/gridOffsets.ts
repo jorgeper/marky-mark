@@ -91,6 +91,15 @@ export interface CellLoc {
 }
 
 /**
+ * The canonical line index (0 header, 1 delimiter, 2+ rows) a display row
+ * (−1 header, 0+ body) lives on. Issue #357: the one place this arithmetic
+ * is written, shared with the total seam (gridSeam.ts).
+ */
+export function canonLineOfRow(row: number): number {
+  return row === -1 ? 0 : row + 2;
+}
+
+/**
  * Normalized-content offset of a raw index into a cell's raw content, where
  * normalization is `layoutTable`'s: whitespace runs collapse to one space,
  * edges trim. A raw index inside a whitespace run maps to the end of the
@@ -203,6 +212,26 @@ export function locate(
 }
 
 /**
+ * The display-side twin of `locate`: where an editor-doc offset sits
+ * relative to the spans — outside (shifted back to canonical) or inside span
+ * `i`. Issue #357: shared by `docToCanonOffset` and the total seam, so both
+ * agree on which span owns an offset.
+ */
+export function locateDisplay(
+  geoms: readonly SpanGeometry[],
+  offset: number
+): { kind: 'outside'; pos: number } | { kind: 'inside'; index: number } {
+  let delta = 0; // editor-doc position − canonical position, so far
+  for (let i = 0; i < geoms.length; i++) {
+    const g = geoms[i];
+    if (offset < g.from) return { kind: 'outside', pos: offset - delta };
+    if (offset <= g.to) return { kind: 'inside', index: i };
+    delta += g.to - g.from - g.canon.length;
+  }
+  return { kind: 'outside', pos: offset - delta };
+}
+
+/**
  * PRD 022 Req 12 (issue #344): one canonical offset → its editor-doc
  * position. Outside every span the texts are byte-identical modulo each
  * earlier span's length delta (identity before the first table, shifted
@@ -274,27 +303,22 @@ export function canonToDocRanges(geoms: readonly SpanGeometry[], from: number, t
  * anchoring to text that is not in the file.
  */
 export function docToCanonOffset(geoms: readonly SpanGeometry[], offset: number, raw: string): number | null {
-  let delta = 0;
-  for (const g of geoms) {
-    if (offset < g.from) return offset - delta;
-    if (offset <= g.to) {
-      if (!g.display) return null;
-      const region = { start: g.from, end: g.to };
-      // A separator line names the row above with contentOffset 0 — not a
-      // cell the caret can be "in"; displayCellBounds reports the line kind.
-      if (displayCellBounds(raw, region, g.display.parsed, offset)?.kind !== 'cells') return null;
-      const loc = displayCellAt(raw, region, g.display.parsed, offset);
-      if (!loc) return null;
-      const cLines = canonLines(g.canon);
-      const cli = loc.row === -1 ? 0 : loc.row + 2;
-      if (cli >= cLines.length) return null;
-      const cells = lineCellSpans(g.canon, cLines[cli].start, cLines[cli].end);
-      const cell = cells[loc.col];
-      if (!cell) return null;
-      const rawContent = g.canon.slice(cell.contentStart, cell.contentEnd);
-      return g.canonFrom + cell.contentStart + rawIndexForNormalized(rawContent, loc.contentOffset);
-    }
-    delta += g.to - g.from - g.canon.length;
-  }
-  return offset - delta;
+  const at = locateDisplay(geoms, offset);
+  if (at.kind === 'outside') return at.pos;
+  const g = geoms[at.index];
+  if (!g.display) return null;
+  const region = { start: g.from, end: g.to };
+  // A separator line names the row above with contentOffset 0 — not a
+  // cell the caret can be "in"; displayCellBounds reports the line kind.
+  if (displayCellBounds(raw, region, g.display.parsed, offset)?.kind !== 'cells') return null;
+  const loc = displayCellAt(raw, region, g.display.parsed, offset);
+  if (!loc) return null;
+  const cLines = canonLines(g.canon);
+  const cli = canonLineOfRow(loc.row);
+  if (cli >= cLines.length) return null;
+  const cells = lineCellSpans(g.canon, cLines[cli].start, cLines[cli].end);
+  const cell = cells[loc.col];
+  if (!cell) return null;
+  const rawContent = g.canon.slice(cell.contentStart, cell.contentEnd);
+  return g.canonFrom + cell.contentStart + rawIndexForNormalized(rawContent, loc.contentOffset);
 }

@@ -34,8 +34,10 @@ import { displayCellAt, displayPosOf, lineCellSpans, type ParsedDisplay } from '
 import {
   canonCellAt,
   canonLineIndexAt,
+  canonLineOfRow,
   canonLines,
   locate,
+  locateDisplay,
   rawIndexForNormalized,
   type SpanGeometry,
 } from './gridOffsets';
@@ -68,9 +70,9 @@ interface SpanLines {
   /** The canonical line that first line is. */
   canonFirst: number;
   /** How many editor lines it shows as. */
-  rawLines: number;
+  rawLineCount: number;
   /** How many canonical lines it collapses to. */
-  canonLines: number;
+  canonLineCount: number;
   /** Per display line: kind and row, as parsed; null when the span does not parse. */
   lineInfo: ParsedDisplay['lineInfo'] | null;
   /** Whether the canonical text is header / delimiter / one line per row. */
@@ -119,43 +121,52 @@ export function gridSeam(raw: string, geoms: readonly SpanGeometry[]): GridSeam 
   let lineDelta = 0; // editor line − canonical line, accumulated over earlier spans
   for (const g of geoms) {
     const firstRaw = countNewlines(raw, 0, g.from) + 1;
-    const rawLines = countNewlines(raw, g.from, g.to) + 1;
-    const cl = countNewlines(g.canon) + 1;
+    const rawLineCount = countNewlines(raw, g.from, g.to) + 1;
+    const canonLineCount = countNewlines(g.canon) + 1;
     const info = g.parsed?.lineInfo ?? null;
-    let rows = 0;
-    if (info) for (const l of info) if (l.kind === 'cells' && l.row + 1 > rows) rows = l.row + 1;
+    // The body rows the display shows: a canonical text is "shaped" when it
+    // is exactly header + delimiter + one line per body row.
+    let bodyRows = 0;
+    if (info) {
+      for (const l of info) {
+        if (l.kind === 'cells') bodyRows = Math.max(bodyRows, l.row + 1);
+      }
+    }
     spans.push({
       firstRaw,
       canonFirst: firstRaw - lineDelta,
-      rawLines,
-      canonLines: cl,
+      rawLineCount,
+      canonLineCount,
       lineInfo: info,
-      shaped: info !== null && cl === rows + 2,
+      shaped: info !== null && canonLineCount === bodyRows + 2,
     });
-    lineDelta += rawLines - cl;
+    lineDelta += rawLineCount - canonLineCount;
   }
 
-  /** The first display row (0-based within the span) of a canonical row offset — `spanDisplayRows`' first pick. */
-  const firstDisplayRow = (s: SpanLines, offset: number): number => {
-    if (!s.lineInfo || !s.shaped) return Math.min(offset, s.rawLines - 1);
+  /** The first display row (0-based within the span) of a canonical line index — `spanDisplayRows`' first pick. */
+  const firstDisplayRow = (s: SpanLines, lineIndex: number): number => {
+    if (!s.lineInfo || !s.shaped) return Math.min(lineIndex, s.rawLineCount - 1);
     const info = s.lineInfo;
-    if (offset === 1) {
+    if (lineIndex === 1) {
+      // The delimiter line: the grid's alignment separator.
       const i = info.findIndex((l) => l.kind === 'separator');
       return i === -1 ? 0 : i;
     }
-    const wanted = offset === 0 ? -1 : offset - 2;
+    const wanted = lineIndex === 0 ? -1 : lineIndex - 2; // canonLineOfRow, inverted
     const i = info.findIndex((l) => l.kind === 'cells' && l.row === wanted);
     return i === -1 ? 0 : i;
   };
 
-  /** The canonical row offset a display row (0-based within the span) stands for. */
-  const canonRowOf = (s: SpanLines, idx: number): number => {
-    const last = s.canonLines - 1;
+  /** The canonical line index a display row (0-based within the span) stands for. */
+  const canonLineIndexOf = (s: SpanLines, idx: number): number => {
+    const last = s.canonLineCount - 1;
     if (!s.lineInfo || !s.shaped) return Math.min(idx, last);
     const info = s.lineInfo[idx];
     if (!info) return last;
-    if (info.kind === 'separator') return info.row === -1 ? 1 : Math.min(info.row + 3, last);
-    return Math.min(info.row === -1 ? 0 : info.row + 2, last);
+    // A separator names the line AFTER its row: the delimiter under the
+    // header, the next body row under a between-row rule.
+    if (info.kind === 'separator') return Math.min(canonLineOfRow(info.row) + 1, last);
+    return Math.min(canonLineOfRow(info.row), last);
   };
 
   const canonicalLineToDisplay = (line: number): number => {
@@ -164,7 +175,7 @@ export function gridSeam(raw: string, geoms: readonly SpanGeometry[]): GridSeam 
     for (const s of spans) {
       const above = s.firstRaw - s.canonFirst;
       if (n < s.canonFirst) return n + above + frac;
-      if (n < s.canonFirst + s.canonLines) return s.firstRaw + firstDisplayRow(s, n - s.canonFirst) + frac;
+      if (n < s.canonFirst + s.canonLineCount) return s.firstRaw + firstDisplayRow(s, n - s.canonFirst) + frac;
     }
     return n + lineDelta + frac;
   };
@@ -175,7 +186,7 @@ export function gridSeam(raw: string, geoms: readonly SpanGeometry[]): GridSeam 
     for (const s of spans) {
       const above = s.firstRaw - s.canonFirst;
       if (n < s.firstRaw) return n - above + frac;
-      if (n < s.firstRaw + s.rawLines) return s.canonFirst + canonRowOf(s, n - s.firstRaw) + frac;
+      if (n < s.firstRaw + s.rawLineCount) return s.canonFirst + canonLineIndexOf(s, n - s.firstRaw) + frac;
     }
     return n - lineDelta + frac;
   };
@@ -203,45 +214,41 @@ export function gridSeam(raw: string, geoms: readonly SpanGeometry[]): GridSeam 
   };
 
   const displayToCanonical = (offset: number): number => {
-    let delta = 0; // editor-doc position − canonical position, so far
-    for (const g of geoms) {
-      if (offset < g.from) return offset - delta;
-      if (offset <= g.to) {
-        const rel = offset - g.from;
-        if (rel <= 0) return g.canonFrom;
-        if (rel >= g.to - g.from) return g.canonFrom + g.canon.length;
-        if (g.display) {
-          const cLines = canonLines(g.canon);
-          const info = g.display.parsed.lineInfo[countNewlines(raw, g.from, offset)];
-          if (info?.kind === 'separator') {
-            // The alignment separator is the canonical delimiter line; a
-            // between-row rule has no canonical line — the next row's first
-            // content (the last row's end when there is no next row).
-            const li = info.row === -1 ? 1 : info.row + 3;
-            if (li === 1) return g.canonFrom + cLines[Math.min(1, cLines.length - 1)].start;
-            if (li < cLines.length) {
-              const cells = lineCellSpans(g.canon, cLines[li].start, cLines[li].end);
-              return g.canonFrom + (cells[0]?.contentStart ?? cLines[li].start);
-            }
-            const lastLine = cLines[cLines.length - 1];
-            const cells = lineCellSpans(g.canon, lastLine.start, lastLine.end);
-            return g.canonFrom + (cells.length ? cells[cells.length - 1].contentEnd : lastLine.end);
-          }
-          const loc = displayCellAt(raw, { start: g.from, end: g.to }, g.display.parsed, offset);
-          if (loc) {
-            const cli = loc.row === -1 ? 0 : loc.row + 2;
-            const cell = cli < cLines.length ? lineCellSpans(g.canon, cLines[cli].start, cLines[cli].end)[loc.col] : undefined;
-            if (cell) {
-              const rawContent = g.canon.slice(cell.contentStart, cell.contentEnd);
-              return g.canonFrom + cell.contentStart + rawIndexForNormalized(rawContent, loc.contentOffset);
-            }
-          }
+    const at = locateDisplay(geoms, offset);
+    if (at.kind === 'outside') return at.pos;
+    const g = geoms[at.index];
+    const rel = offset - g.from;
+    // The span's edges are the same place in both texts.
+    if (rel <= 0) return g.canonFrom;
+    if (rel >= g.to - g.from) return g.canonFrom + g.canon.length;
+    if (g.display) {
+      const cLines = canonLines(g.canon);
+      const info = g.display.parsed.lineInfo[countNewlines(raw, g.from, offset)];
+      if (info?.kind === 'separator') {
+        // The alignment separator is the canonical delimiter line; a
+        // between-row rule has no canonical line — the next row's first
+        // content (the last row's end when there is no next row).
+        if (info.row === -1) return g.canonFrom + cLines[Math.min(1, cLines.length - 1)].start;
+        const li = canonLineOfRow(info.row) + 1;
+        if (li < cLines.length) {
+          const cells = lineCellSpans(g.canon, cLines[li].start, cLines[li].end);
+          return g.canonFrom + (cells[0]?.contentStart ?? cLines[li].start);
         }
-        return g.canonFrom + shiftByLine(raw.slice(g.from, g.to), g.canon, rel);
+        const lastLine = cLines[cLines.length - 1];
+        const cells = lineCellSpans(g.canon, lastLine.start, lastLine.end);
+        return g.canonFrom + (cells.length ? cells[cells.length - 1].contentEnd : lastLine.end);
       }
-      delta += g.to - g.from - g.canon.length;
+      const loc = displayCellAt(raw, { start: g.from, end: g.to }, g.display.parsed, offset);
+      if (loc) {
+        const cli = canonLineOfRow(loc.row);
+        const cell = cli < cLines.length ? lineCellSpans(g.canon, cLines[cli].start, cLines[cli].end)[loc.col] : undefined;
+        if (cell) {
+          const rawContent = g.canon.slice(cell.contentStart, cell.contentEnd);
+          return g.canonFrom + cell.contentStart + rawIndexForNormalized(rawContent, loc.contentOffset);
+        }
+      }
     }
-    return offset - delta;
+    return g.canonFrom + shiftByLine(raw.slice(g.from, g.to), g.canon, rel);
   };
 
   return { canonicalToDisplay, displayToCanonical, canonicalLineToDisplay, displayLineToCanonical };

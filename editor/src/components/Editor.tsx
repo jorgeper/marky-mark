@@ -55,6 +55,7 @@ import { headingTextColumn } from '../lib/headingCaret';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
 import type { CompiledPattern } from '../lib/searchCore';
 import { canonToDocRanges, docToCanonOffset } from '../lib/gridOffsets';
+import { gridSeam } from '../lib/gridSeam';
 import { intersectCodeSelection, type CodeRange } from '../lib/codeSelection';
 import type { DiffLineSets } from '../lib/diffLines';
 import { fluidAttribute, type FluidEffectMap } from '../lib/fluid';
@@ -1182,6 +1183,7 @@ function selectSourceRange(view: EditorView, from: number, to: number, reveal: b
   const seam = gridSeamOf(view.state);
   const a = seam.canonicalToDisplay(Math.min(from, to));
   const b = seam.canonicalToDisplay(Math.max(from, to));
+  // Re-ordered after the crossing: the seam's snaps are not guaranteed monotone.
   const anchor = Math.max(0, Math.min(Math.min(a, b), len));
   const head = Math.max(anchor, Math.min(Math.max(a, b), len));
   view.dispatch({
@@ -1746,7 +1748,7 @@ export default function Editor({
     // this is the belt to that brace).
     const text = canonicalizeAll(raw, gridSet);
     const geoms = gridGeometry(view.state);
-    const head = docToCanonOffset(geoms, sel.head, raw) ?? gridSeamOf(view.state).displayToCanonical(sel.head);
+    const head = docToCanonOffset(geoms, sel.head, raw) ?? gridSeam(raw, geoms).displayToCanonical(sel.head);
     const from = docToCanonOffset(geoms, sel.from, raw);
     const to = docToCanonOffset(geoms, sel.to, raw);
     const ranged = sel.from < sel.to && from !== null && to !== null && from < to;
@@ -2573,13 +2575,16 @@ export default function Editor({
       // never disagree. Focus follows so typing continues where the click
       // landed. `columnOf` picks the caret's place on the line: its start for
       // `goToLine`, the heading text for `goToHeading` (issue #300).
-      // SPEC40 §2 (issue #357): `line` is CANONICAL — the host's line; it
-      // crosses the seam to the editor line it starts on.
-      const landCaret = (line: number, columnOf: (text: string) => number) => {
-        const doc = view.state.doc;
+      // SPEC40 §2 (issue #357): a host line is CANONICAL; it crosses the seam
+      // to the editor line it starts on (a row inside a wrapped grid row
+      // lands on its first display line), clamped into the document. Shared
+      // by `landCaret` and `scrollToLine` so both land on the same line.
+      const displayLineOf = (line: number): number => {
         const shown = gridSeamOf(view.state).canonicalLineToDisplay(line);
-        const n = Math.min(Math.max(Math.round(shown), 1), doc.lines);
-        const target = doc.line(n);
+        return Math.min(Math.max(Math.round(shown), 1), view.state.doc.lines);
+      };
+      const landCaret = (line: number, columnOf: (text: string) => number) => {
+        const target = view.state.doc.line(displayLineOf(line));
         const pos = target.from + Math.min(columnOf(target.text), target.length);
         view.dispatch({
           selection: { anchor: pos, head: pos },
@@ -2601,12 +2606,8 @@ export default function Editor({
           // CM's own scrollIntoView iterates its height measurements until the
           // position truly sits at the viewport top — manual scrollTop math
           // over estimated block heights lands many lines off in long docs.
-          // SPEC40 §2 (issue #357): `line` is canonical; a row inside a
-          // wrapped grid row lands on its first display line.
-          const doc = view.state.doc;
-          const shown = gridSeamOf(view.state).canonicalLineToDisplay(line);
-          const n = Math.min(Math.max(Math.round(shown), 1), doc.lines);
-          view.dispatch({ effects: EditorView.scrollIntoView(doc.line(n).from, { y: 'start' }) });
+          const target = view.state.doc.line(displayLineOf(line));
+          view.dispatch({ effects: EditorView.scrollIntoView(target.from, { y: 'start' }) });
         },
         goToLine(line) {
           landCaret(line, () => 0);
