@@ -12,6 +12,7 @@ import type { MemberEntry } from '../../src/lib/membership';
 import { UNIQUE_NAME_MAX_LENGTH, uniqueNameProblem } from '../../src/lib/workspaceNames';
 import {
   OPEN_WORKSPACE_ROW_CAP,
+  URL_PREVIEW_PLACEHOLDER,
   deleteConfirmationMatches,
   deleteOffered,
   emptyNewWorkspaceForm,
@@ -19,7 +20,10 @@ import {
   formatOwnerNames,
   isUniqueNameError,
   noAccessMessage,
+  normalizeUrlNameTyping,
   orderByRecentUse,
+  settleUrlName,
+  urlNamePreview,
   validateNewWorkspaceForm,
   visibleWorkspaces,
   workspaceRowBadge,
@@ -140,23 +144,33 @@ describe('PRD 007 Req 10: the create-workspace request', () => {
   });
 });
 
-describe('PRD 007 Req 10 + PRD 020 Req 2: the New Workspace form', () => {
+describe('PRD 007 Req 10 + PRD 020 Req 2 (amended by PRD 026 Req 4+6): the New Workspace form', () => {
   it('U284: a missing or malformed unique name blocks submission with a message naming the problem', () => {
-    // PRD 020 Req 2: the unique name is the hard stop now — a friendly
-    // display name alone no longer submits.
+    // PRD 026 Req 6: with a display name present, an empty URL name is the
+    // stop — phrased in the dialog's own words, not the shared rule's.
     expect(validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), name: 'Design docs' })).toEqual({
       ok: false,
-      error: 'A unique name is required.',
+      error: 'A URL name is required.',
     });
     // Whitespace is outside the charset (never silently trimmed away). PRD 026
-    // Req 1: the message is the strict lowercase-dash rule's own.
-    const spaced = validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), uniqueName: 'design docs' });
+    // Req 1: the message is the strict lowercase-dash rule's own. (The dialog
+    // normalises typing so this state is unreachable from the keyboard, but
+    // the pure rule still refuses it for any caller that bypasses the field.)
+    const spaced = validateNewWorkspaceForm({
+      ...emptyNewWorkspaceForm(),
+      name: 'Design docs',
+      uniqueName: 'design docs',
+    });
     expect(spaced).toEqual({
       ok: false,
       error: 'A unique name may only use lowercase letters, numbers and single dashes between them.',
     });
     // PRD 026 Req 1: PRD 020's wider charset no longer submits from the form.
-    const cased = validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), uniqueName: 'Design_Docs' });
+    const cased = validateNewWorkspaceForm({
+      ...emptyNewWorkspaceForm(),
+      name: 'Design docs',
+      uniqueName: 'Design_Docs',
+    });
     expect(cased).toEqual({
       ok: false,
       error: 'A unique name may only use lowercase letters, numbers and single dashes between them.',
@@ -190,20 +204,104 @@ describe('PRD 007 Req 10 + PRD 020 Req 2: the New Workspace form', () => {
     });
   });
 
-  it('U1043: a blank friendly name means the unique name is the display, and reserved names are refused before submit', () => {
-    // PRD 020 Req 2: unset friendly name → the unique name IS the display —
-    // the request stores it as the manifest name so all chrome keeps working.
-    const bare = validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), uniqueName: 'design-docs' });
-    expect(bare.ok && bare.request.name).toBe('design-docs');
-    expect(bare.ok && bare.request.uniqueName).toBe('design-docs');
+  it('U1043: a blank display name is refused even beside a valid URL name, and reserved names are refused before submit', () => {
+    // PRD 026 Req 4: the display name is required — the PRD 020 "blank means
+    // the URL name is the display" fallback is gone from the form. Whitespace
+    // alone is blank.
+    expect(validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), uniqueName: 'design-docs' })).toEqual({
+      ok: false,
+      error: 'A display name is required.',
+    });
+    expect(validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), name: '   ', uniqueName: 'design-docs' })).toEqual({
+      ok: false,
+      error: 'A display name is required.',
+    });
     // PRD 020 Req 1: reserved words are refused client-side with the same
     // message the server would answer. (PRD 026 Req 1: a capitalised
     // `Scratchpad` now trips the charset rule first, so the reserved refusal
     // is reached with the lowercase form.)
-    expect(validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), uniqueName: 'scratchpad' })).toEqual({
+    expect(
+      validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), name: 'Scratch', uniqueName: 'scratchpad' }),
+    ).toEqual({
       ok: false,
       error: '"scratchpad" is a reserved name.',
     });
+  });
+
+  it('U1323: PRD 026 Req 4+6 — validation stops at the first failure in dialog order: an empty display name wins over an empty URL name', () => {
+    expect(validateNewWorkspaceForm(emptyNewWorkspaceForm())).toEqual({
+      ok: false,
+      error: 'A display name is required.',
+    });
+    // And an empty URL name wins over what the reserved/charset rule would
+    // have said about it: the shared rule is only consulted on a non-empty
+    // settled value.
+    expect(validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), name: 'Docs', uniqueName: '-' })).toEqual({
+      ok: false,
+      error: 'A URL name is required.',
+    });
+  });
+
+  it('U1324: PRD 026 Req 6 — the one trailing dash typing keeps is stripped at submit, so `foo-` submits as `foo`', () => {
+    const result = validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), name: 'Foo', uniqueName: 'foo-' });
+    expect(result).toEqual({
+      ok: true,
+      request: { uniqueName: 'foo', name: 'Foo', members: [], everyone: { enabled: false, role: DEFAULT_EVERYONE_ROLE } },
+    });
+    expect(settleUrlName('foo-')).toBe('foo');
+    expect(settleUrlName('foo')).toBe('foo');
+    expect(settleUrlName('')).toBe('');
+  });
+
+  it('U1325: PRD 026 Req 6 — the typing normaliser is the slugifier plus one trailing dash while a separator is being typed', () => {
+    const table: Array<[string, string]> = [
+      ['Foo Bar', 'foo-bar'],
+      ['foo--bar', 'foo-bar'],
+      ['Team_Docs', 'team-docs'],
+      // The mid-typing states: one dash kept when the raw text ended in a
+      // separator, whatever the separator was.
+      ['foo-', 'foo-'],
+      ['foo ', 'foo-'],
+      ['foo--', 'foo-'],
+      ['foo!', 'foo-'],
+      // Nothing to hang a dash on: leading separators go, and a value that is
+      // only separators is empty.
+      ['-foo', 'foo'],
+      ['-', ''],
+      ['!!!', ''],
+      ['', ''],
+      ['日本語', ''],
+    ];
+    for (const [raw, expected] of table) {
+      expect(normalizeUrlNameTyping(raw), JSON.stringify(raw)).toBe(expected);
+    }
+    // Every non-empty result settles into a name the shared rule accepts.
+    for (const [raw] of table) {
+      const settled = settleUrlName(normalizeUrlNameTyping(raw));
+      if (settled !== '') expect(uniqueNameProblem(settled), JSON.stringify(raw)).toBeNull();
+    }
+  });
+
+  it('U1326: PRD 026 Req 6 — the trailing dash is not kept once the slug has reached the length limit', () => {
+    const full = 'x'.repeat(UNIQUE_NAME_MAX_LENGTH);
+    // A separator after a full-length slug: the slug is clamped and the dash
+    // has no room, so the field never exceeds the limit.
+    expect(normalizeUrlNameTyping(`${full}-`)).toBe(full);
+    expect(normalizeUrlNameTyping(`${full}xyz `)).toBe(full);
+    // One short of the limit still has room for the dash.
+    const almost = 'x'.repeat(UNIQUE_NAME_MAX_LENGTH - 1);
+    expect(normalizeUrlNameTyping(`${almost}-`)).toBe(`${almost}-`);
+    expect(normalizeUrlNameTyping(`${almost}-`)).toHaveLength(UNIQUE_NAME_MAX_LENGTH);
+  });
+
+  it('U1327: PRD 026 Req 7 — the address preview is the origin plus the share-link path, or an ellipsis placeholder while the name is empty', () => {
+    expect(urlNamePreview('https://docs.example', 'team-docs')).toBe('https://docs.example/team-docs');
+    expect(urlNamePreview('https://docs.example', '')).toBe('https://docs.example/…');
+    expect(URL_PREVIEW_PLACEHOLDER).toBe('…');
+    // The same helper the share-link primitive uses: segments are
+    // percent-encoded the same way (a stored grandfathered name can carry
+    // characters the strict rule no longer admits).
+    expect(urlNamePreview('http://localhost:4173', 'a b')).toBe('http://localhost:4173/a%20b');
   });
 });
 
@@ -403,6 +501,11 @@ describe('Issue #245: which create failures the unique name earned', () => {
       expect(problem, `uniqueNameProblem(${JSON.stringify(bad)})`).not.toBeNull();
       expect(isUniqueNameError(problem!), problem!).toBe(true);
     }
+    // PRD 026 Req 6+8: the form's own empty-URL-name refusal is the URL
+    // name's fault too; Req 4's display-name refusal is not — that field
+    // paints itself.
+    expect(isUniqueNameError('A URL name is required.')).toBe(true);
+    expect(isUniqueNameError('A display name is required.')).toBe(false);
   });
 
   it('U1183: a failure that is not about the name leaves the name field alone', () => {

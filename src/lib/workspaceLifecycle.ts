@@ -9,7 +9,8 @@
  */
 
 import { fuzzyFilter } from './fuzzy.ts';
-import { uniqueNameProblem } from './workspaceNames.ts';
+import { buildAppPath } from './hostedPaths.ts';
+import { UNIQUE_NAME_MAX_LENGTH, slugifyWorkspaceName, uniqueNameProblem } from './workspaceNames.ts';
 import type { MemberEntry } from './membership.ts';
 import {
   DEFAULT_EVERYONE_ROLE,
@@ -56,9 +57,18 @@ export interface WorkspaceListing {
 
 /** PRD 007 Req 10: the New Workspace form's state, exactly as the user sees it. */
 export interface NewWorkspaceForm {
-  /** PRD 020 Req 2: the deployment-unique name, chosen up front (required). */
+  /**
+   * PRD 020 Req 2 (amended by PRD 026 Req 4+6): the deployment-unique URL
+   * name — required, and second in the dialog since PRD 026 put the display
+   * name first. Holds the as-typed value, so it may still carry Req 6's one
+   * trailing dash until blur or submit settles it.
+   */
   uniqueName: string;
-  /** PRD 020 Req 2: the optional friendly display name (free text). */
+  /**
+   * PRD 020 Req 2 (amended by PRD 026 Req 4): the friendly display name —
+   * free text, required, leads the dialog, and travels trimmed as the
+   * manifest `name`.
+   */
   name: string;
   members: WorkspaceMember[];
   everyoneEnabled: boolean;
@@ -89,23 +99,77 @@ export type NewWorkspaceResult =
   | { ok: true; request: CreateWorkspaceRequest }
   | { ok: false; error: string };
 
+/** PRD 026 Req 4: the refusal an empty (after trimming) display name earns at submit. */
+export const DISPLAY_NAME_REQUIRED = 'A display name is required.';
+
+/** PRD 026 Req 6: the refusal an empty (after settling) URL name earns at submit. */
+export const URL_NAME_REQUIRED = 'A URL name is required.';
+
 /**
- * PRD 007 Req 10 + PRD 020 Req 2: validate the form and shape the POST body.
- * The unique name is the hard stop — the same pure rule the server enforces
- * (format, length, reserved), never trimmed because its charset admits no
- * whitespace to forgive. The friendly display name is optional and travels
- * trimmed; blank means the unique name is the display, stored as the manifest
- * `name` so every existing chrome surface keeps rendering it.
+ * PRD 026 Req 6: the typing normaliser for the URL-name field — every
+ * `onChange` value passes through here before it reaches state, so the field
+ * never displays a value outside Req 1's charset (`Foo Bar`→`foo-bar`,
+ * `foo--bar`→`foo-bar`, `Team_Docs`→`team-docs`). It is the shared slugifier
+ * plus ONE trailing dash, kept because `foo-` is a legitimate stop on the way
+ * to `foo-bar`: the dash stays when the raw text ended in a non-alphanumeric
+ * (a dash, a space, a `!` — anything the slugifier would have turned into a
+ * dash), the slug is non-empty (`-`→`''`, `!!!`→`''`: nothing to hang it on),
+ * and the slug has room under the length limit. Blur and submit settle the
+ * value through `settleUrlName`.
+ */
+export function normalizeUrlNameTyping(raw: string): string {
+  const slug = slugifyWorkspaceName(raw);
+  if (slug === '' || slug.length >= UNIQUE_NAME_MAX_LENGTH) return slug;
+  return /[^a-z0-9]$/i.test(raw) ? `${slug}-` : slug;
+}
+
+/**
+ * PRD 026 Req 6: the settled form of an as-typed URL name — the one trailing
+ * dash `normalizeUrlNameTyping` keeps while typing comes off (`foo-`→`foo`).
+ * Applied on blur and at submit; a value with no trailing dash is unchanged.
+ */
+export function settleUrlName(typed: string): string {
+  return typed.endsWith('-') ? typed.slice(0, -1) : typed;
+}
+
+/** PRD 026 Req 7: the placeholder final segment the preview shows while the URL name is empty. */
+export const URL_PREVIEW_PLACEHOLDER = '\u2026';
+
+/**
+ * PRD 026 Req 7: the live preview of the address a URL name would produce —
+ * `origin` + the same `buildAppPath` the share-link primitive composes
+ * (`workspaceShareUrl` in shareLinks.ts), so the preview and the copied link
+ * can never disagree. An empty name previews the origin with an ellipsis
+ * placeholder for the missing segment. Pure: the caller passes
+ * `window.location.origin` in, so this module stays DOM-free.
+ */
+export function urlNamePreview(origin: string, settled: string): string {
+  return settled === '' ? `${origin}/${URL_PREVIEW_PLACEHOLDER}` : `${origin}${buildAppPath(settled)}`;
+}
+
+/**
+ * PRD 007 Req 10 + PRD 020 Req 2 (amended by PRD 026 Req 4+6): validate the
+ * form and shape the POST body. Three stops, in dialog order, first failure
+ * wins: the display name is required (Req 4 — it travels trimmed as the
+ * manifest `name`, and the old "blank means the URL name" fallback is gone
+ * from the form; the server's `buildNewWorkspaceManifest` keeps its own for
+ * API callers); the URL name, settled (Req 6 strips the one trailing dash
+ * typing may leave), is required; then the same pure rule the server
+ * enforces (strict format, length, reserved — never trimmed, because the
+ * settled charset admits no whitespace to forgive).
  */
 export function validateNewWorkspaceForm(form: NewWorkspaceForm): NewWorkspaceResult {
-  const problem = uniqueNameProblem(form.uniqueName);
-  if (problem) return { ok: false, error: problem };
   const friendly = form.name.trim();
+  if (friendly === '') return { ok: false, error: DISPLAY_NAME_REQUIRED };
+  const settled = settleUrlName(form.uniqueName);
+  if (settled === '') return { ok: false, error: URL_NAME_REQUIRED };
+  const problem = uniqueNameProblem(settled);
+  if (problem) return { ok: false, error: problem };
   return {
     ok: true,
     request: {
-      uniqueName: form.uniqueName,
-      name: friendly || form.uniqueName,
+      uniqueName: settled,
+      name: friendly,
       members: form.members.map((m) => ({ id: m.id, role: m.role })),
       everyone: {
         enabled: form.everyoneEnabled,
@@ -257,16 +321,20 @@ export function deleteConfirmationMatches(typed: string, workspaceName: string):
  * when the answer is yes — a permission or network refusal still shows its
  * message, but the name the user typed is not what went wrong.
  *
- * Three shapes count, all of them phrasings this deployment's own unique-name
+ * Four shapes count, all of them phrasings this deployment's own unique-name
  * rules produce: the server's collision refusal (`uniqueNameTakenError` in
  * server/workspaces.ts, the one check that needs deployment state), the
- * format/length refusals from `uniqueNameFormatProblem`, and the reserved-word
- * refusal — the last two shared verbatim by client and server through
- * lib/workspaceNames.ts. The unit tests feed real `uniqueNameProblem` output
- * in, so a reworded rule fails there rather than silently stopping matching.
+ * format/length refusals from `uniqueNameFormatProblem`, the reserved-word
+ * refusal — those two shared verbatim by client and server through
+ * lib/workspaceNames.ts — and PRD 026 Req 6+8's empty-URL-name refusal from
+ * this module's own validation. The display-name refusal (Req 4) is NOT the
+ * URL name's fault: that field paints itself (Req 8). The unit tests feed
+ * real `uniqueNameProblem` output in, so a reworded rule fails there rather
+ * than silently stopping matching.
  */
 export function isUniqueNameError(message: string): boolean {
   return (
+    message === URL_NAME_REQUIRED ||
     /^The unique name .+ is already taken\.$/.test(message) ||
     /^A unique name /.test(message) ||
     /^".*" is a reserved name\.$/.test(message)

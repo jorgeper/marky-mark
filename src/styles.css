@@ -1416,6 +1416,20 @@ mark.hl.ghost {
   min-height: 15px;
 }
 
+/* PRD 026 Req 7: the URL-name guidance sentence and address preview beneath
+   a URL-name field — the same muted caption tokens as `.dialog .hotkey-hint`
+   (deliberately NOT `.form-error`: guidance is not a refusal), but without
+   the hint's bottom margin and min-height, since two lines stack inside the
+   field and the field supplies its own spacing. Overflow-safe for a long
+   origin + name: the preview wraps at any character rather than widening
+   the dialog. */
+.url-name-guidance {
+  font-size: var(--mm-text-caption);
+  color: var(--mm-fg-muted, #59636e);
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
 .dialog .checkbox-row {
   display: flex;
   align-items: center;

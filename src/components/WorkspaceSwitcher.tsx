@@ -10,18 +10,22 @@
 
 import { useEffect, useState } from 'react';
 import { MembershipPicker } from './MembershipPicker';
+import { UrlNameGuidance } from './UrlNameGuidance';
 import { Button } from './ui/Button';
 import type { SessionMe } from '../lib/deploymentSettings';
 import { buildScratchPath } from '../lib/hostedPaths';
 import type { DirectoryEntry, MemberEntry } from '../lib/membership';
 import { timeAgo } from '../lib/time';
-import { uniqueNameProblem } from '../lib/workspaceNames';
+import { slugifyWorkspaceName, uniqueNameProblem } from '../lib/workspaceNames';
 import {
   DEFAULT_MEMBER_ROLE,
+  DISPLAY_NAME_REQUIRED,
   GRANTABLE_ROLES,
   emptyNewWorkspaceForm,
   isUniqueNameError,
   noAccessMessage,
+  normalizeUrlNameTyping,
+  settleUrlName,
   validateNewWorkspaceForm,
   visibleWorkspaces,
   workspaceRowBadge,
@@ -48,14 +52,52 @@ export function NewWorkspaceDialog({
   const [picked, setPicked] = useState<MemberEntry[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  // PRD 020 Req 2: format/length/reserved problems appear while typing; the
-  // empty field waits for submit to complain (WorkspaceNames does the same).
+  // PRD 026 Req 5: has the user edited the URL-name field themselves? False
+  // at open; while false every display-name change re-derives the URL name.
+  // A plain state value on purpose: issue #354's "Use <suggestion>" action
+  // sets it too (accepting a suggestion counts as touching).
+  const [touched, setTouched] = useState(false);
+  // PRD 020 Req 2 (amended by PRD 026 Req 6): problems appear while typing;
+  // the empty field waits for submit to complain (WorkspaceNames does the
+  // same). The typing normaliser keeps the value inside the charset, so in
+  // practice only the reserved-word refusal can surface here.
   const typedProblem = form.uniqueName === '' ? null : uniqueNameProblem(form.uniqueName);
-  // Issue #245: the unique name wears the refusal — an error-coloured border
-  // and typed value — while it is the thing being rejected, whether that came
-  // from typing or from the server's collision refusal. A permission or
-  // network failure still shows its message with the field left alone.
+  // Issue #245 (kept by PRD 026 Req 8): the URL name wears the refusal — an
+  // error-coloured border and typed value — while it is the thing being
+  // rejected, whether that came from typing, from submit finding it empty,
+  // or from the server's collision refusal. A permission or network failure
+  // still shows its message with the field left alone.
   const nameRejected = typedProblem !== null || (error !== '' && isUniqueNameError(error));
+  // PRD 026 Req 8: the display name paints itself while it is what submit
+  // refused — its own refusal, never the URL name's.
+  const displayRejected = error === DISPLAY_NAME_REQUIRED;
+
+  // PRD 026 Req 4+5: every display-name edit retires the submit refusal and,
+  // until the URL-name field is touched, mirrors into it through the shared
+  // slugifier (`Team Docs`→`team-docs`; nothing usable → `''`, no fallback
+  // word here — Req 6's empty refusal waits for submit).
+  const changeDisplayName = (name: string) => {
+    setError('');
+    setForm((prev) => ({ ...prev, name, uniqueName: touched ? prev.uniqueName : slugifyWorkspaceName(name) }));
+  };
+  // PRD 026 Req 5+6: a URL-name edit is normalised as typed before it lands
+  // in state. A non-empty result marks the field touched (mirroring stops);
+  // an empty one un-touches it and resumes mirroring from the current
+  // display name at once, not only on the next display-name keystroke.
+  const changeUrlName = (raw: string) => {
+    // Issue #245: editing the name retires the submit-time refusal it earned
+    // — message and styling both — so a corrected name reads as normal
+    // without waiting for the next submit.
+    setError('');
+    const normalized = normalizeUrlNameTyping(raw);
+    if (normalized === '') {
+      setTouched(false);
+      setForm((prev) => ({ ...prev, uniqueName: slugifyWorkspaceName(prev.name) }));
+      return;
+    }
+    setTouched(true);
+    setForm((prev) => ({ ...prev, uniqueName: normalized }));
+  };
 
   const addMember = (user: DirectoryEntry) => {
     setPicked((prev) => [...prev, { ...user, resolved: true }]);
@@ -89,25 +131,38 @@ export function NewWorkspaceDialog({
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="dialog workspace-modal" data-testid="new-workspace-dialog">
         <h2>New workspace</h2>
-        {/* PRD 020 Req 2: the unique name comes first and is validated as you
-            type — the same pure rule the server enforces, so format/length/
-            reserved problems show inline before submit ever happens. */}
+        {/* PRD 026 Req 4: the display name leads — required, autofocused,
+            free text. The input keeps its original id/test id
+            (`new-workspace-name`): renaming ids is forbidden, and this is
+            still the display-name field. */}
         <div className="field">
-          <label htmlFor="new-workspace-unique-name">Unique name</label>
+          <label htmlFor="new-workspace-name">Display name</label>
+          <input
+            id="new-workspace-name"
+            className={displayRejected ? 'field invalid invalid-value' : 'field'}
+            data-testid="new-workspace-name"
+            type="text"
+            value={form.name}
+            autoFocus
+            onChange={(e) => changeDisplayName(e.target.value)}
+          />
+        </div>
+        {/* PRD 020 Req 2 (amended by PRD 026 Req 4+5+6): the URL name comes
+            second, auto-filled from the display name until touched,
+            normalised as typed, and validated as you type with the same pure
+            rule the server enforces so a reserved word shows inline before
+            submit ever happens. Blur settles the one trailing dash typing
+            may keep (`foo-`→`foo`). */}
+        <div className="field">
+          <label htmlFor="new-workspace-unique-name">URL name</label>
           <input
             id="new-workspace-unique-name"
             className={nameRejected ? 'field invalid invalid-value' : 'field'}
             data-testid="new-workspace-unique-name"
             type="text"
             value={form.uniqueName}
-            autoFocus
-            onChange={(e) => {
-              // Issue #245: editing the name retires the submit-time refusal
-              // it earned — message and styling both — so a corrected name
-              // reads as normal without waiting for the next submit.
-              setError('');
-              setForm((prev) => ({ ...prev, uniqueName: e.target.value }));
-            }}
+            onChange={(e) => changeUrlName(e.target.value)}
+            onBlur={() => setForm((prev) => ({ ...prev, uniqueName: settleUrlName(prev.uniqueName) }))}
           />
           {typedProblem && (
             // Issue #245: an error line, not a hint — dialog body size in the
@@ -117,20 +172,13 @@ export function NewWorkspaceDialog({
               {typedProblem}
             </p>
           )}
-        </div>
-        {/* PRD 020 Req 2: the optional friendly display name — free text;
-            blank means the unique name is what chrome displays. The input
-            keeps its original test id (`new-workspace-name`): renaming ids
-            is forbidden, and this is still the display-name field. */}
-        <div className="field">
-          <label htmlFor="new-workspace-name">Display name (optional)</label>
-          <input
-            id="new-workspace-name"
-            className="field"
-            data-testid="new-workspace-name"
-            type="text"
-            value={form.name}
-            onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+          {/* PRD 026 Req 7: the rule and the live address, always visible,
+              previewing the settled value so the trailing dash never shows
+              in an address. The origin comes from the page, not the lib. */}
+          <UrlNameGuidance
+            origin={window.location.origin}
+            urlName={settleUrlName(form.uniqueName)}
+            testIdPrefix="new-workspace"
           />
         </div>
 

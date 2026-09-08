@@ -1177,12 +1177,13 @@ test('E182: the New Workspace flow names a workspace, grants a member a role, an
   await openAppMenu(page);
   await page.getByTestId('menu-new-workspace').click();
   await expect(page.getByTestId('new-workspace-dialog')).toBeVisible();
-  // PRD 020 Req 2: the unique name comes first and is required; the friendly
-  // display name (the original field) is what the chrome shows.
+  // PRD 026 Req 4: the display name leads (it is what the chrome shows);
+  // the URL name follows, required, and typing it here overrides the
+  // auto-filled slug (Req 5).
   // (timestamped so a retry never collides with its own earlier attempt)
   const unique = `e182-created-w${test.info().workerIndex}-${Date.now()}`;
-  await page.getByTestId('new-workspace-unique-name').fill(unique);
   await page.getByTestId('new-workspace-name').fill(name);
+  await page.getByTestId('new-workspace-unique-name').fill(unique);
 
   // The reused MembershipPicker searches the live directory endpoints.
   await page.getByTestId('membership-picker-input').fill('hopper');
@@ -2533,11 +2534,11 @@ test('E203: New Workspace… and Open Workspace… on the hosted start page land
   const fresh = `E203 fresh w${test.info().workerIndex}`;
   await page.getByTestId('start-newWorkspace').click();
   await expect(page.getByTestId('new-workspace-dialog')).toBeVisible();
-  // PRD 020 Req 2: the unique name is required up front.
+  // PRD 026 Req 4: display name first, then the required URL name.
   // (timestamped so a retry never collides with its own earlier attempt)
   const freshUnique = `e203-fresh-w${test.info().workerIndex}-${Date.now()}`;
-  await page.getByTestId('new-workspace-unique-name').fill(freshUnique);
   await page.getByTestId('new-workspace-name').fill(fresh);
+  await page.getByTestId('new-workspace-unique-name').fill(freshUnique);
   await page.getByTestId('new-workspace-create').click();
   await expect(page).toHaveURL(new RegExp(`/${freshUnique}$`));
   await expect(page.getByTestId('docname-workspace')).toContainText(fresh);
@@ -7091,8 +7092,15 @@ test('E492: a duplicate unique name paints the New Workspace dialog red — body
 
   const { bodySize, danger } = await errorTokens(dialog);
 
+  // PRD 026 Req 4: the display name is required, so it is filled first —
+  // otherwise submit refuses on it before the 409 is ever reached.
+  await page.getByTestId('new-workspace-name').fill(`E492 dup w${w}`);
   const input = page.getByTestId('new-workspace-unique-name');
   const paint = () => fieldPaint(input);
+  // PRD 026 Req 4 moved autofocus to the display name, so focus the URL name
+  // before reading its baseline: every paint below is read with the field
+  // focused (fill leaves it so), and the baseline must be the focused one.
+  await input.focus();
   const normal = await paint();
   expect(normal.color, 'the untouched field is not already red').not.toBe(danger);
 
@@ -7111,8 +7119,10 @@ test('E492: a duplicate unique name paints the New Workspace dialog red — body
   await expect(error).toHaveCount(0);
   expect(await paint()).toEqual(normal);
 
-  // A type-time problem (PRD 020 Req 2) reads exactly the same way.
-  await input.fill('has spaces');
+  // A type-time problem (PRD 020 Req 2) reads exactly the same way. PRD 026
+  // Req 6 normalises typing (`has spaces` would land as `has-spaces`), so the
+  // reserved-word refusal is the one type-time problem still reachable.
+  await input.fill('scratchpad');
   const typed = page.getByTestId('new-workspace-unique-name-error');
   await expect(typed).toBeVisible();
   expect(await typed.evaluate((el) => getComputedStyle(el).fontSize)).toBe(bodySize);
@@ -7122,6 +7132,217 @@ test('E492: a duplicate unique name paints the New Workspace dialog red — body
   await input.fill(`${taken}-3`);
   await expect(typed).toHaveCount(0);
   expect(await paint()).toEqual(normal);
+});
+
+/**
+ * PRD 026 Req 7: what this theme resolves the muted caption treatment to —
+ * the `.dialog .hotkey-hint` tokens the guidance lines share — read off the
+ * live page the way `errorTokens` reads the error tokens.
+ */
+async function captionTokens(scope: Locator): Promise<{ captionSize: string; muted: string }> {
+  return scope.evaluate((el) => {
+    const probe = document.createElement('span');
+    probe.style.fontSize = 'var(--mm-text-caption)';
+    probe.style.color = 'var(--mm-fg-muted)';
+    el.appendChild(probe);
+    const cs = getComputedStyle(probe);
+    const resolved = { captionSize: cs.fontSize, muted: cs.color };
+    probe.remove();
+    return resolved;
+  });
+}
+
+/** PRD 026: open the New Workspace dialog from the app menu as ada; returns the dialog. */
+async function openNewWorkspaceDialog(page: Page): Promise<Locator> {
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await openAppMenu(page);
+  await page.getByTestId('menu-new-workspace').click();
+  const dialog = page.getByTestId('new-workspace-dialog');
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+test('E596: PRD 026 Req 4+5+7 — the New Workspace dialog leads with an autofocused display name; typing it fills the URL name live and the address preview follows, from `<origin>/…` to `<origin>/<slug>`', async ({
+  page,
+}) => {
+  const w = test.info().workerIndex;
+  await openNewWorkspaceDialog(page);
+  const origin = new URL(page.url()).origin;
+  const display = page.getByTestId('new-workspace-name');
+  const url = page.getByTestId('new-workspace-unique-name');
+  const preview = page.getByTestId('new-workspace-url-preview');
+
+  // Req 4: the display name is the first field and owns focus at open.
+  await expect(display).toBeFocused();
+  await expect(page.locator('label[for="new-workspace-name"]')).toHaveText('Display name');
+  await expect(page.locator('label[for="new-workspace-unique-name"]')).toHaveText('URL name');
+  // Req 7: with nothing typed, the preview shows the origin with the
+  // ellipsis placeholder as its final segment.
+  await expect(preview).toHaveText(`${origin}/…`);
+
+  // Req 5: keystroke by keystroke, the URL name is the shared slugifier's
+  // reading of the display name so far; Req 7: the preview tracks it.
+  // (timestamped so a retry never collides with its own earlier attempt)
+  const stamp = Date.now();
+  await display.pressSequentially(`E596 Team Docs w${w} ${stamp}`);
+  const slug = `e596-team-docs-w${w}-${stamp}`;
+  await expect(url).toHaveValue(slug);
+  await expect(preview).toHaveText(`${origin}/${slug}`);
+
+  // And the mirrored name is what creation uses: the workspace opens at it.
+  await page.getByTestId('new-workspace-create').click();
+  await expect(page).toHaveURL(new RegExp(`/${slug}$`));
+  await expect(page.getByTestId('docname-workspace')).toHaveText(`E596 Team Docs w${w} ${stamp}`);
+});
+
+test('E597: PRD 026 Req 5 — editing the URL name stops it mirroring the display name, and clearing it resumes mirroring from the current display name at once', async ({
+  page,
+}) => {
+  const w = test.info().workerIndex;
+  await openNewWorkspaceDialog(page);
+  const origin = new URL(page.url()).origin;
+  const display = page.getByTestId('new-workspace-name');
+  const url = page.getByTestId('new-workspace-unique-name');
+  const preview = page.getByTestId('new-workspace-url-preview');
+
+  await display.fill(`Alpha w${w}`);
+  await expect(url).toHaveValue(`alpha-w${w}`);
+
+  // The first edit in the URL field marks it touched: the display name may
+  // change all it likes, the URL name is now the user's.
+  await url.fill(`custom-w${w}`);
+  await expect(preview).toHaveText(`${origin}/custom-w${w}`);
+  await display.fill(`Alpha Beta w${w}`);
+  await expect(url).toHaveValue(`custom-w${w}`);
+  await expect(preview).toHaveText(`${origin}/custom-w${w}`);
+
+  // Clearing the URL name un-touches it: it immediately re-derives from the
+  // display name as it stands now (not from what it was when mirroring
+  // stopped), and follows the next display-name keystrokes again.
+  await url.fill('');
+  await expect(url).toHaveValue(`alpha-beta-w${w}`);
+  await expect(preview).toHaveText(`${origin}/alpha-beta-w${w}`);
+  await display.focus();
+  await display.press('End');
+  await display.pressSequentially(' Gamma');
+  await expect(url).toHaveValue(`alpha-beta-w${w}-gamma`);
+});
+
+test('E598: PRD 026 Req 6 — the URL name normalises as typed: `Foo Bar` shows `foo-` after the space and `foo-bar` at the end, `foo--bar` shows `foo-bar`, and blur strips the one trailing dash', async ({
+  page,
+}) => {
+  await openNewWorkspaceDialog(page);
+  const origin = new URL(page.url()).origin;
+  const url = page.getByTestId('new-workspace-unique-name');
+  const preview = page.getByTestId('new-workspace-url-preview');
+  const typed = page.getByTestId('new-workspace-unique-name-error');
+
+  await url.pressSequentially('Foo ');
+  // The mid-typing state: lowercased, and the one trailing dash kept so the
+  // separator the user just typed is not swallowed on the way to `foo-bar`.
+  await expect(url).toHaveValue('foo-');
+  // The preview is the settled address — no dangling dash in it.
+  await expect(preview).toHaveText(`${origin}/foo`);
+  await url.pressSequentially('Bar');
+  await expect(url).toHaveValue('foo-bar');
+  await expect(preview).toHaveText(`${origin}/foo-bar`);
+  // Nothing the normaliser lets through trips the charset rule, so no
+  // type-time problem line ever appeared.
+  await expect(typed).toHaveCount(0);
+
+  // A double dash (typed or pasted) collapses to one.
+  await url.fill('foo--bar');
+  await expect(url).toHaveValue('foo-bar');
+  // Two separators in a row keep only one trailing dash.
+  await url.fill('foo--');
+  await expect(url).toHaveValue('foo-');
+
+  // Leaving the field settles the value: the trailing dash goes.
+  await url.blur();
+  await expect(url).toHaveValue('foo');
+  await expect(preview).toHaveText(`${origin}/foo`);
+});
+
+test('E599: PRD 026 Req 4+8 — submitting with an empty display name refuses with `A display name is required.` and paints the display-name field in the #245 treatment; typing in it clears both', async ({
+  page,
+}) => {
+  const dialog = await openNewWorkspaceDialog(page);
+  const { bodySize, danger } = await errorTokens(dialog);
+  const display = page.getByTestId('new-workspace-name');
+  const url = page.getByTestId('new-workspace-unique-name');
+  const displayPaint = () => fieldPaint(display);
+  const normal = await displayPaint();
+  expect(normal.color, 'the untouched field is not already red').not.toBe(danger);
+
+  // A perfectly good URL name does not rescue an empty display name.
+  await url.fill('e599-has-a-url-name');
+  await page.getByTestId('new-workspace-create').click();
+  const error = page.getByTestId('new-workspace-error');
+  await expect(error).toHaveText('A display name is required.');
+  expect(await error.evaluate((el) => getComputedStyle(el).fontSize)).toBe(bodySize);
+  expect(await error.evaluate((el) => getComputedStyle(el).color)).toBe(danger);
+  // The display-name field wears its own refusal; the URL-name field, which
+  // was not what went wrong, is left alone.
+  expect(await displayPaint()).toEqual({ color: danger, border: danger });
+  expect((await fieldPaint(url)).border).not.toBe(danger);
+
+  // Typing in the display name retires message and paint at once.
+  await display.pressSequentially('E');
+  await expect(error).toHaveCount(0);
+  expect(await displayPaint()).toEqual(normal);
+});
+
+test('E600: PRD 026 Req 6+8 — submitting with an empty URL name refuses with `A URL name is required.` and paints the URL-name field, and editing it clears both', async ({
+  page,
+}) => {
+  const dialog = await openNewWorkspaceDialog(page);
+  const { danger } = await errorTokens(dialog);
+  const display = page.getByTestId('new-workspace-name');
+  const url = page.getByTestId('new-workspace-unique-name');
+  const urlPaint = () => fieldPaint(url);
+  // The baseline is read focused, as every later paint is (see E492).
+  await url.focus();
+  const normal = await urlPaint();
+
+  // A display name with nothing usable in it slugs to nothing — the dialog
+  // adds no fallback word (Req 5), so the URL name stays empty.
+  await display.fill('日本語');
+  await expect(url).toHaveValue('');
+  await page.getByTestId('new-workspace-create').click();
+  const error = page.getByTestId('new-workspace-error');
+  await expect(error).toHaveText('A URL name is required.');
+  expect(await urlPaint()).toEqual({ color: danger, border: danger });
+  expect((await fieldPaint(display)).border).not.toBe(danger);
+
+  await url.pressSequentially('docs');
+  await expect(error).toHaveCount(0);
+  await expect(url).toHaveValue('docs');
+  expect(await urlPaint()).toEqual(normal);
+});
+
+test('E601: PRD 026 Req 7 — the guidance sentence sits beneath the URL name in the muted caption treatment, never the error one', async ({
+  page,
+}) => {
+  const dialog = await openNewWorkspaceDialog(page);
+  const { captionSize, muted } = await captionTokens(dialog);
+  const { danger } = await errorTokens(dialog);
+  const guidance = page.getByTestId('new-workspace-url-guidance');
+  const preview = page.getByTestId('new-workspace-url-preview');
+
+  await expect(guidance).toBeVisible();
+  await expect(guidance).toHaveText("Lowercase letters, numbers and dashes. This is the workspace's address.");
+  for (const line of [guidance, preview]) {
+    expect(await line.evaluate((el) => getComputedStyle(el).fontSize)).toBe(captionSize);
+    expect(await line.evaluate((el) => getComputedStyle(el).color)).toBe(muted);
+    expect(await line.evaluate((el) => getComputedStyle(el).color)).not.toBe(danger);
+  }
+  // Placement: both lines are inside the URL-name field's block, below the input.
+  const inputBox = (await page.getByTestId('new-workspace-unique-name').boundingBox())!;
+  const guidanceBox = (await guidance.boundingBox())!;
+  const previewBox = (await preview.boundingBox())!;
+  expect(guidanceBox.y).toBeGreaterThan(inputBox.y + inputBox.height - 1);
+  expect(previewBox.y).toBeGreaterThan(guidanceBox.y);
 });
 
 test('E535: renaming to a taken unique name paints the Names section red — body-size error text, error border and error-coloured value — and editing the name clears it', async ({
