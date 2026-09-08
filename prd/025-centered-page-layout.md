@@ -222,11 +222,27 @@ implementation reference, and its pixel sizes are placeholders.
     gets no background, no `box-shadow`, no `z-index` and no pill
     geometry (no left margin, no radius, no min-width). The
     `--mm-lift-row` / `--mm-lift-row-active` tokens go with it.
+
+    > **Amended (issue #347, 2026-09-08):** open-but-inactive rows are
+    > tinted again — but flat, not planar: `.folder-item.open` carries a
+    > full-width `--mm-open-row` background (`color-mix(in srgb,
+    > var(--mm-accent) 7%, transparent)`, declared once as an internal
+    > token beside `--mm-selected-row`, half the active row's strength),
+    > `--mm-radius-small` corners and normal weight. Still no `box-shadow`,
+    > no `z-index`, no left margin, no min-width. Closed rows stay
+    > transparent.
 15. The active file (`.folder-item.selected`) is the only highlighted row:
     a flat full-width background of `--mm-hover`'s tint at selection
     strength (`color-mix(in srgb, var(--mm-accent) 14%, transparent)`,
     declared once as an internal token), `--mm-radius-small` corners, bold
     label, no shadow. Hover on other rows stays `--mm-hover`.
+
+    > **Amended (issue #347, 2026-09-08):** the active row is the
+    > **strongest** tinted row, not the only one: open rows carry the
+    > lighter `--mm-open-row` shade of the same accent (Req 14 as amended),
+    > closed rows are transparent. Hovering an open row resolves to the
+    > stronger of `--mm-hover` and `--mm-open-row`, so hover never drops an
+    > open row below its open tint.
 16. Open rows keep their trailing slot (dirty dot / close button) and the
     outline and search views keep their current row styling.
 
@@ -333,7 +349,8 @@ implementation reference, and its pixel sizes are placeholders.
     and ×2 with preview); the both-panes-closed full-width form; the
     absence of transitions on toggle; the mode toggle rendered in the
     strip's control group and absent from the toolbar; the active-file
-    row being the only tinted row in the tree.
+    row being the strongest tinted row in the tree (the only one until
+    issue #347 tinted open rows more lightly).
 
 ## Open questions
 

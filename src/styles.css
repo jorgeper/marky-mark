@@ -102,11 +102,16 @@ body,
      rgba(9, 105, 218, 0.08) fallback under the default Crisp accent. */
   --mm-hover: color-mix(in srgb, var(--mm-accent, #0969da) 8%, transparent);
   /* PRD 025 Req 15 (issue #329): the active file's row in the sidebar — the
-     ONE tinted row. The theme accent at 14%: a shade past --mm-hover so the
-     selection still reads under a hovered neighbour, a shade short of
-     --mm-active-word. Derives from the contract accent, so every bundled
+     STRONGEST tinted row. The theme accent at 14%: a shade past --mm-hover
+     so the selection still reads under a hovered neighbour, a shade short
+     of --mm-active-word. Derives from the contract accent, so every bundled
      theme tints it without defining anything. */
   --mm-selected-row: color-mix(in srgb, var(--mm-accent, #0969da) 14%, transparent);
+  /* PRD 025 Req 14 (issue #347): the open-but-inactive rows — a lighter
+     shade of the same selection colour, half the active row's strength
+     (accent at 7%), so every open file reads as open without competing
+     with the active one. Same accent derivation: no theme defines it. */
+  --mm-open-row: color-mix(in srgb, var(--mm-accent, #0969da) 7%, transparent);
   --mm-muted: var(--mm-fg-muted, #59636e);
   --mm-focus-ring: color-mix(in srgb, var(--mm-accent, #0969da) 35%, transparent);
   /* Scratchpad placeholder name (PRD 023 Req 7, issues #291/#244): the
@@ -2594,7 +2599,8 @@ mark.hl.ghost {
 .folder-item:hover:not(:disabled) {
   background: var(--mm-hover);
 }
-/* PRD 025 Req 15 (issue #329): the ACTIVE file is the only tinted row — a
+/* PRD 025 Req 15 (issue #329): the ACTIVE file is the strongest tinted row
+   (the only one until issue #347 tinted open rows more lightly) — a
    flat, full-width row (the plain depth padding of any sibling, so the
    label lands on the same column as a closed row at its depth: issue #126 /
    E305), the --mm-selected-row accent tint, small radius on all four
@@ -2610,11 +2616,21 @@ mark.hl.ghost {
 .folder-item.selected:hover:not(:disabled) {
   background: var(--mm-selected-row); /* the selection doesn't flicker on hover */
 }
-/* PRD 025 Req 14 (issue #329): `.folder-item.open` — the open-but-inactive
-   rows — sets NOTHING: no surface, no shadow, no stacking, no pill
-   geometry. A file is no longer marked merely for being open; the class
-   stays (FolderPanel keys the trailing slot on it, and the tests read it)
-   and the only visible difference from a closed sibling is that slot. */
+/* PRD 025 Req 14 (issue #347): `.folder-item.open` — the open-but-inactive
+   rows — carries a flat, full-width, small-radius wash of --mm-open-row:
+   the active row's selection colour at half strength, normal weight. That
+   tint and the trailing slot are the only differences from a closed
+   sibling: still no shadow, no stacking, no pill geometry (no left margin,
+   no min-width) — the issue #329 flattening stands. Hover falls through to
+   the shared --mm-hover wash above, which at 8% is stronger than this 7%
+   tint, so an open row never looks less open when hovered (Req 15 as
+   amended; E581 pins it). Retuning either token past the other needs an
+   `.open:hover` override that keeps the stronger of the two. */
+.folder-item.open {
+  background: var(--mm-open-row);
+  border-radius: var(--mm-radius-small);
+  font-weight: normal;
+}
 /* SPEC36 §3.4/§3.6: the trailing slot on open rows — the dirty ● swaps for
    the ✕ on row hover. */
 .folder-tab-slot {

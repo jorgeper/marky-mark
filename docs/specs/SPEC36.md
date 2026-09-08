@@ -157,7 +157,10 @@ like `folderTree.ts`:
    > closed sibling only by their trailing slot (§3.4/§3.6) and the `open`
    > class (PRD 025 Req 14). The active row is a flat, full-width,
    > accent-tinted (`--mm-selected-row`, derived from `--mm-accent`),
-   > rounded (`--mm-radius-small`), bold row — the ONLY highlighted row;
+   > rounded (`--mm-radius-small`), bold row — the STRONGEST highlighted
+   > row (the only one until issue #347: open-but-inactive rows now carry
+   > `--mm-open-row`, the same accent at half strength, flat and rounded,
+   > normal weight — PRD 025 Req 14 as amended);
    > it no longer breaks the panel/workspace seam, and every other row
    > hovers through `--mm-hover` (PRD 025 Req 15). Labels still share one
    > column per depth (E305).
