@@ -971,6 +971,10 @@ export interface SpanRange {
  *   when the table starts or ends the document) is returned untouched —
  *   the SPEC38 escape hatch. Checked FIRST, so a select-all over a
  *   document starting with a table is not read as "anchor inside".
+ * - Rule B: anchor outside every span, head strictly inside one: the head
+ *   is clamped to the span edge nearest the anchor, never into a cell.
+ * - Rule D: anchor on a separator line: there is no selectable content, so
+ *   the range collapses to a caret at the anchor — the only collapsing case.
  * - Rule A: anchor inside a cells-line cell (its padding and pipes count):
  *   the confinement cell is the ANCHOR's whole cell (`displayWholeCellBounds`)
  *   and the anchor NEVER moves — it is returned as is when already on
@@ -978,10 +982,6 @@ export interface SpanRange {
  *   nearest content position (`snapToCell`) wherever it sits: the same
  *   cell, its padding, a pipe, the gutter, the separator row, another
  *   cell of any row, a line outside the table or past the document ends.
- * - Rule B: anchor outside every span, head strictly inside one: the head
- *   is clamped to the span edge nearest the anchor, never into a cell.
- * - Rule D: anchor on a separator line: there is no selectable content, so
- *   the range collapses to a caret at the anchor — the only collapsing case.
  *
  * A grammar-broken span (no parse) is left alone for the watcher to drop.
  */

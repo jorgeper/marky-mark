@@ -37,6 +37,7 @@ import {
   type DiagramRenderCache,
   type DiffLineSets,
   type EditorSearchHandle,
+  type EditStateReport,
   type EditorSyncHandle,
   type FocusEditor,
   type LineMatch,
@@ -1213,18 +1214,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
 
   // --- SPEC23 §4: dev-shim-only __mmEdit seam (same gating as __mmMenu) ---------
   const seamEditState = useCallback(
-    (s: {
-      canonHead: number;
-      head: number;
-      headLine: number;
-      selFrom: number;
-      selTo: number;
-      selAnchor: number;
-      selHead: number;
-      selText: string;
-      focused: boolean;
-      selectionSet: boolean;
-    }) => {
+    (s: Omit<EditStateReport, 'origin'>) => {
       if (stateRef.current.platform?.kind !== 'browser') return;
       const { selectionSet, ...rest } = s;
       window.__mmEdit = { nav: window.__mmEdit?.nav ?? false, ...rest };
@@ -1610,19 +1600,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * own dispatch can never bounce back (SPEC24 §1.4).
    */
   const handleEditState = useCallback(
-    (s: {
-      canonHead: number;
-      head: number;
-      headLine: number;
-      selFrom: number;
-      selTo: number;
-      selAnchor: number;
-      selHead: number;
-      selText: string;
-      focused: boolean;
-      origin: 'editor' | 'host';
-      selectionSet: boolean;
-    }) => {
+    (s: EditStateReport) => {
       seamEditState(s);
       lastEditorSelRef.current = { from: s.selFrom, to: s.selTo }; // SPEC25 §2.1
       const st = stateRef.current;

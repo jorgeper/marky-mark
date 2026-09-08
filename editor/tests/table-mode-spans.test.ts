@@ -10,7 +10,6 @@ import {
 } from '../src/components/tableMode';
 import { layoutTable, parseTable } from '../src/lib/tableEdit';
 
-
 // Issue #156: switching file tabs swaps documents with one whole-document
 // replace (Editor.tsx's [value] effect). tableModeField used to map every
 // stale grid span through that change with plain mapPos, collapsing them ALL

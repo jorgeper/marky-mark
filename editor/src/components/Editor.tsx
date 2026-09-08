@@ -300,6 +300,34 @@ export type FocusEditor = (opts?: { caret?: number }) => void;
  * paste handling) arrives through a seam callback here — the component
  * itself imports nothing from any host.
  */
+/**
+ * SPEC23 §4 + SPEC24 §1: one cursor/selection report to `onEditState` — the
+ * shape the host's `__mmEdit` seam and the split follower read.
+ */
+export interface EditStateReport {
+  /** SPEC44: head in CANONICAL text coordinates (grid whitespace mapped out). */
+  canonHead: number;
+  head: number;
+  headLine: number;
+  selFrom: number;
+  selTo: number;
+  /** SPEC39 §2.1 (issue #356): the main range's anchor and head as set (unordered). */
+  selAnchor: number;
+  selHead: number;
+  selText: string;
+  focused: boolean;
+  /** SPEC39 §2.1 (issue #356): whether this report comes from an update that set the selection. */
+  selectionSet: boolean;
+  /**
+   * Issue #310: 'host' when the editor did not make the move itself — the
+   * selection arrived through `selectRangeRef` (a mirrored preview
+   * selection or a preview-click placement) or is the mount-time seed;
+   * 'editor' for every user, keymap or editor-internal move — the split
+   * follower realigns the preview only for those.
+   */
+  origin: 'editor' | 'host';
+}
+
 export interface EditorProps {
   value: string;
   /**
@@ -385,29 +413,7 @@ export interface EditorProps {
   onVimModeChange?(nav: boolean): void;
   /** SPEC23 §4 + SPEC24 §1: cursor/selection reports — the seam, and the
    * reverse mirror (which acts only on focused, non-collapsed reports). */
-  onEditState?(s: {
-    /** SPEC44: head in CANONICAL text coordinates (grid whitespace mapped out). */
-    canonHead: number;
-    head: number;
-    headLine: number;
-    selFrom: number;
-    selTo: number;
-    /** SPEC39 §2.1 (issue #356): the main range's anchor and head as set (unordered). */
-    selAnchor: number;
-    selHead: number;
-    selText: string;
-    focused: boolean;
-    /** SPEC39 §2.1 (issue #356): whether this report comes from an update that set the selection. */
-    selectionSet: boolean;
-    /**
-     * Issue #310: 'host' when the editor did not make the move itself — the
-     * selection arrived through `selectRangeRef` (a mirrored preview
-     * selection or a preview-click placement) or is the mount-time seed;
-     * 'editor' for every user, keymap or editor-internal move — the split
-     * follower realigns the preview only for those.
-     */
-    origin: 'editor' | 'host';
-  }): void;
+  onEditState?(s: EditStateReport): void;
   /** SPEC23 §1: populated at mount with the select-source-range seam. */
   selectRangeRef?: MutableRefObject<SelectSourceRange | null>;
   /**

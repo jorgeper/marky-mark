@@ -923,7 +923,8 @@ test('E626: issue #356 — a pointer drag anchored on a cell\'s second character
 
   // One mouse.move per step; after each the anchor is unchanged and the
   // head sits inside the cell's content (never past its end, never before
-  // the anchor).
+  // the anchor). Steps with a known head assert it exactly; the others only
+  // the in-cell bound.
   const steps: Array<{ x: number; expectHead?: number }> = [];
   for (let k = 1; k <= 5; k++) steps.push({ x: start.x + ((foxEnd - start.x) * k) / 5 });
   steps[4].expectHead = ce; // the fifth step reaches the end of `fox`
@@ -935,9 +936,13 @@ test('E626: issue #356 — a pointer drag anchored on a cell\'s second character
     await expect
       .poll(async () => {
         const s = await editState(page);
-        return { anchor: s.selAnchor, inCell: s.selHead > cs + 1 && s.selHead <= ce, head: step.expectHead ?? s.selHead };
+        return {
+          anchor: s.selAnchor,
+          inCell: s.selHead > cs + 1 && s.selHead <= ce,
+          head: step.expectHead === undefined ? undefined : s.selHead,
+        };
       })
-      .toEqual({ anchor: cs + 1, inCell: true, head: step.expectHead ?? (await editState(page)).selHead });
+      .toEqual({ anchor: cs + 1, inCell: true, head: step.expectHead });
   }
   await page.mouse.up();
   await expect.poll(async () => (await editState(page)).selText).toBe('uick brown fox');
