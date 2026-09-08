@@ -144,7 +144,24 @@ body,
    are the theme accent at their old alphas, identical under Crisp. */
 .theme-root {
   --mm-zoom: 1; /* settings zoom factor; App.tsx sets it inline when ≠ 100% */
-  --mm-toolbar-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); /* SPEC4 §2.4 */
+  /* SPEC4 §2.4 amended by issue #349: the toolbar's bottom shadow (the
+     issue's "B") takes the geometry the page's --mm-panel-shadow had — 24px
+     blur, 2px spread — cast 4px DOWNWARD, so the top pane reads as
+     resting over the page and the ground; the panel token itself is
+     untouched (menus, popovers, dialogs, the workspace card keep it). Alpha
+     sits between the old faint 0.08 and the panel's 0.14. */
+  --mm-toolbar-shadow: 0 4px 24px 2px rgba(0, 0, 0, 0.12);
+  /* Issue #349: the SPEC14 §3 comment-navigator pill used to share
+     --mm-toolbar-shadow; it keeps that token's OLD value verbatim here so it
+     does not grow with the toolbar. */
+  --mm-nav-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  /* PRD 025 Req 6 amended by issue #349: THE PAGE'S OWN SHADOW (the issue's
+     "A") — the white document surface (.workspace-stack > .workspace) no
+     longer casts --mm-panel-shadow; its shadow is much tighter and fainter
+     than a floating panel's (10px blur against 24px, no spread against 2px,
+     0.08 alpha against 0.14), so it diffuses softly around the page's top
+     corners instead of pooling on the sidebar and the comments column. */
+  --mm-page-shadow: 0 0 10px rgba(0, 0, 0, 0.08);
   --mm-panel-bg: rgba(127, 127, 127, 0.14); /* semantic-zoom pill wash */
   --mm-diff-changed-bg: rgba(46, 160, 67, 0.14); /* SPEC16 changed-line tint */
   /* PRD 018 Req 16 (issue #204): was the literal #d1242f — the deleted-run
@@ -155,12 +172,13 @@ body,
   /* PRD 025 Reqs 14, 17 (issues #329, #331): the lift-shadow one-offs are
      gone — --mm-lift-row / --mm-lift-row-active went with the sidebar
      planes, --mm-lift-tab / --mm-lift-tab-active with the tab-strip planes.
-     Depth is the page's own --mm-panel-shadow now (.workspace-stack > .workspace).
-     PRD 025 Req 17 amended by issue #340: the file tabs stand on the page's
-     plane and cast the page's shadow at tab scale — the same black at the
-     same 0.14 alpha as --mm-panel-shadow, a quarter of its blur, no spread,
-     so it fades inside the strip's 9px headroom above the tabs. */
-  --mm-tab-shadow: 0 0 6px rgba(0, 0, 0, 0.14);
+     Depth is the page's own --mm-page-shadow now (.workspace-stack > .workspace).
+     PRD 025 Req 17 amended by issue #340, re-derived by issue #349: the file
+     tabs stand on the page's plane and cast the page's shadow at tab scale —
+     the same black at the same 0.08 alpha as --mm-page-shadow, no more than
+     its blur (6px against the page's 10px), no spread, so it fades inside
+     the strip's 9px headroom above the tabs. */
+  --mm-tab-shadow: 0 0 6px rgba(0, 0, 0, 0.08);
   /* PRD 018 §E26 (issue #205): the last one-off colours the style lint found
      living inline in chrome rules — hoisted here verbatim (a colour literal
      may live only in a token definition or a contract-variable fallback),
@@ -557,7 +575,8 @@ button {
   flex-shrink: 0;
   background: var(--mm-bg-elevated, #f6f8fa);
   border-bottom: 1px solid var(--mm-border, #d1d9e0);
-  /* Faint bottom shadow (SPEC4 §2.4), theme-overridable. */
+  /* Bottom shadow (SPEC4 §2.4, amended by issue #349: the panel shadow's
+     geometry, cast downward), theme-overridable. */
   box-shadow: var(--mm-toolbar-shadow);
   user-select: none;
 }
@@ -1643,7 +1662,9 @@ mark.hl.ghost {
   background: var(--mm-bg-elevated, #f6f8fa);
   color: var(--mm-fg, #1f2328);
   border: 1px solid var(--mm-border, #d1d9e0);
-  box-shadow: var(--mm-toolbar-shadow);
+  /* Issue #349: the pill's own token — the faint shadow it always had, now
+     that --mm-toolbar-shadow grew to the panel geometry (SPEC14 §3). */
+  box-shadow: var(--mm-nav-shadow);
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.18s ease, visibility 0.18s;
@@ -2179,8 +2200,8 @@ mark.hl.ghost {
    spreads the column. Only the @media print block goes edge to edge.
    Req 6 (amended by issue #340): the stack is the page COLUMN — the strip
    band over the page proper — and paints nothing of its own: the ground
-   shows through it, and the fill, radius, outline and --mm-panel-shadow of
-   Req 6 belong to `.workspace-stack > .workspace` below, the white document
+   shows through it, and the fill, radius, outline and --mm-page-shadow of
+   Req 6 (issue #349) belong to `.workspace-stack > .workspace` below, the white document
    surface, so the shadow starts at the page's top corners under the strip
    and never runs up the band's sides. This REPLACES the
    .workspace-stack::after "seam painted once" overlay of PRD 013 Reqs 10–12
@@ -2196,6 +2217,14 @@ mark.hl.ghost {
      pane open the left pill still sits at the page's own top-left corner,
      not over the pane's header. */
   position: relative;
+  /* PRD 025 Req 6 amended by issue #349: the page column paints ABOVE both
+     pane wrappers, so the page's shadow falls onto the comments column's
+     ground on the right exactly as it falls onto the sidebar's on the left —
+     .comments-pane (positioned, later in DOM order) used to paint its
+     --mm-bg-elevated fill over it. z-index 1 is the lowest step above the
+     panes' auto; the toolbar shell (80), the corner stack (60), .overlay
+     (100) and the find bar (120) all sit outside the column and above it. */
+  z-index: 1;
 }
 /* PRD 025 Reqs 4, 25 (issue #331): the split preview doubles the page — two
    panes plus the .split-divider's flow width (its 16px box less the 4px side
@@ -2207,7 +2236,9 @@ mark.hl.ghost {
 /* PRD 025 Req 6 amended by issue #340: THE PAGE PROPER — the white document
    surface below the strip band (the editor and the split preview). It, not
    the column, is the sheet: --mm-bg fill, --mm-radius-small top corners
-   (the tabs' radius), --mm-panel-shadow cast onto the ground, and a 1px
+   (the tabs' radius), --mm-page-shadow cast onto the ground (issue #349:
+   the page's own tighter, fainter token — no longer --mm-panel-shadow, which
+   stays the floating panels'), and a 1px
    --mm-border outline on all four sides. Its top corners sit level with the
    band's bottom edge, so the shadow begins there — the band, the sidebar
    and the ground above that corner are one flat plane with nothing painted
@@ -2223,7 +2254,18 @@ mark.hl.ghost {
   background: var(--mm-bg, #ffffff);
   border: 1px solid var(--mm-border, #d1d9e0);
   border-radius: var(--mm-radius-small) var(--mm-radius-small) 0 0;
-  box-shadow: var(--mm-panel-shadow);
+  box-shadow: var(--mm-page-shadow);
+}
+/* PRD 025 Req 6 amended by issue #349: the page's top-right corner reads
+   rounded exactly like the top-left with the scroll bar present. The page
+   proper IS the scroller (the auto-hide fade targets it, E353/E589/W19 key
+   on it), so its app-drawn vertical bar (issue #167) runs inside the rounded
+   sheet; its track starts one radius below the top edge, so no thumb ever
+   sits inside the corner arc, and the gutter is transparent there — the
+   sheet's own rounded fill and the ground outside the arc show through, as
+   at the left. */
+.theme-root.autohide-scrollbars .workspace-stack > .workspace::-webkit-scrollbar-track {
+  margin-top: var(--mm-radius-small);
 }
 /* PRD 025 Reqs 17–18 (issue #331): the strip is a flat --mm-bg-elevated band
    at the top of the page — the ground's own colour, no seam of its own, the

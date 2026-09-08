@@ -6,6 +6,8 @@ import {
   freshApp,
   fsRead,
   fsWrite,
+  landInPreview,
+  openCommentsPane,
   openNotesRoot,
   openSettings,
   revealToolbar,
@@ -1212,10 +1214,10 @@ async function assertPageAndTabs(page: Page): Promise<void> {
   }
   expect(await page.getByTestId('folder-panel').evaluate((el) => getComputedStyle(el).boxShadow)).toBe('none');
 
-  // Req 6 (amended): the page proper is the theme root's --mm-bg sheet with
-  // the tabs' radius on its top corners, --mm-panel-shadow, a 1px
-  // --mm-border outline on all four sides, and no ::after seam overlay
-  // anywhere on the column.
+  // Req 6 (amended; issue #349): the page proper is the theme root's --mm-bg
+  // sheet with the tabs' radius on its top corners, its own --mm-page-shadow
+  // (E602 pins its geometry), a 1px --mm-border outline on all four sides,
+  // and no ::after seam overlay anywhere on the column.
   const pageBg = channels(await bgOf(page.locator('.theme-root')));
   expect(channels(await bgOf(pageProper))).toEqual(pageBg);
   const sheet = await pageProper.evaluate((el) => {
@@ -1285,7 +1287,8 @@ async function assertPageAndTabs(page: Page): Promise<void> {
     expect(st.shadow).not.toBe('none');
     expect(st.z).toBe('auto');
     // The one shadow system: the tab's resolved shadow IS the token's value
-    // (same colour and softness family as the page's --mm-panel-shadow).
+    // (same colour and softness family as the page's --mm-page-shadow,
+    // issue #349 — E602 pins the alpha match).
     expect(st.shadow).toBe(tabShadow);
   }
   const activeStyle = tabStyles.find((st) => st.active)!;
@@ -1975,4 +1978,145 @@ test('E594: issue #339 (PRD 025 Req 11 amended) — the comments pane\'s scroll 
   ]);
   expect(paneClear).toBe(docClear);
   expect(await wrap.evaluate((el) => getComputedStyle(el).paddingTop)).toBe('0px');
+});
+
+// ---- Issue #349: the shadow split — the toolbar takes the wide panel
+// geometry, the page casts a tighter, fainter shadow of its own, and the
+// page's rounded top-right corner and right-hand shadow are no longer
+// painted over by the scroller's gutter or the comments column.
+
+/** Chromium's serialised box-shadow, taken apart: `rgba(r, g, b, a) x y blur spread`. */
+const parseShadow = (shadow: string) => {
+  const m = shadow.match(/^rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\) (-?[\d.]+)px (-?[\d.]+)px ([\d.]+)px ([\d.]+)px$/);
+  if (!m) throw new Error(`unexpected computed shadow: ${shadow}`);
+  return {
+    rgb: [Number(m[1]), Number(m[2]), Number(m[3])],
+    alpha: m[4] === undefined ? 1 : Number(m[4]),
+    x: Number(m[5]),
+    y: Number(m[6]),
+    blur: Number(m[7]),
+    spread: Number(m[8]),
+  };
+};
+
+/** A shadow token's value as the browser computes it, through a probe box
+ *  under the theme root (the E353 idiom). */
+const shadowTokenOf = (page: Page, name: string) =>
+  page.locator('.theme-root').evaluate((el, n) => {
+    const probe = document.createElement('div');
+    probe.style.boxShadow = `var(${n})`;
+    el.appendChild(probe);
+    const v = getComputedStyle(probe).boxShadow;
+    probe.remove();
+    return v;
+  }, name);
+
+/** The painted colour of the one CSS pixel at (x, y): a 1×1 clip of a
+ *  screenshot, decoded in-page through an <img> + <canvas> (the suite runs
+ *  at device scale 1, so the clip is exactly one pixel). */
+async function pixelAt(page: Page, x: number, y: number): Promise<number[]> {
+  const png = await page.screenshot({ clip: { x: Math.floor(x), y: Math.floor(y), width: 1, height: 1 } });
+  return page.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, 1, 1).data;
+    return [d[0], d[1], d[2]];
+  }, png.toString('base64'));
+}
+
+test('E602: SPEC4 §2.4 and PRD 025 Req 6 as amended by issue #349 — the toolbar casts the panel shadow\'s 24px/2px geometry downward, the page proper casts its own tighter and fainter --mm-page-shadow (blur ≤ 12px, no spread, alpha ≤ 0.09) that the tabs follow, --mm-panel-shadow and the comment-nav pill are unchanged, the page\'s top-right corner reads rounded with the scrollbar present, and its shadow shows on the ground right of the page beside the open comments column', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 2000, height: 900 });
+  await seedFolders(page);
+  // A document tall enough that the page proper — the scroller — grows its
+  // vertical bar, so the corner check runs with the gutter present.
+  await fsWrite(page, '/notes/long.md', `# Long\n\n${'A paragraph of body text.\n\n'.repeat(120)}`);
+  await openNotesRoot(page);
+  await page.locator('[data-path="/notes/long.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('long.md');
+  await landInPreview(page);
+  await openCommentsPane(page);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+
+  const pageProper = page.locator('.workspace-stack > .workspace');
+  await expect.poll(() => pageProper.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  expect(await pageProper.evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto');
+  await expect(page.locator('.theme-root')).toHaveClass(/autohide-scrollbars/);
+
+  // A. Shadow B — the toolbar: the panel token's blur and spread, cast down.
+  const panel = parseShadow(await shadowTokenOf(page, '--mm-panel-shadow'));
+  expect(await shadowTokenOf(page, '--mm-panel-shadow')).toBe('rgba(0, 0, 0, 0.14) 0px 0px 24px 2px');
+  const toolbar = parseShadow(await page.locator('.toolbar').evaluate((el) => getComputedStyle(el).boxShadow));
+  expect(toolbar.blur).toBe(panel.blur);
+  expect(toolbar.spread).toBe(panel.spread);
+  expect(toolbar.y).toBeGreaterThanOrEqual(2);
+  expect(toolbar.alpha).toBeGreaterThanOrEqual(0.08);
+  expect(toolbar.alpha).toBeLessThanOrEqual(0.14);
+  // The comment navigator pill keeps yesterday's faint shadow — its own token now.
+  expect(await page.locator('.comment-nav').evaluate((el) => getComputedStyle(el).boxShadow)).toBe(
+    'rgba(0, 0, 0, 0.08) 0px 2px 10px 0px'
+  );
+
+  // B. Shadow A — the page proper: its own token, tighter and fainter.
+  const pageToken = await shadowTokenOf(page, '--mm-page-shadow');
+  expect(pageToken).not.toBe('none');
+  const pageShadowRaw = await pageProper.evaluate((el) => getComputedStyle(el).boxShadow);
+  expect(pageShadowRaw).toBe(pageToken);
+  const pageShadow = parseShadow(pageShadowRaw);
+  expect(pageShadow.blur).toBeLessThanOrEqual(12);
+  expect(pageShadow.spread).toBe(0);
+  expect(pageShadow.alpha).toBeLessThanOrEqual(0.09);
+  // The tabs cast the page's shadow at tab scale: same alpha, no wider, no spread.
+  const tabShadow = parseShadow(await shadowTokenOf(page, '--mm-tab-shadow'));
+  expect(tabShadow.alpha).toBe(pageShadow.alpha);
+  expect(tabShadow.rgb).toEqual(pageShadow.rgb);
+  expect(tabShadow.blur).toBeLessThanOrEqual(pageShadow.blur);
+  expect(tabShadow.spread).toBe(0);
+  for (const s of await page.locator('.file-tab').evaluateAll((els) => els.map((el) => getComputedStyle(el).boxShadow)))
+    expect(s).not.toBe('none');
+
+  // C. The top-right corner reads rounded like the top-left with the bar
+  // present: the page keeps its radius, and the pixel at the corner of its
+  // box — outside the arc — is the ground (darkened only by the page's own
+  // faint shadow), not the page's fill and not a scrollbar colour; the same
+  // read as the top-left corner.
+  const radius = await tokenOf(page, '--mm-radius-small');
+  expect(await pageProper.evaluate((el) => getComputedStyle(el).borderTopRightRadius)).toBe(radius);
+  const ground = channels(await bgOf(page.locator('.body-row')));
+  const fill = channels(await bgOf(pageProper));
+  expect(fill).not.toEqual(ground);
+  const r = await rectOf(pageProper);
+  const topRight = await pixelAt(page, r.right - 1, r.top);
+  const topLeft = await pixelAt(page, r.left, r.top);
+  for (let i = 0; i < 3; i++) {
+    expect(Math.abs(topRight[i] - topLeft[i])).toBeLessThanOrEqual(8);
+    expect(topRight[i]).toBeLessThanOrEqual(ground[i]);
+    expect(topRight[i]).toBeGreaterThanOrEqual(ground[i] - 24);
+    expect(topLeft[i]).toBeLessThanOrEqual(ground[i]);
+  }
+  expect(topRight).not.toEqual(fill);
+
+  // The page's shadow falls on the ground to the RIGHT beside the comments
+  // column as it does on the left beside the sidebar: the pixel 3px out from
+  // either edge at mid-height is darker than the flat ground by the same
+  // amount — the panes no longer paint their fill over it.
+  const midY = r.top + r.height / 2;
+  const rightOut = await pixelAt(page, r.right + 2, midY);
+  const leftOut = await pixelAt(page, r.left - 3, midY);
+  const darkerRight = ground[1] - rightOut[1];
+  const darkerLeft = ground[1] - leftOut[1];
+  expect(darkerLeft).toBeGreaterThanOrEqual(2);
+  expect(darkerRight).toBeGreaterThanOrEqual(darkerLeft - 1);
+  // The band above the corner stays flat (issue #340): no shadow on the
+  // strip, the column or the pane wrappers.
+  for (const sel of ['[data-testid="file-tab-strip"]', '.workspace-stack', '.folder-wrap', '.comments-wrap']) {
+    expect(await page.locator(sel).evaluate((el) => getComputedStyle(el).boxShadow)).toBe('none');
+  }
 });

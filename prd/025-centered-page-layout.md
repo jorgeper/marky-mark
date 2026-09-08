@@ -142,6 +142,18 @@ implementation reference, and its pixel sizes are placeholders.
    > hairline or radius between them. While a side pane is open the page
    > also carries a 1px `--mm-border` outline on all four sides; its top
    > edge runs under the band and is broken by the active tab (Req 17).
+   >
+   > **Amended (issue #349, 2026-09-08):** the page casts its **own**
+   > shadow, not `--mm-panel-shadow`: the internal `--mm-page-shadow`
+   > token (`0 0 10px rgba(0, 0, 0, 0.08)`), much tighter and fainter than
+   > a floating panel's, diffusing softly around the page's top corners.
+   > `--mm-panel-shadow` keeps its value and its floating-panel consumers;
+   > its 24px/2px geometry moved to the toolbar (SPEC4 §2.4). The page
+   > column paints above both pane wrappers, so the shadow shows on the
+   > comments column's ground to the right as it does on the sidebar's to
+   > the left; and the page's top-right corner reads rounded like the
+   > top-left with the scroll bar present (the bar's track starts one
+   > radius below the top edge).
 7. **Both side panes closed** (or absent, as in the static web build):
    the page spans the full window width below the tab strip, with no
    radius and no shadow. The text column stays centered at
@@ -238,6 +250,10 @@ implementation reference, and its pixel sizes are placeholders.
     > 1px `--mm-border` row, so it runs under them unbroken), every tab one
     > box height on one bottom edge, and they hover through `--mm-hover`;
     > the active tab does not change on hover.
+    >
+    > **Amended (issue #349, 2026-09-08):** `--mm-tab-shadow` follows the
+    > page's own `--mm-page-shadow` (Req 6 as amended): the same black at
+    > the same alpha, a blur no larger than the page's, no spread.
 18. The strip's look is identical in every state, including both panes
     closed (mockups 4 and 5), where it simply spans the full width.
 
