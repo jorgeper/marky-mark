@@ -861,6 +861,131 @@ export function displayCellBounds(
   };
 }
 
+/** One display-line fragment of a cell's content, absolute offsets. */
+export interface CellFragment {
+  /** The display line the fragment sits on (end excludes the newline). */
+  lineStart: number;
+  lineEnd: number;
+  /** The fragment's trimmed content; a hard-broken piece includes its `↩`. */
+  contentStart: number;
+  contentEnd: number;
+}
+
+export interface WholeCellBounds {
+  kind: 'cells' | 'separator';
+  row: number;
+  col: number;
+  /** First fragment's content start through the LAST non-empty fragment's content end. */
+  contentStart: number;
+  contentEnd: number;
+  /** The cell's non-empty fragments in display order; empty for an empty cell or a separator. */
+  fragments: CellFragment[];
+}
+
+/**
+ * SPEC39 §2.1 (issue #346): the WHOLE cell an offset is in — the union of
+ * its content fragments across every display line of its row block, not
+ * just the fragment on the offset's line (which is what `displayCellBounds`
+ * reports and what cut a multi-line selection down to one line). An
+ * unwrapped cell equals its per-line content span; an empty cell is its
+ * content position on the block's first line (start == end). A separator
+ * line keeps its kind and yields no span. Hard-break fragments count up to
+ * and including the `↩` for display offsets.
+ */
+export function displayWholeCellBounds(
+  text: string,
+  region: Region,
+  parsed: ParsedDisplay,
+  offset: number
+): WholeCellBounds | null {
+  const b = displayCellBounds(text, region, parsed, offset);
+  if (!b) return null;
+  if (b.kind !== 'cells') {
+    return { kind: 'separator', row: b.row, col: b.col, contentStart: b.contentStart, contentEnd: b.contentEnd, fragments: [] };
+  }
+  const lines = regionLines(text, region);
+  const fragments: CellFragment[] = [];
+  let first: number | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const info = parsed.lineInfo[i];
+    if (!info || info.kind !== 'cells' || info.row !== b.row) continue;
+    const c = lineCellSpans(text, lines[i].start, lines[i].end)[b.col];
+    if (!c) continue;
+    if (first === null) first = c.contentStart;
+    if (c.contentEnd > c.contentStart) {
+      fragments.push({
+        lineStart: lines[i].start,
+        lineEnd: lines[i].end,
+        contentStart: c.contentStart,
+        contentEnd: c.contentEnd,
+      });
+    }
+  }
+  const contentStart = fragments.length ? fragments[0].contentStart : (first ?? b.contentStart);
+  const contentEnd = fragments.length ? fragments[fragments.length - 1].contentEnd : contentStart;
+  return { kind: 'cells', row: b.row, col: b.col, contentStart, contentEnd, fragments };
+}
+
+/**
+ * SPEC39 §2.1 (issue #346): a selection endpoint clamped into a whole-cell
+ * span and snapped onto the cell's OWN content: padding, a pipe, a gutter,
+ * the newline or another column's fragment on an intermediate line all
+ * land on the cell's fragment on that display line (its end when past it,
+ * its start when before it), else on the nearest fragment edge.
+ */
+export function snapToCell(w: WholeCellBounds, offset: number): number {
+  const p = Math.max(w.contentStart, Math.min(offset, w.contentEnd));
+  if (w.fragments.length === 0) return p;
+  const own = w.fragments.find((f) => p >= f.lineStart && p <= f.lineEnd);
+  if (own) return Math.max(own.contentStart, Math.min(p, own.contentEnd));
+  let best = w.contentStart;
+  let bestD = Infinity;
+  for (const f of w.fragments) {
+    for (const edge of [f.contentStart, f.contentEnd]) {
+      const d = Math.abs(p - edge);
+      if (d < bestD) {
+        bestD = d;
+        best = edge;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * SPEC39 §2.1 (issue #346): the VISIBLE text of a selection confined to one
+ * grid cell — the selected parts of the cell's fragments joined per SPEC38's
+ * rule (a single space across a wrap, nothing across a hard break, whose
+ * `↩` is dropped), never a pipe, padding or newline. Null when the two ends
+ * are not in the same cells-line cell (the caller keeps the raw slice).
+ */
+export function cellSelectionText(
+  text: string,
+  region: Region,
+  parsed: ParsedDisplay,
+  from: number,
+  to: number
+): string | null {
+  const w = displayWholeCellBounds(text, region, parsed, from);
+  if (!w || w.kind !== 'cells') return null;
+  const w2 = displayWholeCellBounds(text, region, parsed, to);
+  if (!w2 || w2.kind !== 'cells' || w2.row !== w.row || w2.col !== w.col) return null;
+  let out = '';
+  let pendingSpace = false;
+  for (const f of w.fragments) {
+    const s = Math.max(from, f.contentStart);
+    const e = Math.min(to, f.contentEnd);
+    if (e <= s) continue;
+    const marked = e === f.contentEnd && text[f.contentEnd - 1] === HARD_BREAK;
+    const piece = marked ? text.slice(s, e - 1) : text.slice(s, e);
+    if (!piece) continue;
+    if (out && pendingSpace) out += ' ';
+    out += piece;
+    pendingSpace = !marked;
+  }
+  return out;
+}
+
 /**
  * SPEC40 §4: every top-level GFM table region in document order — the
  * tableRegionAt scan, exhaustively.

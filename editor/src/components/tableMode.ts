@@ -17,6 +17,8 @@ import {
   displayCellAt,
   displayCellBounds,
   displayPosOf,
+  displayWholeCellBounds,
+  snapToCell,
   displayRoundTrips,
   layoutTable,
   parseDisplay,
@@ -26,6 +28,7 @@ import {
   type ParsedDisplay,
   type Region,
   type TableModel,
+  type WholeCellBounds,
 } from '../lib/tableEdit';
 
 /**
@@ -165,13 +168,28 @@ const alignFilter = EditorState.transactionFilter.of((tr) => {
     const region: Region = { start: span.from, end: span.to };
     const parsed = parseDisplay(text, region);
     if (!parsed) return tr;
-    const b = displayCellBounds(text, region, parsed, pivot);
-    if (!b || b.kind !== 'cells') {
+    // SPEC39 §2.1 (issue #346): the clamp target is the pivot's WHOLE cell
+    // across its wrapped display lines — the per-line bounds cut a drag from
+    // a cell's first line to its last down to the pivot line's fragment.
+    let w = displayWholeCellBounds(text, region, parsed, pivot);
+    if (w && w.kind !== 'cells' && headSpan && anchorSpan === headSpan) {
+      // SPEC39 §2.1 (issue #346): a head walked onto a separator line
+      // (Shift+ArrowDown/Up off the cell's last/first line) with the anchor
+      // still in a cell of the same span clamps to the ANCHOR's cell rather
+      // than collapsing, so the head lands at the cell's content end (down)
+      // or content start (up). A separator head with no in-cell anchor
+      // still collapses.
+      const wa = displayWholeCellBounds(text, region, parsed, sel.anchor);
+      if (wa && wa.kind === 'cells') w = wa;
+    }
+    if (!w || w.kind !== 'cells') {
       return [tr, { selection: { anchor: Math.max(span.from, Math.min(pivot, span.to)) } }];
     }
-    const clamp = (p: number) => Math.max(b.contentStart, Math.min(p, b.contentEnd));
-    const a2 = clamp(sel.anchor);
-    const h2 = clamp(sel.head);
+    // Endpoints in padding, pipes, the newline or another column's fragment
+    // on an intermediate line snap onto the cell's own fragments; the range
+    // stays ONE contiguous CodeMirror range across the wrapped lines.
+    const a2 = snapToCell(w, sel.anchor);
+    const h2 = snapToCell(w, sel.head);
     if (a2 === sel.anchor && h2 === sel.head) return tr;
     return [tr, { selection: { anchor: a2, head: h2 } }];
   }
@@ -214,7 +232,13 @@ const alignFilter = EditorState.transactionFilter.of((tr) => {
       r.fromA < b1.cellStart ||
       r.toA > b1.cellEnd
     ) {
-      return []; // structure is read-only from inside — cancel
+      // SPEC39 §2.6 (issue #346): one range covering several display lines
+      // of ONE cell — a whole-cell selection typed over, deleted, cut or
+      // pasted into — replaces the cell's logical content in the model and
+      // re-lays the grid out, never splicing pipes, gutters or newlines.
+      const whole = ranges.length === 1 ? wholeCellEdit(preText, preRegion, parsedPre, span, set.width, r) : null;
+      if (whole) return whole;
+      return []; // otherwise structure is read-only from inside — cancel
     }
   }
 
@@ -268,6 +292,44 @@ const alignFilter = EditorState.transactionFilter.of((tr) => {
     },
   ];
 });
+
+/**
+ * SPEC39 §2.6 (issue #346): the transaction that applies a single change
+ * lying within ONE cell's whole-cell span (SPEC39 §2.1) but crossing its
+ * display lines: the covered logical content is replaced by the sanitized
+ * insert (§2.5) in the model, the grid re-laid out at the span's width, and
+ * the caret lands after the insert — one document change, one undo step.
+ * Null when the range's ends are not in the same cells-line cell or reach
+ * outside its content.
+ */
+function wholeCellEdit(
+  text: string,
+  region: Region,
+  parsed: ParsedDisplay,
+  span: GridSpan,
+  width: number,
+  r: { fromA: number; toA: number; ins: string }
+): { changes: { from: number; to: number; insert: string }; selection: { anchor: number } } | null {
+  const w1 = displayWholeCellBounds(text, region, parsed, r.fromA);
+  const w2 = displayWholeCellBounds(text, region, parsed, r.toA);
+  if (!w1 || !w2 || w1.kind !== 'cells' || w2.kind !== 'cells' || w1.row !== w2.row || w1.col !== w2.col) return null;
+  if (r.fromA < w1.contentStart || r.toA > w1.contentEnd) return null;
+  const from = displayCellAt(text, region, parsed, r.fromA);
+  const to = displayCellAt(text, region, parsed, r.toA);
+  if (!from || !to) return null;
+  const m = parsed.model;
+  const cell = (w1.row === -1 ? m.header : m.rows[w1.row])?.[w1.col];
+  if (cell === undefined) return null;
+  const clean = sanitizeCellInsert(r.ins);
+  const content = cell.slice(0, from.contentOffset) + clean + cell.slice(to.contentOffset);
+  const put = (cells: string[]) => cells.map((c, i) => (i === w1.col ? content : c));
+  const header = w1.row === -1 ? put(m.header) : m.header;
+  const rows = w1.row === -1 ? m.rows : m.rows.map((row, ri) => (ri === w1.row ? put(row) : row));
+  const l = layoutTable({ header, align: m.align, rows }, width);
+  const head =
+    span.from + displayPosOf(l.map, { row: w1.row, col: w1.col, contentOffset: from.contentOffset + clean.length });
+  return { changes: { from: span.from, to: span.to, insert: l.text }, selection: { anchor: head } };
+}
 
 /** Collapse one span to its canonical text, keeping the parse it took to get
  * there (`canonicalLineMapper` needs both). Null when unparseable. */
@@ -696,6 +758,8 @@ function caretCell(view: EditorView): {
   width: number;
   parsed: ParsedDisplay;
   b: NonNullable<ReturnType<typeof displayCellBounds>>;
+  /** SPEC39 §2.1 (issue #346): the same cell across its wrapped lines. */
+  w: WholeCellBounds | null;
   head: number;
 } | null {
   const set = view.state.field(tableModeField, false);
@@ -708,7 +772,8 @@ function caretCell(view: EditorView): {
   const parsed = parseDisplay(text, region);
   if (!parsed) return null;
   const b = displayCellBounds(text, region, parsed, head);
-  return b ? { span, width: set.width, parsed, b, head } : null;
+  if (!b) return null;
+  return { span, width: set.width, parsed, b, w: displayWholeCellBounds(text, region, parsed, head), head };
 }
 
 /** §2.3: Enter/Tab navigate cells; the caret lands at the target's content end. */
@@ -734,8 +799,14 @@ const confineKeymap = Prec.highest(
       run: (v) => {
         const ctx = caretCell(v);
         if (!ctx) return false;
-        if (ctx.b.kind !== 'cells') return true;
-        v.dispatch({ selection: { anchor: ctx.b.contentStart, head: ctx.b.contentEnd } });
+        if (ctx.b.kind !== 'cells' || !ctx.w || ctx.w.kind !== 'cells') return true;
+        // SPEC39 §2.1 (issue #346): ⌘A selects the WHOLE cell across its
+        // wrapped lines; when the selection already is that cell, it is not
+        // consumed — selectAll runs and the SPEC38 escape hatch (both ends
+        // outside the grid) lets the document-wide selection through.
+        const main = v.state.selection.main;
+        if (!main.empty && main.from === ctx.w.contentStart && main.to === ctx.w.contentEnd) return false;
+        v.dispatch({ selection: { anchor: ctx.w.contentStart, head: ctx.w.contentEnd } });
         return true;
       },
     },

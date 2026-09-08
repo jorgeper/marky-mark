@@ -2,6 +2,10 @@ import { describe, expect, test } from 'vitest';
 import {
   cellAt,
   cellContentSpan,
+  cellSelectionText,
+  displayCellBounds,
+  displayWholeCellBounds,
+  snapToCell,
   deleteCol,
   displayCellAt,
   displayPosOf,
@@ -445,5 +449,134 @@ describe('SPEC41 image view helpers', () => {
     const atEnd = 'para\n\n![a](p/x.png)';
     const d3 = deleteImageAt(atEnd, atEnd.indexOf('![') + 2)!;
     expect(d3.text).toBe('para\n');
+  });
+});
+
+describe('SPEC39 §2.1 whole-cell selection helpers (issue #346)', () => {
+  // A grid whose Detail cell wraps over exactly three display lines at a
+  // 15-wide column (budget 26 − overhead 7 = 19; Name keeps 4), an empty
+  // Name cell on row 1, and a 22-char word that hard-breaks on row 2.
+  const M = {
+    header: ['Name', 'Detail'],
+    align: [null, null] as Array<null>,
+    rows: [
+      ['a', 'k01 k02 k03 k04 k05 k06 k07 k08 k09'],
+      ['', 'solo'],
+      ['b', 'abcdefghijklmnopqrstuv'],
+    ],
+  };
+  const laid = layoutTable(M, 26);
+  const DOC = `intro\n\n${laid.text}\n\noutro`;
+  const REGION = { start: 7, end: 7 + laid.text.length };
+  const parsed = parseDisplay(DOC, REGION)!;
+  const at = (needle: string, nth = 0) => {
+    let i = -1;
+    for (let k = 0; k <= nth; k++) i = DOC.indexOf(needle, i + 1);
+    return i;
+  };
+  const lineOf = (offset: number) => DOC.slice(DOC.lastIndexOf('\n', offset - 1) + 1, DOC.indexOf('\n', offset));
+
+  test('U1359: displayWholeCellBounds spans every wrapped line of the cell; unwrapped, empty, separator and hard-break cells', () => {
+    expect(displayRoundTrips(DOC, REGION, 26)).toBe(true);
+    expect(parsed.lineInfo.filter((l) => l.kind === 'cells' && l.row === 0)).toHaveLength(3);
+    const wholeFrom = (offset: number) => displayWholeCellBounds(DOC, REGION, parsed, offset)!;
+
+    // --- the wrapped cell, from an offset on each of its three lines --------
+    const expected = { contentStart: at('k01'), contentEnd: at('k09') + 3 };
+    for (const probe of [at('k02'), at('k06'), at('k09') + 1]) {
+      const w = wholeFrom(probe);
+      expect(w.kind).toBe('cells');
+      expect({ contentStart: w.contentStart, contentEnd: w.contentEnd }).toEqual(expected);
+      expect(w.row).toBe(0);
+      expect(w.col).toBe(1);
+      expect(w.fragments.map((f) => DOC.slice(f.contentStart, f.contentEnd))).toEqual([
+        'k01 k02 k03 k04',
+        'k05 k06 k07 k08',
+        'k09',
+      ]);
+      // Each fragment names its own display line.
+      for (const f of w.fragments) expect(lineOf(f.contentStart)).toBe(DOC.slice(f.lineStart, f.lineEnd));
+    }
+    // The union is one contiguous range crossing pipes and newlines.
+    expect(DOC.slice(expected.contentStart, expected.contentEnd)).toContain('|');
+
+    // --- an unwrapped cell equals its per-line displayCellBounds span -------
+    const a = wholeFrom(at('| a ') + 2);
+    const b = displayCellBounds(DOC, REGION, parsed, at('| a ') + 2)!;
+    expect([a.contentStart, a.contentEnd]).toEqual([b.contentStart, b.contentEnd]);
+    expect(a.fragments).toHaveLength(1);
+    expect(DOC.slice(a.contentStart, a.contentEnd)).toBe('a');
+    // Padding on a continuation line of the wrapped cell resolves to it too.
+    const pad = wholeFrom(at('k09') + 4);
+    expect([pad.contentStart, pad.contentEnd]).toEqual([expected.contentStart, expected.contentEnd]);
+
+    // --- an empty cell: start == end on the block's first line ---------------
+    const soloLine = at('solo');
+    const empty = wholeFrom(soloLine - 8); // inside the empty Name cell's padding
+    expect(empty.kind).toBe('cells');
+    expect(empty.row).toBe(1);
+    expect(empty.col).toBe(0);
+    expect(empty.contentStart).toBe(empty.contentEnd);
+    expect(empty.fragments).toEqual([]);
+    expect(lineOf(empty.contentStart)).toContain('solo');
+
+    // --- separator lines keep their kind and yield no span ------------------
+    const sep = wholeFrom(at('| ----') + 3);
+    expect(sep.kind).toBe('separator');
+    expect(sep.fragments).toEqual([]);
+
+    // --- a hard-broken word: two fragments, the first carrying the marker ---
+    const hb = wholeFrom(at('abcdefghijklmn') + 3);
+    expect(hb.fragments.map((f) => DOC.slice(f.contentStart, f.contentEnd))).toEqual(['abcdefghijklmn↩', 'opqrstuv']);
+    expect(DOC.slice(hb.contentStart, hb.contentEnd).startsWith('abcdefghijklmn↩')).toBe(true);
+    expect(hb.contentEnd).toBe(at('opqrstuv') + 'opqrstuv'.length);
+
+    // Outside the region: null.
+    expect(displayWholeCellBounds(DOC, REGION, parsed, 2)).toBeNull();
+  });
+
+  test('U1360: snapToCell — endpoints in padding, gutters, pipes or another column snap onto the cell\'s own fragments', () => {
+    const w = displayWholeCellBounds(DOC, REGION, parsed, at('k01'))!;
+    const [f1, f2, f3] = w.fragments;
+    // Inside a fragment: unchanged.
+    expect(snapToCell(w, at('k06'))).toBe(at('k06'));
+    // Padding after the second fragment (still on its line): its content end.
+    expect(snapToCell(w, f2.contentEnd + 1)).toBe(f2.contentEnd);
+    // The trailing pipe / newline of the second line: its content end.
+    expect(snapToCell(w, f2.lineEnd)).toBe(f2.contentEnd);
+    // The Name column's padding on the second line (before the fragment): its content start.
+    expect(snapToCell(w, f2.lineStart + 3)).toBe(f2.contentStart);
+    // The gutter between the columns on the third line: that fragment's start.
+    expect(snapToCell(w, f3.contentStart - 1)).toBe(f3.contentStart);
+    // Before the first fragment / past the last one: the whole-cell edges.
+    expect(snapToCell(w, f1.lineStart)).toBe(w.contentStart);
+    expect(snapToCell(w, f3.lineEnd + 40)).toBe(w.contentEnd);
+    expect(snapToCell(w, 0)).toBe(w.contentStart);
+    // An empty cell snaps to its one position.
+    const empty = displayWholeCellBounds(DOC, REGION, parsed, at('solo') - 8)!;
+    expect(snapToCell(empty, 0)).toBe(empty.contentStart);
+    expect(snapToCell(empty, DOC.length)).toBe(empty.contentStart);
+  });
+
+  test('U1361: cellSelectionText joins the selected fragment parts — spaces across wraps, nothing across hard breaks, no marker/pipes/padding', () => {
+    const w = displayWholeCellBounds(DOC, REGION, parsed, at('k01'))!;
+    const sel = (from: number, to: number) => cellSelectionText(DOC, REGION, parsed, from, to);
+    // The full cell.
+    expect(sel(w.contentStart, w.contentEnd)).toBe('k01 k02 k03 k04 k05 k06 k07 k08 k09');
+    // A partial range within one fragment.
+    expect(sel(at('k02'), at('k03') + 3)).toBe('k02 k03');
+    // A range spanning the wrap join.
+    expect(sel(at('k04'), at('k05') + 3)).toBe('k04 k05');
+    expect(sel(at('k03'), at('k06') + 2)).toBe('k03 k04 k05 k0');
+    // A hard-break join: no space, the marker dropped.
+    const hb = displayWholeCellBounds(DOC, REGION, parsed, at('abcdefghijklmn'))!;
+    expect(sel(hb.contentStart, hb.contentEnd)).toBe('abcdefghijklmnopqrstuv');
+    expect(sel(at('klmn'), at('opqr') + 4)).toBe('klmnopqr');
+    // An unwrapped cell: its text.
+    expect(sel(at('solo'), at('solo') + 4)).toBe('solo');
+    // Two cells, or a separator line: null (the caller keeps the raw slice).
+    expect(sel(at('| a ') + 2, at('k02'))).toBeNull();
+    expect(sel(at('| ----') + 3, at('| ----') + 6)).toBeNull();
+    expect(sel(at('k01'), at('| ----', 1) + 3)).toBeNull();
   });
 });

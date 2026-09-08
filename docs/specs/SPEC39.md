@@ -48,8 +48,29 @@ All of the following apply only while the mode is active, via a
    selection anchored inside the grid with its head outside clamps to
    the anchor's cell. (Both endpoints outside: allowed — deleting such
    a range breaks the grammar and exits per SPEC38, the deliberate
-   escape hatch.) ⌘A with the caret in the grid selects the CURRENT
-   cell's content, not the document.
+   escape hatch.) The clamp target is the **whole cell across wrapped
+   lines** (issue #346): from the cell's first fragment's content start
+   through its last fragment's content end, across every display line
+   the cell wraps onto — one contiguous range, so the tint covers each
+   wrapped line. An endpoint that lands in padding, a pipe, a gutter or
+   another column's fragment on an intermediate line snaps onto the
+   cell's own fragment on that line (its end when past it, its start
+   when before it). A head walked onto a separator line while the anchor
+   is inside a cell of the same span (Shift+ArrowDown/Up off the cell's
+   last/first line) clamps to the anchor's cell — the head lands at the
+   cell's content end (down) or start (up); a separator head with no
+   in-cell anchor still collapses to a caret. ⌘A with the caret in the
+   grid selects the CURRENT cell's content — the whole cell across its
+   wrapped lines — not the document; a second ⌘A, with the cell already
+   selected, selects the document (the escape hatch above). Copy / Cut
+   (⌘C, ⌘X and the menu) over a selection confined to one cell put the
+   cell's joined VISIBLE text on the clipboard: fragments joined with
+   single spaces (SPEC38's rule; hard-broken pieces join directly, the
+   `↩` dropped), no pipes, padding or newlines. A single edit whose range
+   lies within one cell's whole-cell span but crosses its display lines
+   (typing, Backspace, Delete, Cut, paste over the selection) replaces
+   the covered logical content per rule 5 and re-lays the grid out — one
+   undo step, the grid intact (rule 6).
 2. **Spaces.** A space insertion that trimming would delete (at the
    cell content's end, or in padding) becomes a caret advance within
    the cell, clamped at the cell's inner edge — so typing

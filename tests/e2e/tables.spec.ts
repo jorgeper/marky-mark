@@ -4,9 +4,11 @@ import {
   freshApp,
   fsRead,
   fsWrite,
+  menuSave,
   openGridDoc,
   openSettings,
   saveSettings,
+  smartEditAnnotation,
   wordRect,
 } from './helpers';
 
@@ -602,4 +604,247 @@ test('E324: issue #164 — a selection inside a rendered grid cell paints the ba
   await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 4 });
   await page.mouse.up();
   await expect.poll(() => page.evaluate(() => document.getSelection()?.toString() ?? '')).toMatch(/aa/);
+});
+
+// ---------------------------------------------------------------------------
+// Issue #346 (SPEC39 §2.1): a ranged selection with an endpoint in a WRAPPED
+// cell clamps to the whole cell — every display line it wraps onto — not the
+// fragment on the pivot's line. The fixture's Detail cell is 38 four-char
+// tokens (151 chars): at the default 1280px viewport the column lays out
+// ~61 wide, 15 tokens per line, so the cell wraps to exactly three lines
+// (it stays three anywhere between 51 and 75 columns).
+
+const WRAP_WORDS = Array.from({ length: 38 }, (_, i) => `k${String(i + 1).padStart(2, '0')}`);
+const WRAP_CELL = WRAP_WORDS.join(' ');
+const WRAP_SOURCE = `top\n\n| Name | Detail |\n| --- | --- |\n| zq | ${WRAP_CELL} |\n| b | short |\n\nbottom\n`;
+const EDITOR_PANE = '[data-testid="editor"] .cm-content';
+
+/** Open the fixture and return the wrapped cell's three per-line fragments. */
+async function openWrappedGrid(page: import('@playwright/test').Page, path: string): Promise<string[]> {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openGridDoc(page, path, WRAP_SOURCE, 'top');
+  const editor = page.getByTestId('editor');
+  const gridLines = () => editor.locator('.cm-line.mm-table-mode-line').allTextContents();
+  // header, separator, THREE lines of row 0, separator, row 1
+  await expect.poll(async () => (await gridLines()).length).toBe(7);
+  const lines = await gridLines();
+  const frags = lines.slice(2, 5).map((l) => l.split('|')[2].trim());
+  expect(frags.join(' ')).toBe(WRAP_CELL);
+  expect(frags.every((f) => f.length > 0)).toBe(true);
+  return frags;
+}
+
+const editState = (page: import('@playwright/test').Page) =>
+  page.evaluate(() => ({
+    selText: window.__mmEdit?.selText ?? '',
+    selFrom: window.__mmEdit?.selFrom ?? -1,
+    selTo: window.__mmEdit?.selTo ?? -1,
+  }));
+
+/** The editor text's [k01 … last fragment end] slice — the whole-cell union in doc bytes. */
+async function wholeCellUnion(page: import('@playwright/test').Page, frags: string[]): Promise<string> {
+  const text = await page.getByTestId('editor').locator('.cm-content').evaluate((el) => (el as HTMLElement).innerText);
+  const start = text.indexOf(frags[0]);
+  const last = frags[frags.length - 1];
+  const end = text.indexOf(last, start) + last.length;
+  return text.slice(start, end);
+}
+
+test('E613: issue #346 — a pointer drag from a wrapped cell\'s first line to its last selects the WHOLE cell (three tinted lines), a drag into the neighbouring cell stays confined to one cell, and ⌘C lands the joined visible text on the clipboard', async ({
+  page,
+}) => {
+  const frags = await openWrappedGrid(page, '/docs/v346a.md');
+  const editor = page.getByTestId('editor');
+  const union = await wholeCellUnion(page, frags);
+  expect(union.split('\n')).toHaveLength(3);
+  expect(union).toContain('|');
+
+  // (a) A real drag: from the gutter just left of k01 (line 1) to the padding
+  // right of the last token (line 3). Both ends snap onto the cell's own
+  // fragments — the union of the three fragments' content offsets.
+  const first = await wordRect(page, EDITOR_PANE, 'k01');
+  const last = await wordRect(page, EDITOR_PANE, WRAP_WORDS[WRAP_WORDS.length - 1]);
+  await page.mouse.move(first.x - 4, first.y + first.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(last.x + last.width + 24, last.y + last.height / 2, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => (await editState(page)).selText).toBe(union);
+  const st = await editState(page);
+  expect(st.selTo - st.selFrom).toBe(union.length);
+  // The tint covers all three wrapped lines: a selection rect intersects each line's box.
+  const lineBoxes = await editor.locator('.cm-line.mm-table-mode-line').evaluateAll((els) =>
+    els.slice(2, 5).map((el) => {
+      const r = el.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom };
+    })
+  );
+  const coveredLines = () =>
+    editor.locator('.cm-selectionBackground').evaluateAll(
+      (els, boxes) =>
+        boxes.filter((b) =>
+          els.some((el) => {
+            const r = el.getBoundingClientRect();
+            const mid = (b.top + b.bottom) / 2;
+            return r.width > 0 && r.top <= mid && r.bottom >= mid;
+          })
+        ).length,
+      lineBoxes
+    );
+  await expect.poll(coveredLines).toBe(3);
+
+  // (e) ⌘C over the whole-cell selection: the cell's visible text, wraps
+  // joined with single spaces — no pipes, padding or newlines.
+  await page.keyboard.press('ControlOrMeta+c');
+  const clip = () => page.evaluate(() => (window.__mmClipboard ?? []).slice(-1)[0]);
+  await expect.poll(clip).toBe(WRAP_CELL);
+  // The menu's Copy takes the same route.
+  await page.keyboard.press('Control+.');
+  await page.getByTestId('smart-edit-copy').click();
+  await expect.poll(() => page.evaluate(() => (window.__mmClipboard ?? []).length)).toBe(2);
+  expect(await clip()).toBe(WRAP_CELL);
+
+  // (d) A drag from the wrapped cell into the neighbouring cell: confined to
+  // exactly one cell — the head's (SPEC39 §2.1's pivot), no pipe in it.
+  // (Collapse the whole-cell selection first: a mousedown INSIDE a selected
+  // range starts a drag-and-drop of it, not a new selection.)
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(async () => (await editState(page)).selText).toBe('');
+  const k05 = await wordRect(page, EDITOR_PANE, 'k05');
+  const zq = await wordRect(page, EDITOR_PANE, 'zq');
+  await page.mouse.move(k05.x + 2, k05.y + k05.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(zq.x - 3, zq.y + zq.height / 2, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => (await editState(page)).selText).toBe('zq');
+  // Nothing dirtied; the grid never moved.
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(7);
+});
+
+test('E614: issue #346 — Shift+ArrowDown extends within the wrapped cell line by line then holds at its content end, Shift+End stays inside the cell, ⌘A selects the whole cell and a second ⌘A the document', async ({
+  page,
+}) => {
+  const frags = await openWrappedGrid(page, '/docs/v346b.md');
+  const editor = page.getByTestId('editor');
+  const union = await wholeCellUnion(page, frags);
+  const lineTexts = await editor.locator('.cm-line.mm-table-mode-line').allTextContents();
+  const col = lineTexts[2].indexOf('k01');
+  const sel = () => editState(page).then((s) => s.selText);
+
+  // (b) From the start of line 1, Shift+ArrowDown walks the head down the
+  // cell: two lines, three lines, then the separator line clamps it to the
+  // cell's content end — and it stays there.
+  await caretInto(page, 'k01', col);
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect.poll(sel).toMatch(new RegExp(`^${frags[0]}[\\s\\S]*\\n[^\\n]*$`));
+  expect((await sel()).split('\n')).toHaveLength(2);
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect.poll(async () => (await sel()).split('\n').length).toBe(3);
+  expect((await sel()).startsWith(frags[0])).toBe(true);
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect.poll(sel).toBe(union);
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect.poll(sel).toBe(union);
+  expect(await sel()).not.toContain('short');
+
+  // Shift+ArrowUp from the cell's last line back to its first: the head
+  // walks up to the separator above and clamps to the content start.
+  await caretInto(page, frags[2].slice(0, 3), col + 2);
+  await page.keyboard.press('Shift+ArrowUp');
+  await page.keyboard.press('Shift+ArrowUp');
+  await page.keyboard.press('Shift+ArrowUp');
+  await expect.poll(sel).toBe(union.slice(0, union.length - frags[2].length + 2));
+
+  // Shift+End with the head on a middle line: within the cell's span, snapped
+  // to that line's fragment end — no pipe, no padding.
+  await caretInto(page, frags[1].slice(0, 3), col + 4);
+  await page.keyboard.press('Shift+End');
+  await expect.poll(sel).toBe(frags[1].slice(4));
+
+  // (c) ⌘A with the caret on line 2 selects the whole cell…
+  await caretInto(page, frags[1].slice(0, 3), col + 4);
+  await page.keyboard.press('ControlOrMeta+a');
+  await expect.poll(sel).toBe(union);
+  // …and a second ⌘A selects the document.
+  await page.keyboard.press('ControlOrMeta+a');
+  await expect.poll(sel).toContain('top');
+  expect(await sel()).toContain('bottom');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+});
+
+test('E615: issue #346 (SPEC39 §2.6) — typing over a whole-cell selection replaces the cell\'s content, the grid survives, and one ⌘Z restores the three lines', async ({
+  page,
+}) => {
+  const frags = await openWrappedGrid(page, '/docs/v346c.md');
+  const editor = page.getByTestId('editor');
+  const content = editor.locator('.cm-content');
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+  const before = await text();
+  const lineTexts = await editor.locator('.cm-line.mm-table-mode-line').allTextContents();
+  const col = lineTexts[2].indexOf('k01');
+
+  await caretInto(page, frags[1].slice(0, 3), col + 4);
+  await page.keyboard.press('ControlOrMeta+a');
+  await expect.poll(() => editState(page).then((s) => s.selText)).toContain(frags[2]);
+  await page.keyboard.type('X');
+  await expect.poll(() => editor.locator('.cm-line.mm-table-mode-line').count()).toBe(5);
+  await expect.poll(text).toContain('| zq   | X');
+  expect(await text()).toContain('| b    | short');
+  expect(await text()).not.toContain('k01');
+  // The caret sits after the X, inside the cell, collapsed — on the row's line.
+  await expect.poll(() => editState(page).then((s) => s.selText)).toBe('');
+  expect(await page.evaluate(() => window.__mmEdit?.headLine)).toBe(5);
+  // ONE ⌘Z restores the three lines (one document change, one undo step).
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(text).toBe(before);
+  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(7);
+
+  // Backspace over the whole cell empties it in one step; ⌘Z restores.
+  await caretInto(page, 'k01', col + 1);
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('Backspace');
+  await expect.poll(() => editor.locator('.cm-line.mm-table-mode-line').count()).toBe(5);
+  await expect.poll(text).toContain('| zq   |     ');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(text).toBe(before);
+});
+
+test('E616: issue #346 — a highlight over a whole-cell selection anchors to the canonical cell text, paints on every wrapped line, and survives save + reload in the editor and the preview', async ({
+  page,
+}) => {
+  const DOC = '/docs/v346d.md';
+  const frags = await openWrappedGrid(page, DOC);
+  const editor = page.getByTestId('editor');
+  const lineTexts = await editor.locator('.cm-line.mm-table-mode-line').allTextContents();
+  const col = lineTexts[2].indexOf('k01');
+  const records = async () => {
+    const raw = await fsRead(page, `${DOC}.comments.json`);
+    return raw ? (JSON.parse(raw).comments as Array<{ anchor: { exact: string } }>) : [];
+  };
+  const painted = () =>
+    editor.locator('.mm-hl[data-color="yellow"]').evaluateAll((els) => ({
+      text: els.map((el) => el.textContent ?? '').join(''),
+      lines: new Set(els.map((el) => el.closest('.cm-line'))).size,
+    }));
+
+  await caretInto(page, frags[1].slice(0, 3), col + 4);
+  await page.keyboard.press('ControlOrMeta+a');
+  await expect.poll(() => editState(page).then((s) => s.selText)).toContain(frags[2]);
+  await smartEditAnnotation(page, 'highlight', 'hl-yellow');
+  await expect.poll(async () => (await records()).map((r) => r.anchor.exact), { timeout: 5000 }).toEqual([WRAP_CELL]);
+  // One mark per wrapped line, the three together reading the cell.
+  await expect.poll(painted).toEqual({ text: frags.join(''), lines: 3 });
+
+  await menuSave(page);
+  await page.reload();
+  await expect(page.getByTestId('docname')).toContainText('v346d.md', { timeout: 15000 });
+  await expect(page.getByTestId('doc').or(page.getByTestId('editor')).first()).toBeVisible();
+  if (await page.getByTestId('editor').count()) await page.keyboard.press('Control+e');
+  const doc = page.getByTestId('doc');
+  await expect(doc).toBeVisible();
+  await expect(doc.locator('td mark.hl[data-color="yellow"]').first()).toHaveText(WRAP_CELL);
+  await page.keyboard.press('Control+e');
+  await expect.poll(() => editor.locator('.cm-line.mm-table-mode-line').count()).toBe(7);
+  await expect.poll(painted).toEqual({ text: frags.join(''), lines: 3 });
 });

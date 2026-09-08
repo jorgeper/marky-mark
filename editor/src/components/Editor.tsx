@@ -128,6 +128,7 @@ const IMG_CHIP_TITLES: Record<ImgChipId, string> = {
   wh: 'Resize, ratio locked — double-click for natural size',
 };
 import {
+  cellSelectionText,
   deleteTableAt,
   displayCellAt,
   displayCellBounds,
@@ -976,6 +977,26 @@ function gridGeometry(state: EditorState): SpanGeometry[] {
 }
 
 /**
+ * SPEC39 §2.1 (issue #346): the VISIBLE text of a selection confined to one
+ * grid cell — its fragments' selected parts joined per SPEC38's rule, no
+ * pipes, padding or newlines — for the clipboard. Null when the selection is
+ * not inside one cell of a tracked grid (every other selection copies its
+ * raw slice exactly as before).
+ */
+function gridCellSelectionText(state: EditorState): string | null {
+  const set = state.field(tableModeField, false);
+  if (!set?.spans.length) return null;
+  const sel = state.selection.main;
+  if (sel.empty) return null;
+  const span = set.spans.find((s) => sel.from >= s.from && sel.to <= s.to);
+  if (!span) return null;
+  const text = state.doc.toString();
+  const region = { start: span.from, end: span.to };
+  const parsed = parseDisplay(text, region);
+  return parsed ? cellSelectionText(text, region, parsed, sel.from, sel.to) : null;
+}
+
+/**
  * PRD 022 Req 12: the painted ranges, re-derived per draw like the diff
  * decorations — the owner's offsets are canonical-text coordinates, mapped
  * through the table-grid geometry above. Issue #344: an offset inside a
@@ -1493,6 +1514,21 @@ export default function Editor({
   const cardCopyRef = useRef((text: string) =>
     Promise.resolve(smartPropsRef.current.onCopyText?.(text)).then((ok) => ok === true)
   );
+  // SPEC39 §2.1 (issue #346): the keyboard copy/cut path for a grid-cell
+  // selection (see the domEventHandlers below). Reads the live props ref so
+  // the mount never captures a stale copyText seam.
+  const copyGridCell = (event: ClipboardEvent, view: EditorView, cut: boolean): boolean => {
+    const text = gridCellSelectionText(view.state);
+    if (text === null) return false;
+    event.preventDefault();
+    event.clipboardData?.setData('text/plain', text);
+    void smartPropsRef.current.onCopyText?.(text);
+    if (cut) {
+      const { from, to } = view.state.selection.main;
+      view.dispatch({ changes: { from, to, insert: '' }, selection: { anchor: from }, userEvent: 'delete.cut' });
+    }
+    return true;
+  };
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const valueRef = useRef(value);
@@ -1815,7 +1851,8 @@ export default function Editor({
       return;
     }
     if (id === 'cut' || id === 'copy') {
-      const selText = view.state.sliceDoc(sel.from, sel.to);
+      // SPEC39 §2.1 (issue #346): a cell selection copies its joined visible text.
+      const selText = gridCellSelectionText(view.state) ?? view.state.sliceDoc(sel.from, sel.to);
       if (selText) sp.onCopyText?.(selText);
       if (id === 'cut' && sel.from < sel.to) {
         view.dispatch({ changes: { from: sel.from, to: sel.to, insert: '' }, selection: { anchor: sel.from } });
@@ -2183,6 +2220,15 @@ export default function Editor({
             origin: u.transactions.some((tr) => tr.annotation(hostSelection)) ? 'host' : 'editor',
           });
         }
+      }),
+      // SPEC39 §2.1 (issue #346): ⌘C / ⌘X over a selection confined to one
+      // grid cell put the cell's joined VISIBLE text on the clipboard — via
+      // the event's clipboardData and the platform copyText seam both — in
+      // place of CodeMirror's raw slice (pipes, padding and newlines). Every
+      // other selection keeps CodeMirror's own copy handling.
+      EditorView.domEventHandlers({
+        copy: (event, view) => copyGridCell(event, view, false),
+        cut: (event, view) => copyGridCell(event, view, true),
       }),
       // SPEC20 §2: a paste carrying image files is intercepted whole (mixed
       // clipboards: the image wins); text-only pastes take the default path.
