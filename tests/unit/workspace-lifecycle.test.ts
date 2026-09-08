@@ -590,11 +590,6 @@ describe('Issue #245: which create failures the unique name earned', () => {
   });
 });
 
-// PRD 007 Req 11 (issue #312): the dialog used to order by the server's
-// `modified` stamp alone — who last edited, not who last opened. The seam now
-// puts the caller's recently used workspaces first (the per-user MRU list's
-// order), then the rest newest-modified; without ids it is byte-for-byte the
-// old order, which U286 / U287 / U1196 keep pinning.
 describe('PRD 026 Req 12: the free-name suggestion read off a collision 409', () => {
   it('U1347: a valid suggestion passes through verbatim', () => {
     expect(suggestionFrom({ error: 'The unique name "team-docs" is already taken.', suggestion: 'team-docs-2' })).toBe('team-docs-2');
@@ -621,6 +616,11 @@ describe('PRD 026 Req 12: the free-name suggestion read off a collision 409', ()
   });
 });
 
+// PRD 007 Req 11 (issue #312): the dialog used to order by the server's
+// `modified` stamp alone — who last edited, not who last opened. The seam now
+// puts the caller's recently used workspaces first (the per-user MRU list's
+// order), then the rest newest-modified; without ids it is byte-for-byte the
+// old order, which U286 / U287 / U1196 keep pinning.
 describe('PRD 007 Req 11 (issue #312): recently used workspaces lead the Open Workspace list', () => {
   const at = (id: string, day: number): WorkspaceListing =>
     listing({ id, name: `Workspace ${id}`, modified: `2026-08-${String(day).padStart(2, '0')}T00:00:00.000Z` });

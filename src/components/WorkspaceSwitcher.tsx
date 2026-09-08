@@ -129,7 +129,7 @@ export function NewWorkspaceDialog({
   // the dialog stays open on the new value for the user to read the preview
   // and press Create themselves. The suggestion already passed the strict
   // rule at the seam, so no type-time problem appears.
-  const useSuggestion = (name: string) => {
+  const acceptSuggestion = (name: string) => {
     setError('');
     setSuggestion(undefined);
     setTouched(true);
@@ -287,7 +287,7 @@ export function NewWorkspaceDialog({
                 size="sm"
                 className="form-error-action"
                 data-testid="new-workspace-use-suggestion"
-                onClick={() => useSuggestion(suggestion)}
+                onClick={() => acceptSuggestion(suggestion)}
               >
                 Use {suggestion}
               </Button>

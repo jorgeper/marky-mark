@@ -1409,13 +1409,13 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     await create(long);
     const body = await takenBody(await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: long })));
     expect(body.suggestion).toBe(`${'a'.repeat(UNIQUE_NAME_MAX_LENGTH - 2)}-2`);
-    expect((body.suggestion as string).length).toBe(UNIQUE_NAME_MAX_LENGTH);
+    expect(body.suggestion).toHaveLength(UNIQUE_NAME_MAX_LENGTH);
     // Rename clamps through the same helper.
     const other = await create('short');
     const renamed = await takenBody(
       await call('ada', 'PUT', `/api/workspaces/${other}/manifest`, JSON.stringify({ ...(await readManifest(other)), uniqueName: long })),
     );
-    expect((renamed.suggestion as string).length).toBe(UNIQUE_NAME_MAX_LENGTH);
+    expect(renamed.suggestion).toHaveLength(UNIQUE_NAME_MAX_LENGTH);
     blobs.clear();
   });
 });

@@ -206,12 +206,11 @@ export function createHostedWorkspaceLifecycle(
       return { ok: false, error: `You need the ${failure.required} permission to do that.` };
     }
     // PRD 026 Req 12: a rename collision's suggestion rides along for the
-    // Names section's "Use <name>" action; absent on every other refusal.
-    const suggestion = suggestionFrom(failure);
+    // Names section's "Use <name>" action; undefined on every other refusal.
     return {
       ok: false,
       error: failure?.error ?? `The change could not be saved (${res.status}).`,
-      ...(suggestion === undefined ? {} : { suggestion }),
+      suggestion: suggestionFrom(failure),
     };
   };
 
@@ -235,11 +234,10 @@ export function createHostedWorkspaceLifecycle(
       const body = (await res.json().catch(() => null)) as { id?: string; error?: string } | null;
       if (res.ok && body?.id) return { id: body.id };
       // PRD 026 Req 12: a collision 409's suggestion rides along for the
-      // dialog's "Use <name>" action; absent on every other refusal.
-      const suggestion = suggestionFrom(body);
+      // dialog's "Use <name>" action; undefined on every other refusal.
       return {
         error: body?.error ?? `Could not create the workspace (${res.status}).`,
-        ...(suggestion === undefined ? {} : { suggestion }),
+        suggestion: suggestionFrom(body),
       };
     },
 

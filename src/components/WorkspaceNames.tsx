@@ -119,7 +119,7 @@ export function WorkspaceNames({ lifecycle, workspaceId, manifest, onManifest }:
   // refusal (message, paint and this action together), leaves the display
   // name alone, and does NOT save: the manifest is unchanged until the user
   // presses Save names themselves.
-  const useSuggestion = (name: string) => {
+  const acceptSuggestion = (name: string) => {
     setError('');
     setSuggestion(undefined);
     setUniqueName(name);
@@ -238,7 +238,7 @@ export function WorkspaceNames({ lifecycle, workspaceId, manifest, onManifest }:
               size="sm"
               className="form-error-action"
               data-testid="workspace-use-suggestion"
-              onClick={() => useSuggestion(suggestion)}
+              onClick={() => acceptSuggestion(suggestion)}
             >
               Use {suggestion}
             </Button>
