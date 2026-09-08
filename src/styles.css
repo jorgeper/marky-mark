@@ -1789,8 +1789,11 @@ mark.hl.ghost {
   .overlay {
     display: none !important;
   }
-  /* PRD 025 Reqs 6–7 (issue #331): the ground, radius and shadow are screen
-     chrome — on paper the page is the sheet, edge to edge. */
+  /* PRD 025 Req 6 (issue #331; Req 7 withdrawn by issue #348 — on screen
+     the page is centred in every pane state, but print keeps its own flat
+     form here, keyed on nothing but the medium): the ground, radius and
+     shadow are screen chrome — on paper the page is the sheet, edge to
+     edge. */
   .body-row {
     background: none !important;
   }
@@ -2155,7 +2158,10 @@ mark.hl.ghost {
    narrower than the cluster (flex-shrink 1 against the pane wrappers'
    flex-shrink 0; min-width 0 so it never refuses). Below --mm-pane-min per
    pane the content inside floors and .workspace scrolls sideways exactly as
-   before — no breakpoints, no resize JS, no transition (Req 9).
+   before — no breakpoints, no resize JS, no transition (Req 9). Req 8 as
+   amended by issue #348 (Req 7 withdrawn): this one rule covers zero, one
+   and two panes alike — with both closed the column is still capped here
+   and centred by .body-row, the ground showing either side.
    Req 6 (amended by issue #340): the stack is the page COLUMN — the strip
    band over the page proper — and paints nothing of its own: the ground
    shows through it, and the fill, radius, outline and --mm-panel-shadow of
@@ -2183,16 +2189,15 @@ mark.hl.ghost {
 .workspace-stack:has(> .workspace.split) {
   --mm-page-w: calc(2 * var(--mm-page-pane) + 8px);
 }
-/* PRD 025 Req 7 (issue #331): both side panes closed — or absent, as on the
-   static web build. App.tsx derives `panes-none` from the two mount
-   predicates (sidebar shown, comments pane mounted), so tests key on the
-   class rather than on sibling structure: the column spans the body row
-   edge to edge (the page proper inside it goes flat — next rule) and the
-   text column keeps centring at --mm-content-width inside it as .workspace
-   always has. */
-.body-row.panes-none > .workspace-stack {
-  flex: 1;
-}
+/* PRD 025 Req 7 withdrawn by issue #348 (Req 8 as amended): both side
+   panes closed — or absent, as on the static web build — is NOT a special
+   case any more. The `.body-row.panes-none > .workspace-stack { flex: 1 }`
+   override that once spread the column across the body row is gone, so the
+   .workspace-stack rule above is the one rule for zero, one or two panes:
+   the column stays capped at --mm-page-w and .body-row centres it with
+   equal ground either side. App.tsx no longer emits a `panes-none` class;
+   tests read the pane state from the panes' own mount predicates. On paper
+   the @media print block still spreads the column flat, independently. */
 /* PRD 025 Req 6 amended by issue #340: THE PAGE PROPER — the white document
    surface below the strip band (the editor and the split preview). It, not
    the column, is the sheet: --mm-bg fill, --mm-radius-small top corners
@@ -2211,21 +2216,17 @@ mark.hl.ghost {
   border-radius: var(--mm-radius-small) var(--mm-radius-small) 0 0;
   box-shadow: var(--mm-panel-shadow);
 }
-/* PRD 025 Req 7 (issue #331; amended by issue #340): both panes closed the
-   page is flat and edge to edge — no side or bottom edge, no radius, no
-   shadow. The top hairline stays: the strip and the tabs on it look the
-   same in every pane state (Req 18). */
-.body-row.panes-none > .workspace-stack > .workspace {
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
-  border-radius: 0;
-  box-shadow: none;
-}
+/* PRD 025 Req 7 withdrawn by issue #348: the flat, edge-to-edge form the
+   page proper took with both panes closed (`.body-row.panes-none >
+   .workspace-stack > .workspace`: no side or bottom edge, no radius, no
+   shadow) is retired — the rule above holds in every pane state, so the
+   radius, the shadow and the four-sided outline never go. Req 18 still
+   holds: the strip and the tabs on it look the same in every pane state. */
 /* PRD 025 Reqs 17–18 (issue #331): the strip is a flat --mm-bg-elevated band
    at the top of the page — the ground's own colour, no seam of its own, the
-   same look in every pane state (both closed included, where it simply spans
-   the full width). Amended by issue #340: the band has no radius and no
+   same look in every pane state (both closed included: PRD 025 Req 7
+   withdrawn by issue #348, the band spans the centred column, never the
+   window). Amended by issue #340: the band has no radius and no
    shadow of its own — it is part of the ground plane, and the page's
    rounded, shadowed, outlined top edge starts at the band's bottom
    (.workspace-stack > .workspace). The three-plane / L-shaped-backdrop

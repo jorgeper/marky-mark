@@ -1474,9 +1474,10 @@ test('E584: PRD 025 Reqs 3–5 (issue #331) — the page\'s inner width is max(c
   await expect.poll(() => pageInnerWidth(page)).toBe(wide);
 });
 
-test('E585: PRD 025 Reqs 6–7, 9 (issue #331; Req 6 amended by issue #340) — both panes closed the page proper spans the body row flat: no radius, shadow or side/bottom outline, its top hairline kept; reopening the sidebar restores radius, shadow and the four-sided outline within two frames, with no transition on the page or the wrappers', async ({
+test('E585: PRD 025 Reqs 6, 9 (issue #331; Req 6 amended by issue #340; Req 7 withdrawn by issue #348) — both panes closed at 1800px the page column is centred with equal ground either side and the page proper keeps its radius, shadow and four-sided 1px outline; reopening the sidebar changes none of that within two frames, with no transition on the page or the wrappers', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
   await openThree(page);
   const body = page.locator('.body-row');
   const stack = page.locator('.workspace-stack');
@@ -1484,22 +1485,28 @@ test('E585: PRD 025 Reqs 6–7, 9 (issue #331; Req 6 amended by issue #340) — 
   await page.getByTestId('folder-collapse').click();
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
   await expect(page.getByTestId('comments-pane')).toHaveCount(0);
-  await expect(body).toHaveClass(/panes-none/);
 
+  // Req 8 as amended by issue #348: zero panes is the same rule as one or
+  // two — the column is capped at --mm-page-w and centred, ground either side.
+  await expect
+    .poll(async () => {
+      const [b, s] = await Promise.all([rectOf(body), rectOf(stack)]);
+      return Math.abs(s.left - b.left - (b.right - s.right));
+    })
+    .toBeLessThanOrEqual(1);
   const [b, s] = await Promise.all([rectOf(body), rectOf(stack)]);
-  expect(Math.abs(b.left - s.left)).toBeLessThanOrEqual(1);
-  expect(Math.abs(b.right - s.right)).toBeLessThanOrEqual(1);
-  // Req 7 (amended): flat and edge to edge — the top hairline stays (Req 18:
-  // the strip and the tabs look the same in every pane state).
-  expect(await pageProper.evaluate(sheetOf)).toEqual({
-    radius: '0px',
-    shadow: 'none',
-    widths: ['1px', '0px', '0px', '0px'],
-  });
+  expect(s.left - b.left).toBeGreaterThan(0);
+  // Req 7 withdrawn: the page proper carries the pane-open treatment — the
+  // tabs' radius on its top corners, the shadow, and 1px on four sides.
+  const radius = await tokenOf(page, '--mm-radius-small');
+  const closed = await pageProper.evaluate(sheetOf);
+  expect(closed.radius).toBe(`${radius} ${radius} 0px 0px`);
+  expect(closed.shadow).not.toBe('none');
+  expect(closed.widths).toEqual(['1px', '1px', '1px', '1px']);
   // The column never carries the treatment itself, in either state.
   expect(await stack.evaluate(sheetOf)).toEqual(flatSheet);
 
-  // Reopen: radius + shadow + outline are back two frames after the click —
+  // Reopen: two frames after the click the treatment is exactly what it was —
   // no transition anywhere on the page or its wrappers (Req 9).
   const after = await page.evaluate(async () => {
     (document.querySelector('[data-testid="folder-expand"]') as HTMLElement).click();
@@ -1515,7 +1522,6 @@ test('E585: PRD 025 Reqs 6–7, 9 (issue #331; Req 6 amended by issue #340) — 
       radius: st.borderTopLeftRadius,
       shadow: st.boxShadow,
       widths: [st.borderTopWidth, st.borderRightWidth, st.borderBottomWidth, st.borderLeftWidth],
-      panesNone: document.querySelector('.body-row')!.classList.contains('panes-none'),
       motion: {
         stack: read('.workspace-stack'),
         page: read('.workspace-stack > .workspace'),
@@ -1524,16 +1530,16 @@ test('E585: PRD 025 Reqs 6–7, 9 (issue #331; Req 6 amended by issue #340) — 
       },
     };
   });
-  expect(after.panesNone).toBe(false);
-  expect(after.radius).toBe(await tokenOf(page, '--mm-radius-small'));
-  expect(after.shadow).not.toBe('none');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  expect(after.radius).toBe(radius);
+  expect(after.shadow).toBe(closed.shadow);
   expect(after.widths).toEqual(['1px', '1px', '1px', '1px']);
   const still = { duration: '0s', transform: 'none', willChange: 'auto' };
   expect(after.motion).toEqual({ stack: still, page: still, body: still, folder: still });
   expect(await stack.evaluate(sheetOf)).toEqual(flatSheet);
 });
 
-test('E589: issue #340 point A from geometry — the page\'s shadowed, outlined element starts exactly at the strip band\'s bottom edge and spans the column\'s width, the band and the column around it paint no shadow at their sides, and the page\'s outline is 1px on four sides with a pane open and on its top edge only with both panes closed', async ({
+test('E589: issue #340 point A from geometry — the page\'s shadowed, outlined element starts exactly at the strip band\'s bottom edge and spans the column\'s width, the band and the column around it paint no shadow at their sides, and the page\'s outline is 1px on four sides with a pane open and with both panes closed alike (PRD 025 Req 7 withdrawn by issue #348)', async ({
   page,
 }) => {
   await openThree(page);
@@ -1569,18 +1575,106 @@ test('E589: issue #340 point A from geometry — the page\'s shadowed, outlined 
   expect(open.sheetShadow).not.toBe('none');
   expect(open.widths).toEqual(['1px', '1px', '1px', '1px']);
 
-  // Both panes closed: the sides and bottom go (edge to edge), the top
-  // hairline under the strip stays, and the geometry above is unchanged.
+  // Both panes closed (PRD 025 Req 7 withdrawn by issue #348): nothing goes.
+  // The geometry, the shadow and the four-sided outline are the pane-open
+  // ones; the band and the column around the page still paint no shadow.
   await page.getByTestId('folder-collapse').click();
-  await expect(page.locator('.body-row')).toHaveClass(/panes-none/);
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
   const closed = await geometry();
   expect(Math.abs(closed.sheetTopMinusStripBottom)).toBeLessThanOrEqual(0.5);
   expect(Math.abs(closed.sheetLeftMinusStripLeft)).toBeLessThanOrEqual(0.5);
   expect(Math.abs(closed.sheetRightMinusStripRight)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(closed.sheetBottomMinusStackBottom)).toBeLessThanOrEqual(0.5);
   expect(closed.stripShadow).toBe('none');
   expect(closed.stackShadow).toBe('none');
-  expect(closed.sheetShadow).toBe('none');
-  expect(closed.widths).toEqual(['1px', '0px', '0px', '0px']);
+  expect(closed.sheetShadow).toBe(open.sheetShadow);
+  expect(closed.widths).toEqual(['1px', '1px', '1px', '1px']);
+});
+
+test('E595: PRD 025 Reqs 2, 7–8 as amended by issue #348 — collapsing a pane removes only the pane: at 2000px closing the sidebar, then the comments column, leaves the page column\'s width unchanged and re-centres it with equal ground either side; with both closed the page proper keeps its radius, shadow and four 1px borders, and the preview-open column is still the Req 4 width', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 2000, height: 900 });
+  await openThree(page);
+  await ensureEditMode(page);
+  // Editor-only first, whichever state the split chevron starts in.
+  if ((await page.getByTestId('preview-collapse').count()) > 0) await page.getByTestId('preview-collapse').click();
+  await expect(page.locator('.split-divider')).toHaveCount(0);
+  const body = page.locator('.body-row');
+  const stack = page.locator('.workspace-stack');
+  const comments = page.locator('.comments-wrap');
+  const pageProper = page.locator('.workspace-stack > .workspace');
+  /** The column's width and the ground either side of it, in px. */
+  const ground = async () => {
+    const [b, s] = await Promise.all([rectOf(body), rectOf(stack)]);
+    return { left: s.left - b.left, right: b.right - s.right, width: s.width };
+  };
+  const centred = async () => {
+    await expect
+      .poll(async () => {
+        const g = await ground();
+        return Math.abs(g.left - g.right);
+      })
+      .toBeLessThanOrEqual(1);
+    const g = await ground();
+    expect(g.left).toBeGreaterThan(0);
+    return g;
+  };
+
+  // Sidebar open, comments closed: the column is at the Req 3 max.
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  const paneW = await pagePaneWidth(page);
+  await expect.poll(() => pageInnerWidth(page)).toBe(paneW);
+  const withSidebar = (await rectOf(stack)).width;
+
+  // Close the sidebar: only the pane goes — same width, re-centred.
+  await page.getByTestId('folder-collapse').click();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  const noSidebar = await centred();
+  expect(Math.abs(noSidebar.width - withSidebar)).toBeLessThanOrEqual(1);
+
+  // Comments column open: hugs the page's right edge, the page's width unchanged…
+  await page.getByTestId('comments-expand').click();
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await expect
+    .poll(async () => {
+      const [s, c] = await Promise.all([rectOf(stack), rectOf(comments)]);
+      return Math.abs(s.right - c.left);
+    })
+    .toBeLessThanOrEqual(1);
+  expect(Math.abs((await rectOf(stack)).width - withSidebar)).toBeLessThanOrEqual(1);
+  // …and closed again: only the column goes — same width, re-centred.
+  await page.getByTestId('comments-collapse').click();
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  const noPanes = await centred();
+  expect(Math.abs(noPanes.width - withSidebar)).toBeLessThanOrEqual(1);
+
+  // Both closed: the page proper's treatment is the pane-open one (Req 7
+  // withdrawn) — the tabs' radius, the shadow, 1px on four sides; the column
+  // itself paints nothing (issue #340).
+  const radius = await tokenOf(page, '--mm-radius-small');
+  const closed = await pageProper.evaluate(sheetOf);
+  expect(closed.radius).toBe(`${radius} ${radius} 0px 0px`);
+  expect(closed.shadow).not.toBe('none');
+  expect(closed.widths).toEqual(['1px', '1px', '1px', '1px']);
+  expect(await stack.evaluate(sheetOf)).toEqual(flatSheet);
+
+  // Preview open with both panes closed: the Req 4 width, still centred. The
+  // seeded Margins make one pane wider than half of 2000px, so a 2000px
+  // window would shrink the doubled page to fit (Req 5); widen the window
+  // past the max first so the cap itself is what is measured.
+  await page.getByTestId('preview-expand').click();
+  await expect(page.locator('.split-divider')).toBeVisible();
+  const dividerWidth = await page.locator('.split-divider').evaluate((el) => {
+    const st = getComputedStyle(el);
+    return el.getBoundingClientRect().width + parseFloat(st.marginLeft) + parseFloat(st.marginRight);
+  });
+  const previewMax = Math.round(2 * paneW + dividerWidth);
+  await page.setViewportSize({ width: Math.max(2000, previewMax + 400), height: 900 });
+  await expect.poll(() => pageInnerWidth(page)).toBe(previewMax);
+  await centred();
 });
 
 test('E307: Ctrl+Tab across multi-table documents — the wrap past the last tab lands the new document in the editor with no page error', async ({
@@ -1745,9 +1839,11 @@ test('E579: PRD 025 Reqs 19–20 (issue #330) — the Edit/Preview toggle is the
   expect(btn.x + btn.width).toBeLessThanOrEqual(pill.x + pill.width + 0.5);
   expect(btn.y).toBeGreaterThanOrEqual(pill.y - 0.5);
   expect(btn.y + btn.height).toBeLessThanOrEqual(pill.y + pill.height + 0.5);
-  // The pill hugs the workspace's right edge, like the header inset it keeps.
-  const viewport = page.viewportSize()!;
-  expect(pill.x + pill.width).toBeGreaterThanOrEqual(viewport.width - 1);
+  // The pill hugs the PAGE COLUMN's right edge, like the header inset it
+  // keeps — PRD 025 Req 21 (Req 7 withdrawn by issue #348: with both panes
+  // closed the column is centred, so the page's edge is not the window's).
+  const column = (await page.locator('.workspace-stack').boundingBox())!;
+  expect(Math.abs(pill.x + pill.width - (column.x + column.width))).toBeLessThanOrEqual(1);
 
   await edgeToggle.click();
   await expect(page.getByTestId('editor')).toBeVisible();

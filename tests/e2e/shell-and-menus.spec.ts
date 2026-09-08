@@ -319,18 +319,24 @@ test('E31: the edit-mode text column pins to the pane left edge while the previe
   // The margins presets still resize BOTH columns — preview centred (the
   // narrower column starts further right), the editor spending the whole
   // difference on the right while its left edge holds.
+  // PRD 025 Req 3 (Req 7 withdrawn by issue #348): the page is capped at
+  // max(content-width, pane-min) and centred in every pane state, so the
+  // pane is only wider than its column when the pane FLOOR exceeds the
+  // column — raise the floor to its 960px max so the 38rem column leaves
+  // ~350px of slack inside the pane.
   await openSettings(page);
   await page.getByTestId('settings-margins').selectOption('wide');
+  await page.getByTestId('settings-pane-min').fill('960');
   await saveSettings(page);
   await expect.poll(previewTextLeft).toBeGreaterThan(p1); // preview: centred, so narrower starts further right
   const p2 = await previewTextLeft();
   await page.keyboard.press('Control+e');
   await expect.poll(async () => (await editColumn(page)).contentInset).toBeLessThanOrEqual(2);
   const wide = await editColumn(page);
-  // A 38rem column in a 1280px pane leaves hundreds of px of slack — every
+  // A 38rem column in a 960px pane leaves hundreds of px of slack — every
   // one of them on the right. Before issue #272 this split evenly and the
   // inset above equalled half of it.
-  expect(wide.rightSlack).toBeGreaterThan(300);
+  expect(wide.rightSlack).toBeGreaterThan(200);
   // The two columns no longer share a left edge: preview's centred text
   // starts well right of the editor's flush-anchored one (same pane, same
   // margins — only the anchor differs).
@@ -353,8 +359,12 @@ test('E476: issue #272 — the gutter sits flush at the pane edge and every left
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').uncheck();
   await saveSettings(page);
+  // PRD 025 Req 3 (Req 7 withdrawn by issue #348): the page is capped at
+  // max(content-width, pane-min) and centred, so the slack inside the pane
+  // comes from the pane FLOOR, not the window — raise it to its 960px max.
   await openSettings(page);
   await page.getByTestId('settings-margins').selectOption('wide');
+  await page.getByTestId('settings-pane-min').fill('960');
   await saveSettings(page);
   await page.keyboard.press('Control+e');
 
@@ -364,17 +374,17 @@ test('E476: issue #272 — the gutter sits flush at the pane edge and every left
   const withGutter = await editColumn(page);
   // …the content column starts exactly one gutter width in…
   expect(Math.abs(withGutter.contentInset - withGutter.gutterWidth!)).toBeLessThanOrEqual(2);
-  // …and the leftover is ALL on the right: a 38rem column in a 1600px pane
-  // leaves ~900px of slack. Before issue #272 the pair was centred — the
+  // …and the leftover is ALL on the right: a 38rem column in a 960px pane
+  // leaves ~350px of slack. Before issue #272 the pair was centred — the
   // slack split evenly and gutterInset here was ~half of it, not ~0.
-  expect(withGutter.rightSlack).toBeGreaterThan(300);
+  expect(withGutter.rightSlack).toBeGreaterThan(200);
 
   // Line numbers off: no gutter — the content's own 32px side padding is
   // what meets the pane edge, with nothing to its left.
   await page.evaluate(() => window.__mmDispatch!('toggleLineNumbers'));
   await expect(page.locator('.cm-gutters')).toHaveCount(0);
   await expect.poll(async () => (await editColumn(page)).contentInset).toBeLessThanOrEqual(2);
-  expect((await editColumn(page)).rightSlack).toBeGreaterThan(300);
+  expect((await editColumn(page)).rightSlack).toBeGreaterThan(200);
 });
 
 test('E45: About dialog shows name, exact build version, alpha notice, developer, and MIT; Escape closes it', async ({
@@ -1031,18 +1041,28 @@ test('E134: split mode — the editor column hugs its pane, leaving no blank str
   expect(Math.abs((await box('.split-editor .cm-gutters')).left - seam)).toBeLessThanOrEqual(2);
 
   // Folder pane CLOSED (the issue screenshot's state): the column follows the
-  // pane to the workspace's left edge, so the reopen chevron floats over the
-  // gutter's own strip rather than over a blank ghost pane.
+  // pane to the PAGE's left edge, so the reopen chevron floats over the
+  // gutter's own strip rather than over a blank ghost pane. PRD 025 Req 7
+  // withdrawn by issue #348: the page stays centred with both panes closed,
+  // so its left edge (the column's, .workspace-stack) is the anchor — not
+  // the window's.
   await page.getByTestId('folder-collapse').click();
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
   await expect(page.getByTestId('folder-expand')).toBeVisible();
   await expect.poll(strip).toBeLessThanOrEqual(2);
-  expect((await box('.split-editor .cm-gutters')).left).toBeLessThanOrEqual(2);
+  const pageLeft = (await box('.workspace-stack')).left;
+  expect(Math.abs((await box('.split-editor .cm-gutters')).left - pageLeft)).toBeLessThanOrEqual(2);
 
-  // SPEC6 §1 as amended by issue #272: where the pane IS the window the
-  // column no longer re-centres — closing the preview keeps the flush-left
-  // anchor, with the whole leftover width on the right (E31/E476 pin this
-  // against the reading preview too).
+  // SPEC6 §1 as amended by issue #272: where the pane is wider than its
+  // column the column no longer re-centres — closing the preview keeps the
+  // flush-left anchor, with the whole leftover width on the right (E31/E476
+  // pin this against the reading preview too). PRD 025 Req 3 (Req 7
+  // withdrawn by issue #348): the editor-only page is capped at
+  // max(content-width, pane-min), so the leftover comes from the pane floor
+  // — raise it to its 960px max before the preview closes.
+  await openSettings(page);
+  await page.getByTestId('settings-pane-min').fill('960');
+  await saveSettings(page);
   await page.getByTestId('preview-collapse').click();
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
   const full = await box('.editor-wrap');

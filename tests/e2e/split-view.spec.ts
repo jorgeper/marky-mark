@@ -419,8 +419,12 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   };
   await expect.poll(commentsLeftGap).toBeLessThan(8);
   expect(await commentsLeftGap()).toBeGreaterThanOrEqual(-1);
+  // PRD 025 Req 7 withdrawn by issue #348: the corner is the PAGE COLUMN's,
+  // which stays centred with both panes closed — never the window's edge.
   const cornerBox = (await page.getByTestId('edit-toggle').boundingBox())!;
-  expect(cornerBox.x + cornerBox.width).toBeGreaterThan(viewport.width - 24);
+  const column = (await page.locator('.workspace-stack').boundingBox())!;
+  expect(column.x + column.width).toBeLessThanOrEqual(viewport.width);
+  expect(cornerBox.x + cornerBox.width).toBeGreaterThan(column.x + column.width - 24);
   await expand.click();
   await expect(page.getByTestId('split-preview')).toBeVisible();
   await expect(expand).toHaveCount(0);
@@ -912,7 +916,11 @@ test('E247: issue #125 — the edit/preview switch sits left of the preview chev
   const soloBox = (await stableBox(sw))!;
   const commentsSolo = (await stableBox(commentsChevron))!;
   const toggleSolo = (await stableBox(editToggle))!;
-  expect(toggleSolo.x + toggleSolo.width).toBeGreaterThan(viewport.width - 24);
+  // PRD 025 Req 7 withdrawn by issue #348: the corner is the centred page
+  // column's, not the window's.
+  const column = (await page.locator('.workspace-stack').boundingBox())!;
+  expect(column.x + column.width).toBeLessThanOrEqual(viewport.width);
+  expect(toggleSolo.x + toggleSolo.width).toBeGreaterThan(column.x + column.width - 24);
   expect(commentsSolo.x + commentsSolo.width).toBeLessThanOrEqual(toggleSolo.x + 1);
   expect(soloBox.x + soloBox.width).toBeLessThanOrEqual(commentsSolo.x + 1);
 

@@ -679,50 +679,63 @@ test('W18: PRD 015 Req 12 (issue #172) — the corner-drag resize persists width
   expect(Math.abs(n - target)).toBeLessThanOrEqual(2);
 });
 
-test('W19: PRD 025 Reqs 7, 11, 27 (issue #331; Req 6 amended by issue #340) — the static build shows the both-panes-closed page (no sidebar, no strip, flat and edge to edge, no side or bottom outline); turning comments on mounts the 300px column hugging the page proper, which gains its radius, shadow and four-sided 1px outline', async ({
+test('W19: PRD 025 Reqs 8, 11, 27 (issue #331; Req 6 amended by issue #340; Req 7 withdrawn by issue #348) — the static build (no sidebar, no strip) shows the page column centred at 2000px with equal ground either side and the page proper rounded, shadowed and outlined 1px on four sides; turning comments on mounts the 300px column hugging the page proper, which keeps its width and its treatment as the cluster re-centres', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 2000, height: 900 });
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
   await expect(page.locator('.folder-wrap')).toHaveCount(0);
   await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
-  const body = page.locator('.body-row');
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
   const stack = page.locator('.workspace-stack');
   const rectOf = (sel: string) =>
     page.evaluate((s) => {
       const r = document.querySelector(s)!.getBoundingClientRect();
       return { left: r.left, right: r.right, width: r.width };
     }, sel);
-  await expect(body).toHaveClass(/panes-none/);
-  const [b, s] = await Promise.all([rectOf('.body-row'), rectOf('.workspace-stack')]);
-  expect(Math.abs(b.left - s.left)).toBeLessThanOrEqual(1);
-  expect(Math.abs(b.right - s.right)).toBeLessThanOrEqual(1);
+  /** The column's width and the ground either side of the cluster. */
+  const ground = async (rightMember = '.workspace-stack') => {
+    const [b, s, r] = await Promise.all([rectOf('.body-row'), rectOf('.workspace-stack'), rectOf(rightMember)]);
+    return { left: s.left - b.left, right: b.right - r.right, width: s.width };
+  };
+  // Req 8 as amended by issue #348: no pane is the same rule as one — the
+  // column is capped at the page's max and centred, ground either side.
+  await expect
+    .poll(async () => {
+      const g = await ground();
+      return Math.abs(g.left - g.right);
+    })
+    .toBeLessThanOrEqual(1);
+  const alone = await ground();
+  expect(alone.left).toBeGreaterThan(0);
   // Issue #340: the treatment lives on the page proper (.workspace inside
-  // the column), never on the column; with no pane it is flat — the top
-  // hairline alone remains, as in every pane state.
+  // the column), never on the column; Req 7 withdrawn: with no pane it is
+  // the same rounded, shadowed, four-sided sheet as with the comments open.
   const pageProper = page.locator('.workspace-stack > .workspace');
-  // Radius shorthand, shadow and border widths as [top, right, bottom, left].
+  // Top-left radius, shadow and border widths as [top, right, bottom, left].
   const readSheet = (el: Element) => {
     const st = getComputedStyle(el);
     return {
-      radius: st.borderRadius,
+      radius: st.borderTopLeftRadius,
       shadow: st.boxShadow,
       widths: [st.borderTopWidth, st.borderRightWidth, st.borderBottomWidth, st.borderLeftWidth],
     };
   };
-  // The column never carries the treatment itself, in either pane state.
+  const radius = await page
+    .locator('.theme-root')
+    .evaluate((el) => getComputedStyle(el).getPropertyValue('--mm-radius-small').trim());
   const flatSheet = { radius: '0px', shadow: 'none', widths: ['0px', '0px', '0px', '0px'] };
-  expect(await pageProper.evaluate(readSheet)).toEqual({
-    radius: '0px',
-    shadow: 'none',
-    widths: ['1px', '0px', '0px', '0px'],
-  });
+  const closed = await pageProper.evaluate(readSheet);
+  expect(closed.radius).toBe(radius);
+  expect(closed.shadow).not.toBe('none');
+  expect(closed.widths).toEqual(['1px', '1px', '1px', '1px']);
   expect(await stack.evaluate(readSheet)).toEqual(flatSheet);
 
-  // Comments on: the column is the cluster's right member.
+  // Comments on: the column is the cluster's right member, hugging the page;
+  // the page's width is unchanged and the cluster re-centres as a unit.
   await page.getByTestId('comments-expand').click();
   const pane = page.getByTestId('comments-pane');
   await expect(pane).toBeVisible();
-  await expect(body).not.toHaveClass(/panes-none/);
   await expect.poll(async () => Math.round((await rectOf('.comments-wrap')).width)).toBe(300);
   await expect
     .poll(async () => {
@@ -730,20 +743,16 @@ test('W19: PRD 025 Reqs 7, 11, 27 (issue #331; Req 6 amended by issue #340) — 
       return Math.abs(st.right - c.left);
     })
     .toBeLessThanOrEqual(1);
-  const radius = await page
-    .locator('.theme-root')
-    .evaluate((el) => getComputedStyle(el).getPropertyValue('--mm-radius-small').trim());
-  const rounded = await pageProper.evaluate((el) => {
-    const st = getComputedStyle(el);
-    return {
-      radius: st.borderTopLeftRadius,
-      shadow: st.boxShadow,
-      widths: [st.borderTopWidth, st.borderRightWidth, st.borderBottomWidth, st.borderLeftWidth],
-    };
-  });
-  expect(rounded.radius).toBe(radius);
-  expect(rounded.shadow).not.toBe('none');
-  expect(rounded.widths).toEqual(['1px', '1px', '1px', '1px']);
+  await expect
+    .poll(async () => {
+      const g = await ground('.comments-wrap');
+      return Math.abs(g.left - g.right);
+    })
+    .toBeLessThanOrEqual(1);
+  const withComments = await ground('.comments-wrap');
+  expect(withComments.left).toBeGreaterThan(0);
+  expect(Math.abs(withComments.width - alone.width)).toBeLessThanOrEqual(1);
+  expect(await pageProper.evaluate(readSheet)).toEqual(closed);
   expect(await stack.evaluate(readSheet)).toEqual(flatSheet);
 });
 

@@ -8322,16 +8322,12 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       {/* PRD 013 Req 1: `with-tabs` drops the absolutely-anchored edge
           clusters below the strip, so they stay visible and clickable rather
           than sitting behind it (styles.css).
-          PRD 025 Req 7 (issue #331): `panes-none` = neither side pane is on
-          screen — the sidebar predicate is `sidebarShown` (the setting AND a
-          view to fill it, so a web build with no folders view counts as
-          closed) and the comments one is `commentsPaneMounted`. The class,
-          not sibling structure, drives the page's full-width flat form. */}
-      <div
-        className={`body-row${showFileTabs ? ' with-tabs' : ''}${
-          sidebarShown || commentsPaneMounted ? '' : ' panes-none'
-        }`}
-      >
+          PRD 025 Req 7 withdrawn by issue #348: the row no longer carries a
+          `panes-none` class — the page has no full-width flat form for
+          styles.css to key on. Zero, one or two panes are one layout rule
+          (Req 8 as amended): the open panes hug the page and .body-row
+          centres whatever is mounted. */}
+      <div className={`body-row${showFileTabs ? ' with-tabs' : ''}`}>
         {/* Issue #22: the folder sidebar is a workspace-mode surface only. */}
         {/* PRD 012 Req 1: exactly one view of the one pane renders — the
             folders tree only while it is the chosen view. */}
