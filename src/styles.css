@@ -2614,19 +2614,15 @@ mark.hl.ghost {
    the active row's selection colour at half strength, normal weight. That
    tint and the trailing slot are the only differences from a closed
    sibling: still no shadow, no stacking, no pill geometry (no left margin,
-   no min-width) — the issue #329 flattening stands. */
+   no min-width) — the issue #329 flattening stands. Hover falls through to
+   the shared --mm-hover wash above, which at 8% is stronger than this 7%
+   tint, so an open row never looks less open when hovered (Req 15 as
+   amended; E581 pins it). Retuning either token past the other needs an
+   `.open:hover` override that keeps the stronger of the two. */
 .folder-item.open {
   background: var(--mm-open-row);
   border-radius: var(--mm-radius-small);
   font-weight: normal;
-}
-/* PRD 025 Req 15 (issue #347): hovering an open row never makes it look
-   less open — the wash is the stronger of --mm-hover (8%) and the open
-   tint (7%); today that is --mm-hover, so the shared hover rule already
-   satisfies it. Stated here so a future retune of either token keeps the
-   invariant. */
-.folder-item.open:hover:not(:disabled) {
-  background: var(--mm-hover);
 }
 /* SPEC36 §3.4/§3.6: the trailing slot on open rows — the dirty ● swaps for
    the ✕ on row hover. */

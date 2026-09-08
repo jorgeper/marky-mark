@@ -49,11 +49,11 @@ A second, *internal* token family sits just below the chrome block (also on
 proper's own tighter, fainter shadow — issue #349; `--mm-panel-shadow` stays
 the floating panels'), `--mm-nav-shadow`, `--mm-selected-row`,
 `--mm-open-row` (the open-but-inactive sidebar rows' lighter shade of the
-same accent — issue #347), `--mm-overlay-scrim`, `--mm-orphan-fg`): declared one-off values that are
-not part of any scale and not offered to themes as a vocabulary — but they
-follow the same law: **a colour literal lives in a token definition, never
-inline in a style rule.** Genuinely new one-off colours go there, with a
-comment saying what they are.
+same accent — issue #347), `--mm-overlay-scrim`, `--mm-orphan-fg`): declared
+one-off values that are not part of any scale and not offered to themes as a
+vocabulary — but they follow the same law: **a colour literal lives in a
+token definition, never inline in a style rule.** Genuinely new one-off
+colours go there, with a comment saying what they are.
 
 ## The primitive vocabulary
 
