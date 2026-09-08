@@ -7926,6 +7926,10 @@ test('E643: issue #357 — a #hl- visit landing below two grid tables in split e
   expect(put.status()).toBe(200);
   await page.goto('about:blank');
   await page.goto(`${HOSTED}/${unique}/seam.md#hl-${cid}`);
+  // Let this visit finish booting before the reload: a reload that lands
+  // mid-boot, while the session record is in flight between the two
+  // storages, comes up signed out (a runner-timing artifact, not the app).
+  await expect(page.getByTestId('docname')).toContainText('seam.md');
   await page.addInitScript((hl: string) => {
     const seen = new MutationObserver(() => {
       if (document.querySelector(`mark.hl.flash[data-cid="${hl}"]`)) {
