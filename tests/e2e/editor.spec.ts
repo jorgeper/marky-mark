@@ -1,6 +1,7 @@
 import type { Locator } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
+  bootEditorOn,
   freshApp,
   freshNativeMenuApp,
   fsRead,
@@ -712,21 +713,7 @@ test('E261: selection over code — the tint paints above --mm-code-bg in the ed
   const DOC = '# T\n\nprose with `inline code` inside\n\n```js\nconst answer = 42;\n```\n\ntail\n';
 
   /** Boot the app on DOC with a settings patch applied, in edit mode. */
-  const boot = async (patch: Record<string, unknown>) => {
-    await fsWrite(page, '/docs/sel.md', DOC);
-    await page.evaluate((p) => {
-      const raw = window.__mmfs!.read('/config/settings.json');
-      const s = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-      window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...s, ...p }));
-    }, patch);
-    await page.reload();
-    await page.goto('/#open=/docs/sel.md');
-    // Issue #125: the relaunch may come up in edit mode already — only ask for
-    // it when the preview is what we got.
-    await expect(page.locator('.doc h1, .cm-content').first()).toBeVisible();
-    if ((await page.locator('.cm-content').count()) === 0) await page.keyboard.press('Control+e');
-    await expect(page.locator('.cm-content').first()).toBeVisible();
-  };
+  const boot = (patch: Record<string, unknown>) => bootEditorOn(page, '/docs/sel.md', DOC, patch);
   /** Put the whole of the line holding `text` in the selection. */
   const selectLine = async (pane: Locator, text: string) => {
     await pane.locator('.cm-line', { hasText: text }).first().click();
@@ -1049,19 +1036,7 @@ test('E484: issue #269 — every preview language colours in the edit pane and i
   });
 
   /** Boot on DOC with a settings patch, landing in edit mode. */
-  const boot = async (patch: Record<string, unknown>) => {
-    await fsWrite(page, '/docs/langs.md', DOC);
-    await page.evaluate((p) => {
-      const raw = window.__mmfs!.read('/config/settings.json');
-      const s = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-      window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...s, ...p }));
-    }, patch);
-    await page.reload();
-    await page.goto('/#open=/docs/langs.md');
-    await expect(page.locator('.doc h1, .cm-content').first()).toBeVisible();
-    if ((await page.locator('.cm-content').count()) === 0) await page.keyboard.press('Control+e');
-    await expect(page.locator('.cm-content').first()).toBeVisible();
-  };
+  const boot = (patch: Record<string, unknown>) => bootEditorOn(page, '/docs/langs.md', DOC, patch);
   /** Token spans on the fence line holding `body` (the selection tint aside). */
   const tokensOn = (pane: Locator, body: string) =>
     pane.locator('.cm-line', { hasText: body }).first().locator('[class*="mm-code-"]:not(.mm-code-sel)');
@@ -1264,4 +1239,136 @@ test('E527: issue #265 — the code card holding the caret keeps its copy button
   await btnA.click();
   await expect.poll(writes).toBe(before + 1);
   expect(await page.evaluate(() => window.__mmClipboard?.at(-1))).toBe('const a = 1;\nconst b = 2;');
+});
+
+// Issue #355 (SPEC44 §2.1): the caret-line tint is painted on .cm-activeLine,
+// BELOW the (usually opaque) --mm-code-bg of every .mm-md-code span on it — so
+// with the caret inside inline code, a raw table cell, a grid cell or a fence
+// body, the code sat as an untinted box in the band. The tint now also rides
+// as an image layer over the code background of the caret line's code spans.
+// Against the pre-fix build every span computes background-image: none and
+// each gradient assertion below fails.
+test('E626: issue #355 — caret-line tint paints over code: inline, raw table row, fence body, live preview, table grid, and the token drives it', async ({
+  page,
+}) => {
+  const DOC = [
+    '# T',
+    '',
+    'prose with `inline code` inside',
+    '',
+    'another `other code` line',
+    '',
+    '| Key | Value |',
+    '| --- | --- |',
+    '| `MM_LLM_API_KEY` | – |',
+    '',
+    '```js',
+    'const answer = 42;',
+    'const other = 1;',
+    '```',
+    '',
+    'tail',
+    '',
+  ].join('\n');
+  const CODE_BG = 'rgb(246, 248, 250)'; // crisp's opaque --mm-code-bg
+
+  /** Boot the app on DOC with a settings patch applied, in edit mode (E261). */
+  const boot = (patch: Record<string, unknown>) => bootEditorOn(page, '/docs/caret-code.md', DOC, patch);
+  const css = (loc: Locator, prop: string) =>
+    loc.evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), prop);
+  const beforeCss = (loc: Locator, prop: string) =>
+    loc.evaluate((el, p) => getComputedStyle(el, '::before').getPropertyValue(p), prop);
+  /** The caret line's own tint, as the browser computes it. */
+  const lineTint = (editor: Locator) => css(editor.locator('.cm-line.cm-activeLine').first(), 'background-color');
+  /** Assert the code span carries the tint layered over the code background. */
+  const expectLayered = async (editor: Locator, span: Locator) => {
+    await expect(span).toBeVisible();
+    const image = await css(span, 'background-image');
+    expect(image).toContain('linear-gradient');
+    expect(image).toContain(await lineTint(editor));
+    expect(await css(span, 'background-color')).toBe(CODE_BG);
+  };
+  const expectPlain = async (span: Locator) => {
+    await expect(span).toBeVisible();
+    expect(await css(span, 'background-image')).toBe('none');
+    expect(await css(span, 'background-color')).toBe(CODE_BG);
+  };
+
+  // --- raw highlighting: prose inline code and a raw table row ---------------
+  await boot({ splitEdit: false, themeLight: 'crisp', livePreview: false, tableGridView: false });
+  const editor = page.getByTestId('editor');
+  const proseLine = editor.locator('.cm-line', { hasText: 'prose with' }).first();
+  const proseCode = proseLine.locator('.mm-md-code').first();
+  const rowLine = editor.locator('.cm-line', { hasText: 'MM_LLM_API_KEY' }).first();
+  const rowCode = rowLine.locator('.mm-md-code').first();
+
+  // Caret elsewhere: neither span is tinted — the precondition of the bug.
+  await editor.locator('.cm-line', { hasText: 'tail' }).first().click();
+  await expectPlain(proseCode);
+  await expectPlain(rowCode);
+  const proseColor = await css(proseCode, 'color');
+
+  await proseLine.click();
+  await expect(proseLine).toHaveClass(/cm-activeLine/);
+  await expectLayered(editor, editor.locator('.cm-line.cm-activeLine .mm-md-code').first());
+  expect(await css(proseCode, 'color')).toBe(proseColor); // the text is untouched
+  await expectPlain(rowCode); // the non-caret row keeps its code background
+  await expect(editor.locator('.mm-code-sel')).toHaveCount(0); // no ranged selection involved
+
+  await rowLine.click();
+  await expect(rowLine).toHaveClass(/cm-activeLine/);
+  await expectLayered(editor, rowCode);
+  await expectPlain(proseCode);
+
+  // --- fence body inside the issue #157 card ----------------------------------
+  const bodyLine = editor.locator('.cm-line.mm-fence-card', { hasText: 'const answer' }).first();
+  const siblingLine = editor.locator('.cm-line.mm-fence-card', { hasText: 'const other' }).first();
+  await bodyLine.click();
+  await expect(bodyLine).toHaveClass(/cm-activeLine/);
+  await expectLayered(
+    editor,
+    editor.locator('.cm-line.mm-fence-card.cm-activeLine .mm-md-code').first(),
+  );
+  await expectPlain(siblingLine.locator('.mm-md-code').first());
+  // The card's chrome behind the line is untouched.
+  expect(await beforeCss(bodyLine, 'background-color')).toBe(CODE_BG);
+  expect(await beforeCss(bodyLine, 'z-index')).toBe('-3');
+  expect(await beforeCss(bodyLine, 'box-shadow')).not.toBe('none');
+
+  // --- token-bound: an override recolours the layer in step with the line -----
+  await proseLine.click();
+  await page.evaluate(() => {
+    document.querySelector<HTMLElement>('.theme-root')!.style.setProperty('--mm-active-line', 'rgb(1, 2, 3)');
+  });
+  expect(await lineTint(editor)).toBe('rgb(1, 2, 3)');
+  expect(await css(proseCode, 'background-image')).toContain('rgb(1, 2, 3)');
+  expect(await css(proseCode, 'background-color')).toBe(CODE_BG);
+
+  // --- live preview on: the caret line is revealed raw (PRD 006 §8) -----------
+  await boot({ splitEdit: false, themeLight: 'crisp', livePreview: true, tableGridView: false });
+  const lpEditor = page.getByTestId('editor');
+  const lpProse = lpEditor.locator('.cm-line', { hasText: 'prose with' }).first();
+  await lpProse.click();
+  await expect(lpProse).toHaveClass(/cm-activeLine/);
+  await expect(lpProse).toContainText('`inline code`'); // revealed: backticks visible
+  await expectLayered(lpEditor, lpEditor.locator('.cm-line.cm-activeLine .mm-md-code').first());
+  // A rendered non-caret line's code keeps its plain code background.
+  const lpOther = lpEditor.locator('.cm-line', { hasText: 'other code' }).first().locator('.mm-lp-code').first();
+  await expectPlain(lpOther);
+  await expect(lpEditor.locator('.cm-line.cm-activeLine .mm-lp-code')).toHaveCount(0);
+
+  // --- table grid on (the default): a gridded row's code cell -----------------
+  await boot({ splitEdit: false, themeLight: 'crisp', livePreview: false, tableGridView: true });
+  const gridEditor = page.getByTestId('editor');
+  const gridLine = gridEditor.locator('.cm-line.mm-table-mode-line', { hasText: 'MM_LLM_API_KEY' }).first();
+  await expect(gridLine).toBeVisible();
+  await gridLine.locator('.mm-md-code').first().click();
+  await expect(gridLine).toHaveClass(/cm-activeLine/);
+  await expectLayered(
+    gridEditor,
+    gridEditor.locator('.cm-line.mm-table-mode-line.cm-activeLine .mm-md-code').first(),
+  );
+  // The grid wash behind the line is untouched.
+  expect(await beforeCss(gridLine, 'background-color')).toBe(CODE_BG);
+  expect(await beforeCss(gridLine, 'z-index')).toBe('-3');
 });

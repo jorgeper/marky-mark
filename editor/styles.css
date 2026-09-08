@@ -891,6 +891,25 @@
   background: var(--mm-active-line, rgba(9, 105, 218, 0.1));
 }
 
+/* SPEC44 §2.1 (issue #355): the caret-line tint, re-painted over the code
+   span. .mm-md-code's (usually opaque) --mm-code-bg paints above the line's
+   own background, so a code span on the caret line sat as an untinted box
+   in the band — the layering problem issue #123's .mm-code-sel solved for
+   the selection. Here no nested span is needed: the tint rides as an image
+   layer over the code background of every code span on .cm-activeLine (a
+   two-stop gradient of the one --mm-active-line token), so the band reads
+   continuously through inline code, raw table cells, the SPEC40 grid and
+   fence bodies, and the code text paints on top unchanged. Translucent
+   --mm-code-bg themes get the line through the code background AND the
+   layer — the same accepted doubling as .mm-code-sel. Three classes beat
+   .editor-wrap .mm-md-code. Live preview's .mm-lp-code never sits on the
+   caret line (PRD 006 §8 reveals it raw), so it needs no rule. */
+.editor-wrap .cm-editor .cm-activeLine .mm-md-code {
+  background:
+    linear-gradient(var(--mm-active-line, rgba(9, 105, 218, 0.1)), var(--mm-active-line, rgba(9, 105, 218, 0.1))),
+    var(--mm-code-bg, rgba(175, 184, 193, 0.2));
+}
+
 /* PRD 014 Req 11 (issue #154): edit mode's match decorations get the same
    treatment as the preview marks — CodeMirror's faint defaults are illegible
    on dark themes. Three classes outrank CM's injected two-class base theme. */
