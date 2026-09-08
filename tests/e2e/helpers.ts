@@ -609,6 +609,31 @@ export async function splitApp(page: Page, split = true): Promise<void> {
   await expect(page.locator('.cm-content')).toBeVisible();
 }
 
+/**
+ * Write `doc` to `path`, merge `patch` into settings.json, reboot so the app
+ * reads it, open the doc and land in edit mode — the E261 boot pattern. Issue
+ * #125: the relaunch may come up in edit mode already, so Ctrl+E is only sent
+ * when the preview is what we got.
+ */
+export async function bootEditorOn(
+  page: Page,
+  path: string,
+  doc: string,
+  patch: Record<string, unknown>
+): Promise<void> {
+  await fsWrite(page, path, doc);
+  await page.evaluate((p) => {
+    const raw = window.__mmfs!.read('/config/settings.json');
+    const settings = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...settings, ...p }));
+  }, patch);
+  await page.reload();
+  await page.goto(`/#open=${path}`);
+  await expect(page.locator('.doc h1, .cm-content').first()).toBeVisible();
+  if ((await page.locator('.cm-content').count()) === 0) await page.keyboard.press('Control+e');
+  await expect(page.locator('.cm-content').first()).toBeVisible();
+}
+
 /** First fully/partially visible gutter line number in the editor pane. */
 export const editorTopGutterLine = (page: Page) =>
   page.evaluate(() => {

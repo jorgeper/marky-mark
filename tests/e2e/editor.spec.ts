@@ -1,6 +1,7 @@
 import type { Locator } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
+  bootEditorOn,
   freshApp,
   freshNativeMenuApp,
   fsRead,
@@ -712,21 +713,7 @@ test('E261: selection over code — the tint paints above --mm-code-bg in the ed
   const DOC = '# T\n\nprose with `inline code` inside\n\n```js\nconst answer = 42;\n```\n\ntail\n';
 
   /** Boot the app on DOC with a settings patch applied, in edit mode. */
-  const boot = async (patch: Record<string, unknown>) => {
-    await fsWrite(page, '/docs/sel.md', DOC);
-    await page.evaluate((p) => {
-      const raw = window.__mmfs!.read('/config/settings.json');
-      const s = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-      window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...s, ...p }));
-    }, patch);
-    await page.reload();
-    await page.goto('/#open=/docs/sel.md');
-    // Issue #125: the relaunch may come up in edit mode already — only ask for
-    // it when the preview is what we got.
-    await expect(page.locator('.doc h1, .cm-content').first()).toBeVisible();
-    if ((await page.locator('.cm-content').count()) === 0) await page.keyboard.press('Control+e');
-    await expect(page.locator('.cm-content').first()).toBeVisible();
-  };
+  const boot = (patch: Record<string, unknown>) => bootEditorOn(page, '/docs/sel.md', DOC, patch);
   /** Put the whole of the line holding `text` in the selection. */
   const selectLine = async (pane: Locator, text: string) => {
     await pane.locator('.cm-line', { hasText: text }).first().click();
@@ -1049,19 +1036,7 @@ test('E484: issue #269 — every preview language colours in the edit pane and i
   });
 
   /** Boot on DOC with a settings patch, landing in edit mode. */
-  const boot = async (patch: Record<string, unknown>) => {
-    await fsWrite(page, '/docs/langs.md', DOC);
-    await page.evaluate((p) => {
-      const raw = window.__mmfs!.read('/config/settings.json');
-      const s = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-      window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...s, ...p }));
-    }, patch);
-    await page.reload();
-    await page.goto('/#open=/docs/langs.md');
-    await expect(page.locator('.doc h1, .cm-content').first()).toBeVisible();
-    if ((await page.locator('.cm-content').count()) === 0) await page.keyboard.press('Control+e');
-    await expect(page.locator('.cm-content').first()).toBeVisible();
-  };
+  const boot = (patch: Record<string, unknown>) => bootEditorOn(page, '/docs/langs.md', DOC, patch);
   /** Token spans on the fence line holding `body` (the selection tint aside). */
   const tokensOn = (pane: Locator, body: string) =>
     pane.locator('.cm-line', { hasText: body }).first().locator('[class*="mm-code-"]:not(.mm-code-sel)');
@@ -1298,19 +1273,7 @@ test('E626: issue #355 — caret-line tint paints over code: inline, raw table r
   const CODE_BG = 'rgb(246, 248, 250)'; // crisp's opaque --mm-code-bg
 
   /** Boot the app on DOC with a settings patch applied, in edit mode (E261). */
-  const boot = async (patch: Record<string, unknown>) => {
-    await fsWrite(page, '/docs/caret-code.md', DOC);
-    await page.evaluate((p) => {
-      const raw = window.__mmfs!.read('/config/settings.json');
-      const s = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-      window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...s, ...p }));
-    }, patch);
-    await page.reload();
-    await page.goto('/#open=/docs/caret-code.md');
-    await expect(page.locator('.doc h1, .cm-content').first()).toBeVisible();
-    if ((await page.locator('.cm-content').count()) === 0) await page.keyboard.press('Control+e');
-    await expect(page.locator('.cm-content').first()).toBeVisible();
-  };
+  const boot = (patch: Record<string, unknown>) => bootEditorOn(page, '/docs/caret-code.md', DOC, patch);
   const css = (loc: Locator, prop: string) =>
     loc.evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), prop);
   const beforeCss = (loc: Locator, prop: string) =>
