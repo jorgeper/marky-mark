@@ -109,7 +109,10 @@ describe('Issue #250: the Names section shares the New Workspace error treatment
     const field = /<input\s+id="workspace-unique-name"([\s\S]*?)\n\s*\/>/.exec(NAMES)?.[1];
     expect(field, 'the unique-name input in WorkspaceNames.tsx').toBeTruthy();
     expect(field).toMatch(/className=\{nameRejected \? 'field invalid invalid-value' : 'field'\}/);
-    expect(NAMES).toMatch(/import \{ isUniqueNameError \} from '\.\.\/lib\/workspaceLifecycle'/);
+    // PRD 026 Req 10 widened the import list (the section now also takes the
+    // typing normaliser and the form rule from the same module), so the
+    // judge is matched as one name among the module's imports.
+    expect(NAMES).toMatch(/import \{[^}]*\bisUniqueNameError\b[^}]*\} from '\.\.\/lib\/workspaceLifecycle'/);
     expect(NAMES).toMatch(/const nameRejected =[^;]*isUniqueNameError\(error\)/);
 
     // And editing the name retires the refusal without another Save — the

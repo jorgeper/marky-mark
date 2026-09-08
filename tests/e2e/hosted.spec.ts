@@ -7393,8 +7393,10 @@ test('E535: renaming to a taken unique name paints the Names section red — bod
   await expect(error).toHaveCount(0);
   expect(await paint()).toEqual(normal);
 
-  // A type-time problem (PRD 020 Req 2) reads exactly the same way.
-  await input.fill('has spaces');
+  // A type-time problem (PRD 020 Req 2) reads exactly the same way. PRD 026
+  // Req 6: `has spaces` would normalise to `has-spaces` as typed now, so the
+  // refusal that still surfaces at type time is a reserved word.
+  await input.fill('scratchpad');
   const typed = page.getByTestId('workspace-unique-name-problem');
   await expect(typed).toBeVisible();
   expect(await typed.evaluate((el) => getComputedStyle(el).fontSize)).toBe(bodySize);
@@ -7848,10 +7850,18 @@ test('E572: settings → Names lists former names read-only under the unique-nam
   const former = page.getByTestId('workspace-former-names');
   await expect(page.getByTestId('workspace-names-section')).toBeVisible();
   await expect(former).toHaveText(`Previous names: ${unique}. Links to these still open this workspace.`);
-  // Below the unique-name field and above the display-name one:
-  // `querySelectorAll` yields document order, so the three ids come back in
-  // the order they render.
-  const fields = ['workspace-unique-name', 'workspace-former-names', 'workspace-friendly-name'];
+  // PRD 026 Req 10 (amending the placement): the display name leads, the
+  // URL name follows with its guidance and address preview inside its field,
+  // and the former-names caption sits directly after that field.
+  // `querySelectorAll` yields document order, so the ids come back in the
+  // order they render.
+  const fields = [
+    'workspace-friendly-name',
+    'workspace-unique-name',
+    'workspace-url-guidance',
+    'workspace-url-preview',
+    'workspace-former-names',
+  ];
   const order = await page.getByTestId('workspace-names-section').evaluate(
     (section, ids) =>
       Array.from(section.querySelectorAll('[data-testid]'))
@@ -7871,6 +7881,232 @@ test('E572: settings → Names lists former names read-only under the unique-nam
 
   // Read-only: no button, input or other control lives inside the line.
   await expect(former.locator('button, input, select, textarea, a, [role="button"]')).toHaveCount(0);
+});
+
+/**
+ * PRD 026 Req 9 (issue #353): seed a workspace whose stored URL name passes
+ * the legacy charset but fails the strict one — the API refuses such a name
+ * at creation (Req 1), so the test creates a strict-valid workspace and then
+ * overwrites its `manifest.json` in Azurite with the same manifest carrying
+ * the legacy name (the PRD 017 policy tests' pattern). Returns the id and
+ * the legacy name the listing now shows.
+ */
+async function seedLegacyWorkspace(
+  request: APIRequestContext,
+  token: string,
+  legacy: string,
+): Promise<{ id: string; legacy: string }> {
+  const headers = { Authorization: `Bearer ${token}` };
+  const created = await request.post(`${HOSTED}/api/workspaces`, {
+    headers,
+    data: { uniqueName: legacy.toLowerCase().replace(/_/g, '-'), name: 'Team Docs' },
+  });
+  expect(created.status()).toBe(201);
+  const id = ((await created.json()) as { id: string }).id;
+  const { manifest } = (await (await request.get(`${HOSTED}/api/workspaces/${id}/manifest`, { headers })).json()) as {
+    manifest: Record<string, unknown>;
+  };
+  const body = Buffer.from(JSON.stringify({ ...manifest, uniqueName: legacy }));
+  await BlobServiceClient.fromConnectionString(AZURITE_CONNECTION_STRING)
+    .getContainerClient('marky-mark')
+    .getBlockBlobClient(`workspaces/${id}/manifest.json`)
+    .upload(body, body.length);
+  // The listing reads the manifest, so the legacy name is what the app sees.
+  expect(await uniqueNameOf(request, token, id)).toBe(legacy);
+  return { id, legacy };
+}
+
+/** PRD 026 Req 9: the stored manifest's names, straight off the API. */
+async function storedNames(
+  request: APIRequestContext,
+  token: string,
+  id: string,
+): Promise<{ name?: string; uniqueName?: string; formerNames?: string[] }> {
+  const res = await request.get(`${HOSTED}/api/workspaces/${id}/manifest`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const { manifest } = (await res.json()) as {
+    manifest: { name?: string; uniqueName?: string; formerNames?: string[] };
+  };
+  return { name: manifest.name, uniqueName: manifest.uniqueName, formerNames: manifest.formerNames };
+}
+
+test('E602: PRD 026 Req 9+10 — settings → Names shows a grandfathered URL name verbatim with no problem or paint, a display-name-only save keeps it stored unchanged, and renaming it to its lowercase-dash form lands the tab on the new name with the legacy one listed as former', async ({
+  page,
+  request,
+}) => {
+  const ada = await signIn(request, 'ada');
+  const stamp = `w${test.info().workerIndex}-${Date.now()}`;
+  const { id, legacy } = await seedLegacyWorkspace(request, ada, `E602_Team_Docs-${stamp}`);
+  const renamed = `e602-team-docs-${stamp}`;
+
+  await signInTo(page, 'ada', id);
+  await openWorkspaceSettings(page);
+  await expect(page.getByTestId('workspace-names-section')).toBeVisible();
+  const origin = new URL(page.url()).origin;
+  const { danger } = await errorTokens(page.getByTestId('settings-panel'));
+
+  // Req 9: the stored value, verbatim — not normalised, not judged, not painted.
+  const url = page.getByTestId('workspace-unique-name');
+  await expect(url).toHaveValue(legacy);
+  await expect(page.getByTestId('workspace-unique-name-problem')).toHaveCount(0);
+  expect((await fieldPaint(url)).border).not.toBe(danger);
+  expect((await fieldPaint(url)).color).not.toBe(danger);
+  // Req 7: a grandfathered name is the workspace's real address.
+  await expect(page.getByTestId('workspace-url-preview')).toHaveText(`${origin}/${encodeURIComponent(legacy)}`);
+  // Req 10: the display name is prefilled from the manifest's own name.
+  await expect(page.getByTestId('workspace-friendly-name')).toHaveValue('Team Docs');
+
+  // Req 9+10: a display-name-only save sends the stored URL name back
+  // unchanged — a 200, no strict check on either side, nothing renamed.
+  await page.getByTestId('workspace-friendly-name').fill('E602 display only');
+  await page.getByTestId('workspace-names-save').click();
+  await expect.poll(() => storedDisplayName(request, ada, id)).toBe('E602 display only');
+  await expect(page.getByTestId('workspace-friendly-name')).toBeEnabled();
+  await expect(page.getByTestId('workspace-names-error')).toHaveCount(0);
+  expect(await storedNames(request, ada, id)).toEqual({
+    name: 'E602 display only',
+    uniqueName: legacy,
+    formerNames: undefined,
+  });
+  expect(new URL(page.url()).pathname).toBe(`/${encodeURIComponent(legacy)}`);
+  await expect(url).toHaveValue(legacy);
+  await expect(page.getByTestId('workspace-former-names')).toHaveCount(0);
+
+  // Req 9: editing the name enters the strict regime — its lowercase-dash
+  // form passes, the rename lands, and the legacy name becomes a former one.
+  await url.fill(renamed);
+  await expect(page.getByTestId('workspace-unique-name-problem')).toHaveCount(0);
+  await expect(page.getByTestId('workspace-url-preview')).toHaveText(`${origin}/${renamed}`);
+  await page.getByTestId('workspace-names-save').click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/${renamed}`);
+  expect(await storedNames(request, ada, id)).toEqual({
+    name: 'E602 display only',
+    uniqueName: renamed,
+    formerNames: [legacy],
+  });
+  await expect(page.getByTestId('workspace-former-names')).toHaveText(
+    `Previous names: ${legacy}. Links to these still open this workspace.`,
+  );
+  // The saved value is the new baseline: unedited again, so no problem line.
+  await expect(url).toHaveValue(renamed);
+  await expect(page.getByTestId('workspace-unique-name-problem')).toHaveCount(0);
+});
+
+test('E603: PRD 026 Req 8+10 — saving with an empty display name refuses with `A display name is required.` and paints only that field, saving with an empty URL name refuses with `A URL name is required.` and paints only that one, and typing clears each', async ({
+  page,
+  request,
+}) => {
+  const ada = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, ada, 'e603');
+
+  await signInTo(page, 'ada', id);
+  await openWorkspaceSettings(page);
+  const section = page.getByTestId('workspace-names-section');
+  await expect(section).toBeVisible();
+  const { bodySize, danger } = await errorTokens(page.getByTestId('settings-panel'));
+  const display = page.getByTestId('workspace-friendly-name');
+  const url = page.getByTestId('workspace-unique-name');
+  const error = page.getByTestId('workspace-names-error');
+  const before = await storedNames(request, ada, id);
+
+  // Req 10: a blank display name is refused before anything is sent — the
+  // URL name being perfectly good does not rescue it.
+  await display.click();
+  const displayNormal = await fieldPaint(display);
+  expect(displayNormal.color, 'the untouched field is not already red').not.toBe(danger);
+  await display.fill('   ');
+  await page.getByTestId('workspace-names-save').click();
+  await expect(error).toHaveText('A display name is required.');
+  expect(await error.evaluate((el) => getComputedStyle(el).fontSize)).toBe(bodySize);
+  expect(await error.evaluate((el) => getComputedStyle(el).color)).toBe(danger);
+  expect(await fieldPaint(display)).toEqual({ color: danger, border: danger });
+  expect((await fieldPaint(url)).border).not.toBe(danger);
+  // Nothing was stored — neither the blank nor the URL name as the display.
+  expect(await storedNames(request, ada, id)).toEqual(before);
+  // Typing in the display field retires message and paint at once.
+  await display.pressSequentially('E');
+  await expect(error).toHaveCount(0);
+  expect(await fieldPaint(display)).toEqual(displayNormal);
+  await display.fill('E603 display');
+
+  // Req 6+8: an emptied URL name is an edited one, and Save refuses it with
+  // the URL field wearing the paint this time — the display field left alone.
+  await url.click();
+  const urlNormal = await fieldPaint(url);
+  expect(urlNormal.border).not.toBe(danger);
+  await url.fill('');
+  // The empty field waits for Save to complain, like the creation dialog.
+  await expect(page.getByTestId('workspace-unique-name-problem')).toHaveCount(0);
+  await page.getByTestId('workspace-names-save').click();
+  await expect(error).toHaveText('A URL name is required.');
+  expect(await fieldPaint(url)).toEqual({ color: danger, border: danger });
+  expect((await fieldPaint(display)).border).not.toBe(danger);
+  expect(await storedNames(request, ada, id)).toEqual(before);
+  await url.pressSequentially(unique);
+  await expect(error).toHaveCount(0);
+  await expect(url).toHaveValue(unique);
+  expect(await fieldPaint(url)).toEqual(urlNormal);
+});
+
+test('E604: PRD 026 Req 6+7+10 — the settings URL name normalises as typed with the address preview following each keystroke, blur strips the trailing dash, the display name never derives it, and the guidance sits beneath the field in the muted caption treatment', async ({
+  page,
+  request,
+}) => {
+  const ada = await signIn(request, 'ada');
+  const { id } = await pathWorkspace(request, ada, 'e604');
+
+  await signInTo(page, 'ada', id);
+  await openWorkspaceSettings(page);
+  await expect(page.getByTestId('workspace-names-section')).toBeVisible();
+  const origin = new URL(page.url()).origin;
+  const panel = page.getByTestId('settings-panel');
+  const { captionSize, muted } = await captionTokens(panel);
+  const { danger } = await errorTokens(panel);
+  const display = page.getByTestId('workspace-friendly-name');
+  const url = page.getByTestId('workspace-unique-name');
+  const preview = page.getByTestId('workspace-url-preview');
+  const guidance = page.getByTestId('workspace-url-guidance');
+  const typed = page.getByTestId('workspace-unique-name-problem');
+
+  // Req 6: every keystroke lands normalised; the one trailing dash typing
+  // keeps is not part of the previewed address and never flashes a refusal.
+  await url.fill('');
+  await expect(preview).toHaveText(`${origin}/…`);
+  await url.pressSequentially('Foo ');
+  await expect(url).toHaveValue('foo-');
+  await expect(preview).toHaveText(`${origin}/foo`);
+  await expect(typed).toHaveCount(0);
+  await url.pressSequentially('Bar');
+  await expect(url).toHaveValue('foo-bar');
+  await expect(preview).toHaveText(`${origin}/foo-bar`);
+  await expect(typed).toHaveCount(0);
+  await url.fill('foo--');
+  await expect(url).toHaveValue('foo-');
+  await url.blur();
+  await expect(url).toHaveValue('foo');
+  await expect(preview).toHaveText(`${origin}/foo`);
+
+  // Req 10: the display name never derives the URL name here — a rename is a
+  // deliberate act with link consequences — and the preview does not move.
+  await display.fill('Something Else Entirely');
+  await expect(url).toHaveValue('foo');
+  await expect(preview).toHaveText(`${origin}/foo`);
+
+  // Req 7: the guidance sentence and the preview, in the caption treatment —
+  // never the danger colour — inside the URL-name field's block, below it.
+  await expect(guidance).toBeVisible();
+  await expect(guidance).toHaveText("Lowercase letters, numbers and dashes. This is the workspace's address.");
+  for (const line of [guidance, preview]) {
+    expect(await line.evaluate((el) => getComputedStyle(el).fontSize)).toBe(captionSize);
+    expect(await line.evaluate((el) => getComputedStyle(el).color)).toBe(muted);
+    expect(await line.evaluate((el) => getComputedStyle(el).color)).not.toBe(danger);
+  }
+  const inputBox = (await url.boundingBox())!;
+  const guidanceBox = (await guidance.boundingBox())!;
+  const previewBox = (await preview.boundingBox())!;
+  expect(guidanceBox.y).toBeGreaterThan(inputBox.y + inputBox.height - 1);
+  expect(previewBox.y).toBeGreaterThan(guidanceBox.y);
 });
 
 test('E494: the hosted home page is the badge and the start actions — no version, alpha, developer/license or repo text', async ({

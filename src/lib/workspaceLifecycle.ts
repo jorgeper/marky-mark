@@ -147,6 +147,43 @@ export function urlNamePreview(origin: string, settled: string): string {
   return settled === '' ? `${origin}/${URL_PREVIEW_PLACEHOLDER}` : `${origin}${buildAppPath(settled)}`;
 }
 
+/** PRD 026 Req 10: the settings Names section's form — the two fields plus the URL name the manifest holds. */
+export interface WorkspaceNamesForm {
+  /** The display-name field as typed (trimmed at save). */
+  displayName: string;
+  /** The URL-name field as typed (already normalised by `normalizeUrlNameTyping`, may end in one dash). */
+  urlName: string;
+  /** The URL name the manifest currently holds — the baseline that decides whether the field was edited. */
+  storedUrlName: string;
+}
+
+export type WorkspaceNamesResult = { ok: true; name: string; uniqueName: string } | { ok: false; error: string };
+
+/**
+ * PRD 026 Req 9+10 (amending PRD 020 Req 4): validate the settings Names
+ * form and shape the two names the manifest PUT carries. Pure, so the
+ * section is a thin caller and the decision order is unit-tested. Stops in
+ * field order, first failure wins: the display name is required (Req 10 —
+ * the old "blank stores the URL name as the display" fallback is gone);
+ * then the URL name, but ONLY if it differs from the stored one. An
+ * unedited value travels back verbatim with no strict check — a
+ * grandfathered `Team_Docs` (Req 9) stays editable in its display name,
+ * because the server skips PRD 026 Req 3's strict rule for an unchanged
+ * name and this client must not refuse it either. An edited value is
+ * settled (Req 6 strips the one trailing dash typing may leave), required,
+ * and then judged by the same strict rule the server enforces on a rename.
+ */
+export function validateWorkspaceNamesForm(form: WorkspaceNamesForm): WorkspaceNamesResult {
+  const name = form.displayName.trim();
+  if (name === '') return { ok: false, error: DISPLAY_NAME_REQUIRED };
+  if (form.urlName === form.storedUrlName) return { ok: true, name, uniqueName: form.storedUrlName };
+  const settled = settleUrlName(form.urlName);
+  if (settled === '') return { ok: false, error: URL_NAME_REQUIRED };
+  const problem = uniqueNameProblem(settled);
+  if (problem) return { ok: false, error: problem };
+  return { ok: true, name, uniqueName: settled };
+}
+
 /**
  * PRD 007 Req 10 + PRD 020 Req 2 (amended by PRD 026 Req 4+6): validate the
  * form and shape the POST body. Three stops, in dialog order, first failure

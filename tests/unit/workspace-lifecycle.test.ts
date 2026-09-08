@@ -25,6 +25,7 @@ import {
   settleUrlName,
   urlNamePreview,
   validateNewWorkspaceForm,
+  validateWorkspaceNamesForm,
   visibleWorkspaces,
   workspaceRowBadge,
   type WorkspaceListing,
@@ -302,6 +303,75 @@ describe('PRD 007 Req 10 + PRD 020 Req 2 (amended by PRD 026 Req 4+6): the New W
     // percent-encoded the same way (a stored grandfathered name can carry
     // characters the strict rule no longer admits).
     expect(urlNamePreview('http://localhost:4173', 'a b')).toBe('http://localhost:4173/a%20b');
+  });
+});
+
+describe('PRD 026 Req 9+10: the settings Names form', () => {
+  const stored = 'Team_Docs';
+
+  it('U1333: PRD 026 Req 10 — a blank (after trimming) display name is refused first, even when the URL name is also bad', () => {
+    expect(validateWorkspaceNamesForm({ displayName: '   ', urlName: '', storedUrlName: stored })).toEqual({
+      ok: false,
+      error: 'A display name is required.',
+    });
+    expect(validateWorkspaceNamesForm({ displayName: '', urlName: 'scratchpad', storedUrlName: stored })).toEqual({
+      ok: false,
+      error: 'A display name is required.',
+    });
+  });
+
+  it('U1334: PRD 026 Req 9+10 — an unedited grandfathered URL name passes through untouched, with the trimmed display name', () => {
+    // `Team_Docs` fails the strict rule, so the only way it reaches the PUT
+    // is by never being judged: the server skips the check for an unchanged
+    // name, and so does the form.
+    expect(uniqueNameProblem(stored)).not.toBeNull();
+    expect(validateWorkspaceNamesForm({ displayName: '  Team Docs  ', urlName: stored, storedUrlName: stored })).toEqual(
+      { ok: true, name: 'Team Docs', uniqueName: stored },
+    );
+  });
+
+  it('U1335: PRD 026 Req 6+10 — an edited value ending in the one trailing dash typing keeps settles before it is sent', () => {
+    expect(validateWorkspaceNamesForm({ displayName: 'Team Docs', urlName: 'team-docs-', storedUrlName: stored })).toEqual(
+      { ok: true, name: 'Team Docs', uniqueName: 'team-docs' },
+    );
+  });
+
+  it('U1336: PRD 026 Req 6+10 — an edited empty URL name earns `A URL name is required.`', () => {
+    expect(validateWorkspaceNamesForm({ displayName: 'Team Docs', urlName: '', storedUrlName: stored })).toEqual({
+      ok: false,
+      error: 'A URL name is required.',
+    });
+    // A lone dash settles to nothing: the same refusal, never the charset one.
+    expect(validateWorkspaceNamesForm({ displayName: 'Team Docs', urlName: '-', storedUrlName: stored })).toEqual({
+      ok: false,
+      error: 'A URL name is required.',
+    });
+  });
+
+  it('U1337: PRD 026 Req 1+10 — an edited value outside the strict charset earns the shared rule\'s own refusal', () => {
+    const problem = uniqueNameProblem('Team-Docs');
+    expect(problem).not.toBeNull();
+    expect(validateWorkspaceNamesForm({ displayName: 'Team Docs', urlName: 'Team-Docs', storedUrlName: stored })).toEqual(
+      { ok: false, error: problem },
+    );
+    // A reserved word is refused the same way.
+    expect(validateWorkspaceNamesForm({ displayName: 'Team Docs', urlName: 'scratchpad', storedUrlName: stored })).toEqual(
+      { ok: false, error: '"scratchpad" is a reserved name.' },
+    );
+  });
+
+  it('U1338: PRD 026 Req 9+10 — an edited value equal to the stored one is unedited: no settling, no strict check', () => {
+    expect(validateWorkspaceNamesForm({ displayName: 'Team Docs', urlName: stored, storedUrlName: stored })).toEqual({
+      ok: true,
+      name: 'Team Docs',
+      uniqueName: stored,
+    });
+    // And a strict-valid stored name behaves the same when re-sent unchanged.
+    expect(validateWorkspaceNamesForm({ displayName: 'Docs', urlName: 'docs', storedUrlName: 'docs' })).toEqual({
+      ok: true,
+      name: 'Docs',
+      uniqueName: 'docs',
+    });
   });
 });
 
