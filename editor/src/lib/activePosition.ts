@@ -1,5 +1,7 @@
 /**
- * SPEC44 §1: pure placement math for the active line & word cues — no DOM.
+ * SPEC44 §1: pure placement math — no DOM. Issue #345 withdrew the visible
+ * cues; the math now serves the split follower's invisible head-row anchor,
+ * the annotation menu's word anchor and the preview-click caret.
  * The word test is Unicode-aware (letters, numbers, underscore); block
  * resolution runs over the sorted data-mm-line anchor list the preview
  * already carries (SPEC15).

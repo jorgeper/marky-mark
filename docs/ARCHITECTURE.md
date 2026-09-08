@@ -519,20 +519,24 @@ bounce), and the reverse mirror ignores unfocused selection reports — the
 forward mirror's CM dispatch always arrives unfocused (and clears stale
 marks on the way through).
 
-The placement cues (SPEC44) ride the SAME synthetic-mark pipeline:
-`activePosition.ts` (pure) finds the caret's word (`wordAt`, Unicode,
-left affinity) and its preview block (`blockLineFor` over the
-`data-mm-line` anchors). The preview marks the block (`mm-active-block`
-class) and the word (`mark.mm-active-word`) — position-exact via
-normalized occurrence counting (`countNormalized` on the source side
-picks which `findNormalizedNth` match to wrap), so a repeated word marks
-the caret's occurrence, never a look-alike. The editor's own word cue is
-a CodeMirror StateField whose decoration derives from state even at
-create time (a remount restored via `EditorState.fromJSON` carries a
-selection but produces no transaction). Preview clicks invert the trip:
+Placement (SPEC44 as amended by issue #345) paints nothing in the
+preview and only CodeMirror's own `cm-activeLine` in the editor — bound to
+the `--mm-active-line` token by a three-class rule in `editor/styles.css`.
+What the same pure layer still does is resolve the caret head to its
+RENDERED ROW for the split sync controller (issue #310, SPEC45):
+`activePosition.ts` finds the caret's word (`wordAt`, Unicode, left
+affinity) and its preview block (`blockLineFor` over the `data-mm-line`
+anchors); `renderedHeadOffset` (`selectionMap.ts`) locates the word by
+normalized occurrence index (`countNormalized` on the source side picks
+which `findNormalizedNth` match), else falls back to the flat
+source→rendered offset. The host then stamps `data-mm-head` — the head's
+text offset within its innermost standard container — on that container
+and nothing else: no class, no mark, no rule; `SplitView`'s `cueRow` reads
+the character's rect through a Range. Preview clicks invert the trip:
 `caretRangeFromPoint` → rendered word → occurrence index →
-`sourceRangeForVisibleMatch` → the editor caret (split) or a parked
-collapsed selection the next mode switch consumes (preview-only).
+`sourceRangeForVisibleMatch` → a silent host-origin editor caret (split:
+no `reveal`, no follow, no scroll) or a parked collapsed selection the
+next mode switch consumes (preview-only).
 
 Mode switches carry the selection too (SPEC25): into edit, the captured
 preview selection maps through the same source mapper and rides a ref the

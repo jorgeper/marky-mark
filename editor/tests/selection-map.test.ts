@@ -2,6 +2,8 @@ import { describe, expect, test } from 'vitest';
 import {
   findNormalized,
   mapSelectionToSource,
+  renderedHeadOffset,
+  renderedOffsetForSource,
   sourceCaretForRendered,
   sourceOffsetForRendered,
   sourceRangeForVisibleMatch,
@@ -209,5 +211,33 @@ describe('Issue #178 collapsed-caret mapping', () => {
     expect(at).not.toBeNull();
     expect(src[at!]).toBe('a');
     expect(at).toBe(src.indexOf(' a ') + 1);
+  });
+});
+
+describe('Issue #345 head-row resolution', () => {
+  test('U1366: renderedHeadOffset — the caret word by occurrence (a table delimiter row never shifts it), the within-word offset rides along, no-word carets take the flat prefix', () => {
+    // A table: the delimiter row is visible source text with no rendered
+    // twin, so the flat prefix alone overshoots into the next cell; the
+    // occurrence route lands on the caret's own cell.
+    const table = '| h1 | h2 |\n| -- | -- |\n| ca | cb |\n';
+    const cells = 'h1 h2 ca cb';
+    const onCa = table.indexOf('ca');
+    expect(renderedHeadOffset(table, 0, onCa, cells)).toBe(cells.indexOf('ca'));
+    expect(renderedOffsetForSource(table, 0, onCa, cells)).toBeGreaterThan(cells.indexOf('cb'));
+    // Repeats resolve by the CARET's occurrence; the within-word offset rides.
+    const twice = 'cat and cat again\n';
+    const r = 'cat and cat again';
+    expect(renderedHeadOffset(twice, 0, 'cat and c'.length + 1, r)).toBe('cat and c'.length + 1);
+    expect(renderedHeadOffset(twice, 0, 1, r)).toBe(1);
+    // An end-of-word caret (left affinity) stays on the word's last character.
+    expect(renderedHeadOffset(twice, 0, 'cat'.length, r)).toBe(2);
+    // Stripped markers: the word is found in the rendered text regardless.
+    const bold = 'The **quick brown** fox\n';
+    expect(renderedHeadOffset(bold, 0, bold.indexOf('brown') + 2, 'The quick brown fox')).toBe('The quick br'.length);
+    // No word under the caret (a punctuation run): the flat prefix decides.
+    const punct = 'plus +++ plus2\n';
+    expect(renderedHeadOffset(punct, 0, 6, 'plus +++ plus2')).toBe(6);
+    // Nothing rendered: nothing to resolve.
+    expect(renderedHeadOffset(punct, 0, 6, '')).toBeNull();
   });
 });

@@ -54,7 +54,7 @@ import { isHeadingLine } from '../lib/headingLine';
 import { headingTextColumn } from '../lib/headingCaret';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
 import type { CompiledPattern } from '../lib/searchCore';
-import { mapOffsetByLineFlat, wordAt } from '../lib/activePosition';
+import { mapOffsetByLineFlat } from '../lib/activePosition';
 import { canonToDocRanges, docToCanonOffset, spanGeometry, type SpanGeometry } from '../lib/gridOffsets';
 import { intersectCodeSelection, type CodeRange } from '../lib/codeSelection';
 import type { DiffLineSets } from '../lib/diffLines';
@@ -211,37 +211,6 @@ export interface EditorSearchHandle {
   clear(): void;
 }
 
-
-// --- SPEC44 §2: the darker word-under-caret cue -------------------------------
-const activeWordMark = Decoration.mark({ class: 'mm-active-word' });
-export const setActiveWordSuppressed = StateEffect.define<boolean>();
-function activeWordDeco(state: EditorState, sup: boolean): DecorationSet {
-  const sel = state.selection.main;
-  // A real selection (or find-bar focus) outranks the word cue (§2.2).
-  if (sup || !sel.empty) return Decoration.none;
-  const line = state.doc.lineAt(sel.head);
-  const w = wordAt(line.text, sel.head - line.from);
-  if (!w) return Decoration.none;
-  return Decoration.set([activeWordMark.range(line.from + w.start, line.from + w.end)]);
-}
-const activeWordField = StateField.define<{ sup: boolean; deco: DecorationSet }>({
-  // Derive from the state even at create time — a remount restored through
-  // EditorState.fromJSON carries a selection but produces no transaction.
-  create: (state) => ({ sup: false, deco: activeWordDeco(state, false) }),
-  update(v, tr) {
-    let sup = v.sup;
-    let poked = false;
-    for (const e of tr.effects) {
-      if (e.is(setActiveWordSuppressed)) {
-        sup = e.value;
-        poked = true;
-      }
-    }
-    if (!tr.selection && !tr.docChanged && !poked) return { sup, deco: v.deco.map(tr.changes) };
-    return { sup, deco: activeWordDeco(tr.state, sup) };
-  },
-  provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
-});
 
 export interface EditorSyncHandle {
   /** Fractional 1-based source line at the top of the viewport. */
@@ -452,8 +421,6 @@ export interface EditorProps {
    * editor (and without losing undo history).
    */
   readOnly?: boolean;
-  /** SPEC44 §2.2: true while the find/replace input owns the keyboard. */
-  activeWordSuppressed?: boolean;
   // --- SPEC43: Smart Edit ---------------------------------------------------
   /** Current bindings — menu rows and the gutter tooltip follow rebinds live. */
   hotkeys: HotkeyMap;
@@ -1153,9 +1120,9 @@ const highlightsExt = (
 /**
  * Issue #310: marks a selection the HOST placed through `selectRangeRef` — a
  * mirrored preview selection (SPEC23 §1) or a preview-click placement (SPEC44
- * §4). The edit-state report carries it as `origin: 'host'`, so the split
- * follower leaves both panes where they are for those (E464) and follows only
- * caret moves made in the editor itself.
+ * §4.1 as amended by issue #345). The edit-state report carries it as
+ * `origin: 'host'`, so the split follower leaves both panes where they are for
+ * those (E464) and follows only caret moves made in the editor itself.
  */
 const hostSelection = Annotation.define<boolean>();
 
@@ -1551,7 +1518,6 @@ export default function Editor({
   selectRangeRef,
   pendingSelectionRef,
   searchRef,
-  activeWordSuppressed,
   hotkeys,
   isMac,
   canPaste,
@@ -1582,10 +1548,6 @@ export default function Editor({
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
 
-  // SPEC44 §2.2: the find bar outranks the word cue while it holds focus.
-  useEffect(() => {
-    viewRef.current?.dispatch({ effects: setActiveWordSuppressed.of(!!activeWordSuppressed) });
-  }, [activeWordSuppressed]);
   const gutterComp = useRef(new Compartment());
   const diffComp = useRef(new Compartment());
   // PRD 022 Req 12 (issue #234): comment highlights ride a compartment like
@@ -2306,9 +2268,11 @@ export default function Editor({
       // cue — unconditional, so ⌘/Ctrl-click works in the raw view too.
       linkOpenExtension(() => onOpenExternalRef.current),
       history(),
+      // SPEC44 §2.1 (issue #345): the caret line's tint is the editor's ONE
+      // placement cue — CodeMirror's own line class, painted through the
+      // host's --mm-active-line token (editor/styles.css); the darker
+      // word-under-caret decoration was withdrawn.
       highlightActiveLine(),
-      // SPEC44 §2: word-under-caret decoration (cleared while selecting).
-      activeWordField,
       // SPEC23 §1: CM-drawn selection so a mirrored range shows while the
       // editor is unfocused (styled via .cm-selectionBackground).
       drawSelection(),

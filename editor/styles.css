@@ -879,12 +879,16 @@
 }
 /* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
-/* SPEC44: the caret-word placement cue, editor side (CM decoration) — the
-   preview's synthetic .mm-active-* marks are host-injected and styled by
-   the host (Marky Mark's src/styles.css). */
-.editor-wrap .cm-content .mm-active-word {
-  background: var(--mm-active-word);
-  border-radius: 2px;
+/* SPEC44 §2.1 (issue #345): the caret line's tint — the editor's one
+   placement cue — reads the host's --mm-active-line token. CodeMirror's
+   injected base theme paints .cm-activeLine in its own two hardcoded picks
+   (#cceeff44 light / #99eeff33 dark), so without this rule the token is
+   never consulted; three classes outrank that two-class base theme, the
+   same trick the find-match rules below use. The fallback is the token's
+   default (the accent at 10%) for a host that defines no token at all. The
+   darker word-under-caret decoration (.mm-active-word) was withdrawn. */
+.editor-wrap .cm-editor .cm-activeLine {
+  background: var(--mm-active-line, rgba(9, 105, 218, 0.1));
 }
 
 /* PRD 014 Req 11 (issue #154): edit mode's match decorations get the same

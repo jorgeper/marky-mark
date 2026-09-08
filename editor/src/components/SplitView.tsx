@@ -31,10 +31,10 @@ import {
  */
 export interface SplitFollowHandle {
   /**
-   * The editor caret moved (or its preview cues were just repainted): realign
-   * the PREVIEW to the caret's visual row on the next frame, editor leading —
-   * the editor pane itself never scrolls for this. Calls within one frame
-   * coalesce into a single write.
+   * The editor caret moved (and the host just re-stamped its invisible
+   * head-row anchor): realign the PREVIEW to the caret's visual row on the
+   * next frame, editor leading — the editor pane itself never scrolls for
+   * this. Calls within one frame coalesce into a single write.
    */
   followCaret(): void;
 }
@@ -117,9 +117,10 @@ export interface SplitViewProps {
   onSplitRatioChange?(ratio: number): void;
   /**
    * Issue #310: populated with the follow handle while sync is live (see
-   * SplitFollowHandle). The host calls `followCaret()` after it repaints the
-   * SPEC44 cues for an editor-made caret move, so the preview follows the
-   * caret without the editor ever scrolling.
+   * SplitFollowHandle). The host calls `followCaret()` after it re-stamps
+   * the head-row anchor (`data-mm-head`, issue #345) for an editor-made
+   * caret move, so the preview follows the caret without the editor ever
+   * scrolling.
    */
   followRef?: MutableRefObject<SplitFollowHandle | null>;
   /** Everything for the preview pane — see PreviewProps. */
@@ -261,27 +262,22 @@ export function SplitView({ editor, split, editorSyncRef, syncScroll = true, spl
       return landing === null || Math.abs(scrollTop - landing) < 2;
     };
 
-    // SPEC45: while the SPEC44 cue is near the leader's viewport, the panes
-    // align on IT — the selected word keeps the same vertical position on
-    // both sides (clamped; far from the cue the line interpolation returns).
-    // The cue classes are painted by the host's editor-state glue; this only
-    // reads them. Issue #310: the preview reference is the cue's first
-    // rendered row — the word mark; else the head's rendered row, found from
-    // the `data-mm-head` text offset the host stamps on the tinted container
-    // (a selection, or a whitespace/punctuation caret); else the tinted
-    // block's top row, sized like the editor row so a long paragraph's
-    // middle never becomes the target.
+    // SPEC45 (amended by issue #345): while the caret's head row is near the
+    // leader's viewport, the panes align on IT — the caret's row keeps the
+    // same vertical position on both sides (clamped; far from it the line
+    // interpolation returns). The anchor is INVISIBLE: the host's editor-
+    // state glue stamps `data-mm-head` (the head's text offset within its
+    // innermost rendered container) on that container and paints nothing
+    // — no class, no mark, no rule; this only reads it. Issue #310: the
+    // preview reference is the rendered row of the character at that
+    // offset, read through a Range; else the container's top row, sized
+    // like the editor row so a long paragraph's middle never becomes the
+    // target.
     const cueRow = (editorRow: RowRect): RowRect | null => {
       const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
-      const word = docEl.querySelector<HTMLElement>('mark.mm-active-word');
-      if (word) {
-        const r = word.getClientRects()[0] ?? word.getBoundingClientRect();
-        return { top: r.top - base, bottom: r.bottom - base };
-      }
-      const block = docEl.querySelector<HTMLElement>('.mm-active-block');
+      const block = docEl.querySelector<HTMLElement>('[data-mm-head]');
       if (!block) return null;
-      const head = block.dataset.mmHead;
-      const headRect = head === undefined ? null : charRectAt(block, Number(head));
+      const headRect = charRectAt(block, Number(block.dataset.mmHead));
       if (headRect) return { top: headRect.top - base, bottom: headRect.bottom - base };
       const top = block.getBoundingClientRect().top - base;
       return { top, bottom: top + (editorRow.bottom - editorRow.top) };

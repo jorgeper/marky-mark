@@ -517,7 +517,16 @@ test('E326: closing to the splash leaves no stale document behind — preview, e
   // Same out of split edit — the split pane injection must not linger either.
   await openWelcomeViaHelp(page);
   await page.keyboard.press('Control+e');
-  await page.evaluate(() => window.__mmDispatch!('toggleSplit'));
+  await expect(page.getByTestId('editor')).toBeVisible();
+  // splitEdit ships ON, so Ctrl+E already lands in split edit (the pane
+  // mounts in the same commit as the editor, issue #165) and an
+  // unconditional toggle would CLOSE it — the old unconditional dispatch
+  // only passed by reading the divider before that unmount committed
+  // (surfaced by issue #345's timing shift). Open the split only when it is
+  // not up yet, so the close below really leaves split edit.
+  if ((await page.getByTestId('split-divider').count()) === 0) {
+    await page.evaluate(() => window.__mmDispatch!('toggleSplit'));
+  }
   await expect(page.getByTestId('split-divider')).toBeVisible();
   await page.getByTestId('editor').locator('.cm-line').first().click();
   await page.keyboard.type('STALE-SPLIT ');

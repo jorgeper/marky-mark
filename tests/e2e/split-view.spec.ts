@@ -10,6 +10,7 @@ import {
   fsWrite,
   menuClick,
   openSettings,
+  previewSelectionAnnotation,
   previewTopAnchorLines,
   saveSettings,
   selectPhraseInPane,
@@ -19,7 +20,7 @@ import {
 } from './helpers';
 
 // Side-by-side edit: the divider, scroll sync, selection mirroring, mode
-// carry-over and the word placement cues.
+// carry-over, the caret-line tint and the scroll-neutral preview click.
 
 test.beforeEach(async ({ page }) => {
   await freshApp(page);
@@ -271,8 +272,9 @@ test('E464: Issue #278 — a preview selection is scroll-neutral: neither pane m
   // the preview.
   await editor.evaluate((el) => (el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.5));
   await expect.poll(() => preview.evaluate((el) => el.scrollTop)).toBeGreaterThan(100);
-  // Blur the editor the way a real preview interaction does (pointerdown),
-  // and let the caret-placement reveal (SPEC44 §4 — legitimate) settle.
+  // Blur the editor the way a real preview interaction does (pointerdown);
+  // the click's caret placement is itself scroll-neutral now (SPEC44 §4 as
+  // amended by issue #345) — let it settle all the same.
   await preview.click({ position: { x: 40, y: 40 } });
   await page.waitForTimeout(400);
   await expectScrollNeutralSelection('Marker 30');
@@ -523,7 +525,7 @@ test('E85: the selection survives ⌘E in both directions, in full and split lay
   expect(await page.evaluate(() => document.getSelection()?.toString() ?? '')).toBe('');
 });
 
-test('E124: split mode — caret word darkens in both panes, position-exact on repeats, selection clears it, typing re-anchors', async ({
+test('E124: split mode — the caret line alone is tinted in the editor; no word or block cue in either pane on caret moves, repeats, selection or typing', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/place.md', '# Title\n\nalpha beta gamma\n\ncat and cat again\n\n- one two\n- three four\n- five six\n');
@@ -532,108 +534,145 @@ test('E124: split mode — caret word darkens in both panes, position-exact on r
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
 
-  // Caret inside "alpha": the editor decoration and BOTH preview cues appear.
-  await page.getByTestId('editor').locator('.cm-line', { hasText: 'alpha beta gamma' }).click();
-  await page.keyboard.press('Home');
-  await page.keyboard.press('ArrowRight');
+  // Issue #345: the editor keeps CodeMirror's caret-line tint and nothing
+  // else; the preview paints no cue at all (SPEC44 §2.2 and §3 withdrawn).
+  const edLine = page.locator('.cm-content .cm-activeLine');
   const edWord = page.locator('.cm-content .mm-active-word');
   const pvWord = page.locator('[data-testid="split-preview"] .doc mark.mm-active-word');
   const pvBlock = page.locator('[data-testid="split-preview"] .doc .mm-active-block');
-  await expect(edWord).toHaveText('alpha');
-  await expect(pvWord).toHaveText('alpha');
-  await expect(pvBlock).toHaveCount(1);
-  await expect(pvBlock).toContainText('alpha beta gamma');
-  // Inert to the comment machinery.
-  expect(await pvWord.getAttribute('data-cid')).toBeNull();
+  // The invisible head-row anchor the split follower reads (issue #310).
+  const pvHead = page.locator('[data-testid="split-preview"] .doc [data-mm-head]');
+  const noCues = async () => {
+    await expect(edWord).toHaveCount(0);
+    await expect(pvWord).toHaveCount(0);
+    await expect(pvBlock).toHaveCount(0);
+  };
 
-  // Arrow into "beta": both sides re-target.
+  // Caret inside "alpha": the caret line is tinted, no word cue anywhere.
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'alpha beta gamma' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowRight');
+  await expect(edLine).toHaveCount(1);
+  await expect(edLine).toHaveText('alpha beta gamma');
+  await noCues();
+  await expect(pvHead).toHaveCount(1);
+  await expect(pvHead).toContainText('alpha beta gamma');
+
+  // Arrow into "beta": still only the line.
   for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowRight');
-  await expect(edWord).toHaveText('beta');
-  await expect(pvWord).toHaveText('beta');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBe('# Title\n\nalpha b'.length);
+  await expect(edLine).toHaveText('alpha beta gamma');
+  await noCues();
 
-  // Repeats mark the CARET's occurrence: caret in the second "cat".
+  // Repeats: the invisible anchor is position-exact — the caret's own
+  // occurrence (its text offset inside the paragraph), never a text search.
   await page.getByTestId('editor').locator('.cm-line', { hasText: 'cat and cat again' }).click();
   await page.keyboard.press('Home');
   for (let i = 0; i < 9; i++) await page.keyboard.press('ArrowRight');
-  await expect(edWord).toHaveText('cat');
-  await expect(pvWord).toHaveText('cat');
-  await expect(pvWord).toHaveCount(1);
-  const info = await page.evaluate(() => {
-    const m = document.querySelector('[data-testid="split-preview"] .doc mark.mm-active-word')!;
-    const blk = m.closest('[data-mm-line]')!;
-    const r = document.createRange();
-    r.setStart(blk, 0);
-    r.setEndBefore(m);
-    return { word: m.textContent, before: r.toString() };
-  });
-  expect(info.word).toBe('cat');
-  expect(info.before).toBe('cat and '); // the SECOND cat carries the mark
+  await expect(edLine).toHaveText('cat and cat again');
+  await noCues();
+  await expect(pvHead).toHaveCount(1);
+  await expect(pvHead).toHaveAttribute('data-mm-head', '9'); // after "cat and c"
+  await expect(pvHead).toContainText('cat and cat again');
+  // Nothing was inserted for it: the paragraph is still ONE text node.
+  expect(await pvHead.evaluate((el) => el.childNodes.length)).toBe(1);
 
-  // A real selection outranks the word cue; the block tint stays.
+  // A real selection: the line tint stays, still no cue in either pane.
   await page.keyboard.press('Shift+End');
-  await expect(edWord).toHaveCount(0);
-  await expect(pvWord).toHaveCount(0);
-  await expect(pvBlock).toHaveCount(1);
+  await expect(edLine).toHaveCount(1);
+  await noCues();
+  await expect(pvHead).toHaveCount(1);
 
-  // Typing keeps the cues anchored through the re-render.
+  // Typing: the re-render brings no cue back.
   await page.keyboard.press('End');
   await page.keyboard.type(' zeta');
-  await expect(edWord).toHaveText('zeta');
-  await expect(pvWord).toHaveText('zeta');
+  await expect(page.getByTestId('split-preview')).toContainText('cat and cat again zeta');
+  await noCues();
+  await expect(pvHead).toContainText('zeta');
 
-  // A stamped block can be a whole LIST — the tint stays on the caret's item.
+  // A stamped block can be a whole LIST — no tint on it or its items; the
+  // anchor still lands on the caret's own item.
   await page.getByTestId('editor').locator('.cm-line', { hasText: 'three four' }).click();
   await page.keyboard.press('Home');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
-  await expect(pvWord).toHaveText('three');
-  await expect(pvBlock).toHaveCount(1);
-  await expect(pvBlock).toContainText('three four');
-  await expect(pvBlock).not.toContainText('one two');
+  await expect(edLine).toContainText('three four');
+  await noCues();
+  await expect(pvHead).toHaveCount(1);
+  await expect(pvHead).toContainText('three four');
+  await expect(pvHead).not.toContainText('one two');
+  expect(await pvHead.evaluate((el) => el.tagName)).toBe('LI');
 });
 
-test('E125: preview clicks place the caret — split moves the editor, preview-only carries into Mod+E; links stay links', async ({
+test('E125: preview clicks place the caret with no cue and no scroll — split silently, preview-only carried into Mod+E; links stay links', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/click.md', '# Click\n\nalpha beta gamma\n\nplus +++ plus2\n\n[ext](https://example.com/x)\n');
   await page.goto('/#open=/docs/click.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Click');
+  const docCues = page.locator('[data-testid="doc"] .mm-active-block, [data-testid="doc"] mark.mm-active-word');
+  const pvCues = page.locator(
+    '[data-testid="split-preview"] .doc .mm-active-block, [data-testid="split-preview"] .doc mark.mm-active-word'
+  );
+  const edWord = page.locator('.cm-content .mm-active-word');
+  const edLine = page.locator('.cm-content .cm-activeLine');
 
-  // Preview-only: click a word → block + word cues right there.
+  // Preview-only: click a word → nothing visible changes (issue #345), the
+  // pane does not scroll, and the caret is parked for Mod+E.
+  const ws = page.locator('.workspace');
+  const wsBefore = await ws.evaluate((el) => el.scrollTop);
   await clickWord(page, '[data-testid="doc"]', 'beta');
-  await expect(page.locator('[data-testid="doc"] mark.mm-active-word')).toHaveText('beta');
-  await expect(page.locator('[data-testid="doc"] .mm-active-block')).toContainText('alpha beta gamma');
-  // A link click keeps its existing behavior — placement skipped, cue stays.
+  await page.waitForTimeout(300);
+  await expect(docCues).toHaveCount(0);
+  expect(Math.abs((await ws.evaluate((el) => el.scrollTop)) - wsBefore)).toBeLessThan(2);
+  // A link click keeps its existing behavior — placement skipped, so the
+  // parked caret from the word click survives it.
   await page.locator('[data-testid="doc"] a[href]').click();
-  await expect(page.locator('[data-testid="doc"] mark.mm-active-word')).toHaveText('beta');
+  await expect(docCues).toHaveCount(0);
 
   // Mod+E lands the editor caret on that word (the E85 contract, collapsed).
   // Issue #178: at the exact CLICKED offset inside it (clickWord aims at the
   // word's center), no longer pinned to the word's start.
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
-  await expect(page.locator('.cm-content .mm-active-word')).toHaveText('beta');
   const betaBase = '# Click\n\nalpha '.length;
   await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBeGreaterThanOrEqual(betaBase);
   expect(await page.evaluate(() => window.__mmEdit?.selFrom)).toBeLessThanOrEqual(betaBase + 'beta'.length);
+  await expect(edLine).toHaveText('alpha beta gamma');
+  await expect(edWord).toHaveCount(0);
 
   // Split mode: clicking a preview word moves the editor caret to it
-  // (Issue #178: to the clicked offset within it).
+  // (Issue #178: to the clicked offset within it) — silently: no cue in
+  // either pane, no scroll of either pane, the editor not focused.
+  const editor = page.locator('[data-testid="editor"] .cm-scroller');
+  const preview = page.getByTestId('split-preview');
+  const edBefore = await editor.evaluate((el) => el.scrollTop);
+  const pvBefore = await preview.evaluate((el) => el.scrollTop);
   await clickWord(page, '[data-testid="split-preview"] .doc', 'gamma');
-  await expect(page.locator('.cm-content .mm-active-word')).toHaveText('gamma');
-  await expect(page.locator('[data-testid="split-preview"] .doc mark.mm-active-word')).toHaveText('gamma');
   const gammaBase = '# Click\n\nalpha beta '.length;
   await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBeGreaterThanOrEqual(gammaBase);
   expect(await page.evaluate(() => window.__mmEdit?.selFrom)).toBeLessThanOrEqual(gammaBase + 'gamma'.length);
+  await page.waitForTimeout(300);
+  await expect(pvCues).toHaveCount(0);
+  await expect(edWord).toHaveCount(0);
+  await expect(edLine).toHaveText('alpha beta gamma');
+  expect(await page.evaluate(() => window.__mmEdit?.focused)).toBe(false);
+  expect(Math.abs((await editor.evaluate((el) => el.scrollTop)) - edBefore)).toBeLessThan(2);
+  expect(Math.abs((await preview.evaluate((el) => el.scrollTop)) - pvBefore)).toBeLessThan(2);
 
   // A no-word click (punctuation run) still moves the caret — Issue #178:
   // into the clicked run via the flat prefix, not just to the block start.
+  // The invisible head anchor follows it; still nothing painted.
   await clickWord(page, '[data-testid="split-preview"] .doc', '+++');
   const plusBase = '# Click\n\nalpha beta gamma\n\nplus '.length;
   await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBeGreaterThanOrEqual(plusBase);
   expect(await page.evaluate(() => window.__mmEdit?.selFrom)).toBeLessThanOrEqual(plusBase + '+++'.length);
-  await expect(page.locator('[data-testid="split-preview"] .doc .mm-active-block')).toContainText('plus +++ plus2');
+  const pvHead = page.locator('[data-testid="split-preview"] .doc [data-mm-head]');
+  await expect(pvHead).toHaveCount(1);
+  await expect(pvHead).toContainText('plus +++ plus2');
+  await expect(pvCues).toHaveCount(0);
+  await expect(edLine).toHaveText('plus +++ plus2');
 });
 
 test('E373: Issue #178 — a collapsed preview caret carries into edit at the exact clicked offset', async ({ page }) => {
@@ -703,19 +742,23 @@ test('E374: Issue #178 — the collapsed caret and top line survive edit → pre
   expect(await editorTopGutterLine(page)).toBeGreaterThan(20);
 });
 
-test('E126: hygiene — comments anchor through the cues, find coexists/suppresses, themes override, doc switch resets', async ({
+test('E126: hygiene — comments anchor across a click, find marks stand alone, the find bar leaves no word cue, --mm-active-line drives the editor line, doc switch leaves nothing', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/hyg.md', '# Hyg\n\nalpha beta gamma delta\n');
   await fsWrite(page, '/docs/other.md', '# Other\n\nplain here\n');
   await page.goto('/#open=/docs/hyg.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Hyg');
+  const docCues = page.locator('[data-testid="doc"] .mm-active-block, [data-testid="doc"] mark.mm-active-word');
+  const edWord = page.locator('.cm-content .mm-active-word');
 
-  // Cues active…
+  // A click parks the caret and paints nothing (issue #345)…
   await clickWord(page, '[data-testid="doc"]', 'beta');
-  await expect(page.locator('[data-testid="doc"] mark.mm-active-word')).toHaveText('beta');
+  await expect(docCues).toHaveCount(0);
   // …and the comment coordinate space is undisturbed: a comment over a span
-  // CROSSING the marked word (the mark fragments text nodes) anchors exactly.
+  // crossing the clicked word anchors exactly (no synthetic mark ever
+  // fragmented the paragraph's text node).
+  expect(await page.locator('[data-testid="doc"] p').first().evaluate((el) => el.childNodes.length)).toBe(1);
   await selectSpanInPane(page, '[data-testid="doc"]', 'beta', 'delta');
   // Issue #286: the popup is gone — the Insert Comment hotkey authors it.
   await expect(async () => {
@@ -728,44 +771,48 @@ test('E126: hygiene — comments anchor through the cues, find coexists/suppress
     .poll(async () => (await page.locator('[data-testid="doc"] mark.hl').allTextContents()).join(''))
     .toContain('beta gamma delta');
 
-  // Find marks and the active word coexist in the preview.
+  // Find marks stand alone in the preview — no word cue beside them.
   await page.keyboard.press('ControlOrMeta+f');
   await page.getByTestId('find-input').fill('beta');
   await expect(page.locator('[data-testid="doc"] mark.mm-find')).toHaveCount(1);
-  await expect(page.locator('[data-testid="doc"] mark.mm-active-word')).toHaveCount(1);
+  await expect(docCues).toHaveCount(0);
   await page.keyboard.press('Escape');
 
-  // In edit mode the open find bar suppresses the editor's word cue.
+  // In edit mode the caret line is tinted and no word cue exists — before
+  // the find bar opens, while it is open, and after it closes.
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
   await page.getByTestId('editor').locator('.cm-line', { hasText: 'alpha beta' }).click();
-  await expect(page.locator('.cm-content .mm-active-word')).toHaveCount(1);
+  await expect(page.locator('.cm-content .cm-activeLine')).toHaveText('alpha beta gamma delta');
+  await expect(edWord).toHaveCount(0);
   await page.keyboard.press('ControlOrMeta+f');
   await expect(page.getByTestId('find-input')).toBeVisible();
-  await expect(page.locator('.cm-content .mm-active-word')).toHaveCount(0);
+  await expect(edWord).toHaveCount(0);
   await page.keyboard.press('Escape');
   // Click back into the editor: focus returns, the find-match selection
-  // collapses, and the cue re-derives now that the bar is gone.
+  // collapses, and the line tint is all that shows.
   await page.getByTestId('editor').locator('.cm-line', { hasText: 'alpha beta' }).click();
-  await expect(page.locator('.cm-content .mm-active-word')).toHaveCount(1);
+  await expect(page.locator('.cm-content .cm-activeLine')).toHaveText('alpha beta gamma delta');
+  await expect(edWord).toHaveCount(0);
 
-  // Theme variables drive both cue colors.
+  // SPEC44 §2.1 (issue #345): the theme token drives the line tint — a
+  // theme overriding --mm-active-line recolours CodeMirror's active line.
   const color = await page.evaluate(() => {
-    document.querySelector<HTMLElement>('.theme-root')!.style.setProperty('--mm-active-word', 'rgb(1, 2, 3)');
-    const m = document.querySelector('.cm-content .mm-active-word')!;
-    return getComputedStyle(m).backgroundColor;
+    document.querySelector<HTMLElement>('.theme-root')!.style.setProperty('--mm-active-line', 'rgb(1, 2, 3)');
+    const line = document.querySelector('.cm-content .cm-activeLine')!;
+    return getComputedStyle(line).backgroundColor;
   });
   expect(color).toBe('rgb(1, 2, 3)');
 
-  // A doc switch drops the cues — nothing stale on the incoming document.
+  // A doc switch leaves nothing on the incoming document.
   await page.keyboard.press('Control+e');
   await page.goto('/#open=/docs/other.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Other');
-  await expect(page.locator('[data-testid="doc"] mark.mm-active-word')).toHaveCount(0);
-  await expect(page.locator('[data-testid="doc"] .mm-active-block')).toHaveCount(0);
+  await expect(docCues).toHaveCount(0);
+  await expect(page.locator('[data-testid="doc"] [data-mm-head]')).toHaveCount(0);
 });
 
-test('E127: tint granularity invariant — drags, punctuation carets, table cells, quotes, whitespace clicks all land on ONE container', async ({
+test('E127: granularity invariant — drags, punctuation carets, table cells, quotes, whitespace clicks tint nothing; the invisible head anchor lands on ONE innermost container', async ({
   page,
 }) => {
   await fsWrite(
@@ -777,61 +824,72 @@ test('E127: tint granularity invariant — drags, punctuation carets, table cell
   await expect(page.getByTestId('doc').locator('h1')).toContainText('G');
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  // Issue #345: no block tint ever; the SPEC44 §3.1 one-innermost-container
+  // invariant now holds for the invisible `data-mm-head` stamp the split
+  // follower reads (issue #310) — an attribute no rule styles.
   const tint = page.locator('[data-testid="split-preview"] .doc .mm-active-block');
+  const head = page.locator('[data-testid="split-preview"] .doc [data-mm-head]');
 
   // Multi-word drag INSIDE one bullet: exactly that li, siblings excluded.
   await page.getByTestId('editor').locator('.cm-line', { hasText: 'three four' }).click();
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+End');
-  await expect(tint).toHaveCount(1);
-  await expect(tint).toContainText('three four');
-  await expect(tint).not.toContainText('one two');
-  expect(await tint.evaluate((el) => el.tagName)).toBe('LI');
+  await expect(head).toHaveCount(1);
+  await expect(head).toContainText('three four');
+  await expect(head).not.toContainText('one two');
+  expect(await head.evaluate((el) => el.tagName)).toBe('LI');
+  await expect(tint).toHaveCount(0);
 
   // Drag across two bullets: the HEAD's li wins, live.
   await page.getByTestId('editor').locator('.cm-line', { hasText: 'one two' }).click();
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+ArrowDown');
-  await expect(tint).toHaveCount(1);
-  await expect(tint).toContainText('three four');
-  await expect(tint).not.toContainText('one two');
+  await expect(head).toHaveCount(1);
+  await expect(head).toContainText('three four');
+  await expect(head).not.toContainText('one two');
+  await expect(tint).toHaveCount(0);
 
   // Collapsed caret on a punctuation run inside a bullet: that li.
   await page.getByTestId('editor').locator('.cm-line', { hasText: 'pp +++ qq' }).click();
   await page.keyboard.press('Home');
   for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowRight'); // inside +++
-  await expect(tint).toHaveCount(1);
-  await expect(tint).toContainText('pp +++ qq');
-  await expect(tint).not.toContainText('three four');
-  expect(await tint.evaluate((el) => el.tagName)).toBe('LI');
+  await expect(head).toHaveCount(1);
+  await expect(head).toContainText('pp +++ qq');
+  await expect(head).not.toContainText('three four');
+  expect(await head.evaluate((el) => el.tagName)).toBe('LI');
+  await expect(tint).toHaveCount(0);
 
   // Caret inside a table cell: the td, not the table.
   await page.getByTestId('editor').locator('.cm-line', { hasText: '| ca | cb |' }).click();
   await page.keyboard.press('Home');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
-  await expect(tint).toHaveCount(1);
-  await expect(tint).toHaveText(/ca/);
-  await expect(tint).not.toContainText('cb');
-  expect(await tint.evaluate((el) => el.tagName)).toBe('TD');
+  await expect(head).toHaveCount(1);
+  await expect(head).toHaveText(/ca/);
+  await expect(head).not.toContainText('cb');
+  expect(await head.evaluate((el) => el.tagName)).toBe('TD');
+  await expect(tint).toHaveCount(0);
 
   // Caret in a blockquote: the inner container, never the whole quote.
   await page.getByTestId('editor').locator('.cm-line', { hasText: 'quoted words here' }).click();
   await page.keyboard.press('Home');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
-  await expect(tint).toHaveCount(1);
-  await expect(tint).toContainText('quoted words here');
-  expect(await tint.evaluate((el) => el.tagName)).not.toBe('BLOCKQUOTE');
+  await expect(head).toHaveCount(1);
+  await expect(head).toContainText('quoted words here');
+  expect(await head.evaluate((el) => el.tagName)).not.toBe('BLOCKQUOTE');
+  await expect(tint).toHaveCount(0);
 
-  // Preview punctuation-click inside a bullet: that bullet's li tints.
+  // Preview punctuation-click inside a bullet: that bullet's li — silently.
   await clickWord(page, '[data-testid="split-preview"] .doc', '+++');
-  await expect(tint).toHaveCount(1);
-  await expect(tint).toContainText('pp +++ qq');
-  await expect(tint).not.toContainText('one two');
+  await expect(head).toHaveCount(1);
+  await expect(head).toContainText('pp +++ qq');
+  await expect(head).not.toContainText('one two');
+  await expect(tint).toHaveCount(0);
+  await expect(page.locator('[data-testid="split-preview"] .doc mark.mm-active-word')).toHaveCount(0);
 });
 
-test('E128: cue-anchored split sync — the selected word stays level in both panes while either pane scrolls', async ({
+test('E128: cue-anchored split sync — the caret row stays level with the invisible head row in both panes while either pane scrolls', async ({
   page,
 }) => {
   const paras = Array.from({ length: 40 }, (_, i) => `para ${i} filler text line\n`).join('\n');
@@ -842,7 +900,8 @@ test('E128: cue-anchored split sync — the selected word stays level in both pa
   await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
 
   // Scroll the (virtualized) editor until the heading renders, then click
-  // into it — the caret lands mid-document and the word cue follows.
+  // into it — the caret lands mid-document and the invisible head anchor
+  // (issue #345: no word mark any more) follows onto the heading.
   const target = page.getByTestId('editor').locator('.cm-line', { hasText: 'target word here' });
   await page.getByTestId('editor').locator('.cm-content').hover();
   for (let i = 0; i < 80 && (await target.count()) === 0; i++) {
@@ -853,17 +912,16 @@ test('E128: cue-anchored split sync — the selected word stays level in both pa
   await target.click();
   await page.keyboard.press('Home');
   for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight'); // past '## '
-  await expect(page.locator('[data-testid="split-preview"] .doc mark.mm-active-word')).toHaveText('target');
+  const pvHead = page.locator('[data-testid="split-preview"] .doc [data-mm-head]');
+  await expect(pvHead).toHaveText('target word here');
+  await expect(page.locator('[data-testid="split-preview"] .doc mark.mm-active-word')).toHaveCount(0);
+  await expect(page.locator('[data-testid="split-preview"] .doc .mm-active-block')).toHaveCount(0);
 
-  const levels = () =>
-    page.evaluate(() => {
-      const ed = document.querySelector('.cm-content .mm-active-word');
-      const pv = document.querySelector('[data-testid="split-preview"] .doc mark.mm-active-word');
-      if (!ed || !pv) return null;
-      return Math.abs(ed.getBoundingClientRect().top - pv.getBoundingClientRect().top);
-    });
+  // The editor's caret row (the drawn cursor) against the preview's head
+  // row (the character at the stamped offset) — the issue #310 yardstick.
+  const levels = () => caretLevelGap(page);
 
-  // Scroll the editor a few steps: the word stays LEVEL — a small stable
+  // Scroll the editor a few steps: the row stays LEVEL — a small stable
   // structural offset (font/margin asymmetry) is allowed, drift is not.
   await page.getByTestId('editor').locator('.cm-content').hover();
   let base: number | null = null;
@@ -871,10 +929,9 @@ test('E128: cue-anchored split sync — the selected word stays level in both pa
     await page.mouse.wheel(0, dy);
     await page.waitForTimeout(250);
     const d = await levels();
-    expect(d).not.toBeNull();
-    expect(d!).toBeLessThan(90);
-    if (base === null) base = d!;
-    expect(Math.abs(d! - base)).toBeLessThan(15); // tracks, no drift
+    expect(d).toBeLessThan(90);
+    if (base === null) base = d;
+    expect(Math.abs(d - base)).toBeLessThan(15); // tracks, no drift
   }
 
   // Preview leads: same contract.
@@ -883,10 +940,176 @@ test('E128: cue-anchored split sync — the selected word stays level in both pa
     await page.mouse.wheel(0, dy);
     await page.waitForTimeout(250);
     const d = await levels();
-    expect(d).not.toBeNull();
-    expect(d!).toBeLessThan(90);
-    expect(Math.abs(d! - base!)).toBeLessThan(15);
+    expect(d).toBeLessThan(90);
+    expect(Math.abs(d - base!)).toBeLessThan(15);
   }
+});
+
+// --- Issue #345: no cues, no scroll on a preview click ------------------------
+
+/** The last 1-based gutter line whose row is fully inside the editor's viewport. */
+const editorBottomGutterLine = (page: Page) =>
+  page.evaluate(() => {
+    const bottom = document.querySelector('.cm-scroller')!.getBoundingClientRect().bottom;
+    const gutters = Array.from(document.querySelectorAll('.cm-lineNumbers .cm-gutterElement')).filter(
+      (g) => g.getBoundingClientRect().bottom <= bottom - 1 && /\d/.test(g.textContent ?? '')
+    );
+    return gutters.length ? Number(gutters[gutters.length - 1].textContent) : -1;
+  });
+
+test('E623: Issue #345 — a plain split-preview click far below the editor viewport places the caret and scrolls NEITHER pane, sync on', async ({
+  page,
+}) => {
+  // The E464 long document, with a NARROW editor pane (the persisted ratio
+  // seeds the mount, E40) so its wrapped rows cover far fewer sections than
+  // the wide preview shows: the preview's lowest visible paragraph sits well
+  // below the editor's last visible line.
+  await freshApp(page);
+  await page.evaluate(() => {
+    const sections: string[] = [];
+    for (let i = 1; i <= 40; i++) {
+      sections.push(`## Marker ${i}\n`);
+      sections.push(`Paragraph for section ${i}. `.repeat(8) + '\n');
+    }
+    window.__mmfs!.write('/docs/far.md', sections.join('\n'));
+    const raw = window.__mmfs!.read('/config/settings.json');
+    const settings = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...settings, splitEdit: true, splitRatio: 0.25 }));
+  });
+  await page.reload();
+  await page.goto('/#open=/docs/far.md');
+  await expect(page.getByTestId('doc').locator('h2').first()).toContainText('Marker 1');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  await expect(page.locator('.cm-content')).toBeVisible();
+  await expect(page.getByTestId('sync-scroll-toggle')).toHaveAttribute('data-state', 'on');
+  const editor = page.locator('[data-testid="editor"] .cm-scroller');
+  const preview = page.getByTestId('split-preview');
+  await page.waitForTimeout(300); // the mount-time realign settles
+
+  // The lowest paragraph fully inside the preview viewport, and its source
+  // line — far below the editor's last visible row (the precondition that
+  // makes a `reveal` visible as an editor scroll).
+  const section = await preview.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const ps = Array.from(el.querySelectorAll('.doc p')).filter((p) => {
+      const b = p.getBoundingClientRect();
+      return b.top >= r.top && b.bottom <= r.bottom;
+    });
+    const m = /section (\d+)\./.exec(ps[ps.length - 1]?.textContent ?? '');
+    return m ? Number(m[1]) : -1;
+  });
+  expect(section).toBeGreaterThan(1);
+  const text = (await fsRead(page, '/docs/far.md'))!;
+  const pStart = text.indexOf(`Paragraph for section ${section}. `);
+  const pLine = text.slice(0, pStart).split('\n').length;
+  expect(pLine).toBeGreaterThan((await editorBottomGutterLine(page)) + 3);
+
+  const edBefore = await editor.evaluate((el) => el.scrollTop);
+  const pvBefore = await preview.evaluate((el) => el.scrollTop);
+  await clickWord(page, '[data-testid="split-preview"] .doc', `section ${section}.`);
+  // The caret landed inside the clicked sentence (issue #178)…
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBeGreaterThanOrEqual(pStart);
+  expect(await page.evaluate(() => window.__mmEdit?.selFrom)).toBeLessThanOrEqual(pStart + `Paragraph for section ${section}.`.length);
+  expect(await page.evaluate(() => window.__mmEdit?.focused)).toBe(false);
+  // …silently: after a settle neither pane moved, and nothing was painted.
+  await page.waitForTimeout(400);
+  expect(Math.abs((await editor.evaluate((el) => el.scrollTop)) - edBefore)).toBeLessThan(2);
+  expect(Math.abs((await preview.evaluate((el) => el.scrollTop)) - pvBefore)).toBeLessThan(2);
+  await expect(
+    page.locator('[data-testid="split-preview"] .doc .mm-active-block, [data-testid="split-preview"] .doc mark.mm-active-word')
+  ).toHaveCount(0);
+  await expect(page.locator('.cm-content .mm-active-word')).toHaveCount(0);
+  // The caret's line is still off-screen: the editor really did not reveal it.
+  expect(await editorBottomGutterLine(page)).toBeLessThan(pLine);
+});
+
+test('E624: Issue #345 — a preview-only click scrolls nothing and paints nothing, still carries into Mod+E; a click-drag still authors a highlight', async ({
+  page,
+}) => {
+  const paras = Array.from({ length: 60 }, (_, i) => `Paragraph ${i} holds token tok${i}x and a few more words.\n`).join('\n');
+  await fsWrite(page, '/docs/pv-click.md', `# PV\n\n${paras}`);
+  await page.goto('/#open=/docs/pv-click.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('PV');
+  const ws = page.locator('.workspace');
+  await ws.evaluate((el) => (el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.5));
+  await page.waitForTimeout(200);
+  const before = await ws.evaluate((el) => el.scrollTop);
+  expect(before).toBeGreaterThan(100);
+
+  // The first paragraph fully inside the viewport — its token is what we click.
+  const n = await ws.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const p = Array.from(el.querySelectorAll('[data-testid="doc"] p')).find((c) => {
+      const b = c.getBoundingClientRect();
+      return b.top >= r.top && b.bottom <= r.bottom;
+    });
+    const m = /tok(\d+)x/.exec(p?.textContent ?? '');
+    return m ? Number(m[1]) : -1;
+  });
+  expect(n).toBeGreaterThan(0);
+  const token = `tok${n}x`;
+  await clickWord(page, '[data-testid="doc"]', token);
+  await page.waitForTimeout(400);
+  expect(Math.abs((await ws.evaluate((el) => el.scrollTop)) - before)).toBeLessThan(2);
+  await expect(
+    page.locator('[data-testid="doc"] .mm-active-block, [data-testid="doc"] mark.mm-active-word, [data-testid="doc"] [data-mm-head]')
+  ).toHaveCount(0);
+
+  // Mod+E: the parked caret lands inside the clicked token (issue #178).
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  const text = (await fsRead(page, '/docs/pv-click.md'))!;
+  const at = text.indexOf(token);
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBeGreaterThanOrEqual(at);
+  expect(await page.evaluate(() => window.__mmEdit?.selFrom)).toBeLessThanOrEqual(at + token.length);
+  await expect(page.locator('.cm-content .mm-active-word')).toHaveCount(0);
+  await expect(page.locator('.cm-content .cm-activeLine')).toContainText(token);
+
+  // Back in the preview, a click-drag selection is the ONE visible selection
+  // and still feeds the annotation flows (PRD 023 §13): the button appears
+  // and a highlight is created from it.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('PV');
+  await page.waitForTimeout(250); // past the selection-restore window (E85)
+  await selectPhraseInPane(page, '[data-testid="doc"]', `${token} and a few`);
+  await expect(page.getByTestId('smart-edit-selection')).toBeVisible();
+  await previewSelectionAnnotation(page, 'highlight', 'hl-yellow');
+  const mark = page.locator('[data-testid="doc"] mark.hl[data-color="yellow"]');
+  await expect(mark.first()).toBeVisible();
+  await expect(mark.first()).toContainText(token);
+  await expect(page.locator('[data-testid="doc"] .mm-active-block, [data-testid="doc"] mark.mm-active-word')).toHaveCount(0);
+});
+
+test('E625: Issue #345 — --mm-active-line defaults to the accent at ~10% and is what paints the editor caret line; --mm-active-word is gone', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/tint.md', '# Tint\n\nfirst line here\n\nsecond line here\n');
+  await page.goto('/#open=/docs/tint.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Tint');
+  const tokens = await page.evaluate(() => {
+    const cs = getComputedStyle(document.querySelector('.theme-root')!);
+    return { line: cs.getPropertyValue('--mm-active-line').trim(), word: cs.getPropertyValue('--mm-active-word').trim() };
+  });
+  // The TOKEN, not a pixel: raised from 5.5% to the 9–10% band.
+  expect(tokens.line).toMatch(/color-mix\(/);
+  expect(tokens.line).toMatch(/\b(9(\.\d+)?|10)%/);
+  expect(tokens.word).toBe('');
+
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'second line here' }).click();
+  const line = page.locator('.cm-content .cm-activeLine');
+  await expect(line).toHaveText('second line here');
+  await expect(page.locator('.cm-content .mm-active-word')).toHaveCount(0);
+  // Binding: the line reads the token — a fixed override shows through
+  // unchanged, so CodeMirror's hardcoded base-theme pick is no longer what
+  // paints it.
+  const color = await page.evaluate(() => {
+    document.querySelector<HTMLElement>('.theme-root')!.style.setProperty('--mm-active-line', 'rgb(4, 5, 6)');
+    return getComputedStyle(document.querySelector('.cm-content .cm-activeLine')!).backgroundColor;
+  });
+  expect(color).toBe('rgb(4, 5, 6)');
 });
 
 test('E247: issue #125 — the edit/preview switch sits left of the preview chevron and flips the mode', async ({
@@ -1315,35 +1538,33 @@ const centreEditorOnCaret = (page: Page) =>
 /**
  * Issue #310's yardstick: the vertical centre of the editor caret's visual
  * row (the drawn cursor — coordsAtPos geometry) against the centre of the
- * preview cue's first rendered row (the word mark, else the character at the
- * `data-mm-head` offset stamped on the tinted container).
+ * preview head row — the character at the `data-mm-head` offset the host
+ * stamps on the head's innermost container (issue #345: the invisible
+ * channel; no word mark or block tint exists any more), read through a
+ * Range exactly as the split controller reads it.
  */
 const caretLevelGap = (page: Page) =>
   page.evaluate(() => {
     const pv = document.querySelector('[data-testid="split-preview"] .doc');
-    const ed = document.querySelector('.cm-cursor-primary') ?? document.querySelector('.cm-content .mm-active-word');
+    const ed = document.querySelector('.cm-cursor-primary');
     if (!pv || !ed) return Infinity;
     let c: DOMRect | undefined;
-    const word = pv.querySelector('mark.mm-active-word');
-    if (word) c = word.getClientRects()[0] ?? word.getBoundingClientRect();
-    else {
-      const block = pv.querySelector<HTMLElement>('.mm-active-block[data-mm-head]');
-      if (!block) return Infinity;
-      const offset = Number(block.dataset.mmHead);
-      const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
-      let acc = 0;
-      let node: Node | null;
-      while ((node = walker.nextNode())) {
-        const len = (node as Text).data.length;
-        if (offset < acc + len) {
-          const range = document.createRange();
-          range.setStart(node, offset - acc);
-          range.setEnd(node, offset - acc + 1);
-          c = range.getClientRects()[0];
-          break;
-        }
-        acc += len;
+    const block = pv.querySelector<HTMLElement>('[data-mm-head]');
+    if (!block) return Infinity;
+    const offset = Number(block.dataset.mmHead);
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    let acc = 0;
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      const len = (node as Text).data.length;
+      if (offset < acc + len) {
+        const range = document.createRange();
+        range.setStart(node, offset - acc);
+        range.setEnd(node, offset - acc + 1);
+        c = range.getClientRects()[0];
+        break;
       }
+      acc += len;
     }
     if (!c) return Infinity;
     const e = ed.getClientRects()[0] ?? ed.getBoundingClientRect();
@@ -1407,7 +1628,7 @@ test('E555: Issue #310 — a click on a lower editor row levels the preview cue 
   expect(Math.abs((await previewScrollTop(page)) - settled)).toBeLessThan(2);
 });
 
-test('E556: Issue #310 — ArrowDown and Shift+ArrowDown walk visual rows and the preview stays level on the head, word mark or not', async ({
+test('E556: Issue #310 — ArrowDown and Shift+ArrowDown walk visual rows and the preview stays level on the head, collapsed or selecting', async ({
   page,
 }) => {
   await caretSyncApp(page);
@@ -1416,8 +1637,10 @@ test('E556: Issue #310 — ArrowDown and Shift+ArrowDown walk visual rows and th
   await centreEditorOnCaret(page);
   await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
   const edBefore = await editorScrollTop(page);
-  const pvWord = page.locator('[data-testid="split-preview"] .doc mark.mm-active-word');
-  const pvHead = page.locator('[data-testid="split-preview"] .doc .mm-active-block[data-mm-head]');
+  const pvHead = page.locator('[data-testid="split-preview"] .doc [data-mm-head]');
+  const pvCues = page.locator(
+    '[data-testid="split-preview"] .doc .mm-active-block, [data-testid="split-preview"] .doc mark.mm-active-word'
+  );
 
   // Collapsed caret: each ArrowDown lands on the next wrapped row of the
   // same paragraph; the preview keeps the word under the caret level with
@@ -1429,16 +1652,17 @@ test('E556: Issue #310 — ArrowDown and Shift+ArrowDown walk visual rows and th
     await page.keyboard.press('ArrowDown');
     await expect.poll(() => cursorTop(page)).toBeGreaterThan(lastCursor + 8); // really one row down
     lastCursor = await cursorTop(page);
-    await expect(pvWord).toHaveCount(1);
+    await expect(pvHead).toHaveCount(1);
+    await expect(pvCues).toHaveCount(0); // issue #345: nothing painted
     await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
   }
-  // Selection extension: SPEC44 clears the word mark on both sides; the tint
-  // carries the head's rendered offset and the panes stay level on that row.
+  // Selection extension: the invisible anchor carries the head's rendered
+  // offset and the panes stay level on that row — still nothing painted.
   for (let i = 0; i < 2; i++) {
     await page.keyboard.press('Shift+ArrowUp');
     await expect.poll(() => cursorTop(page)).toBeLessThan(lastCursor - 8);
     lastCursor = await cursorTop(page);
-    await expect(pvWord).toHaveCount(0);
+    await expect(pvCues).toHaveCount(0);
     await expect(pvHead).toHaveCount(1);
     await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
   }
@@ -1463,7 +1687,7 @@ test('E557: Issue #310 — Enter and typing low in a long document keep the prev
   await page.keyboard.type('freshly typed words');
   // The debounced live re-render landed the new paragraph…
   await expect(page.getByTestId('split-preview')).toContainText('freshly typed words');
-  await expect(page.locator('[data-testid="split-preview"] .doc mark.mm-active-word')).toHaveText('words');
+  await expect(page.locator('[data-testid="split-preview"] .doc [data-mm-head]')).toContainText('freshly typed words');
   // …and the preview is level with the caret's new row, six rows lower.
   await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
   // The editor never scrolled, so the caret sits six rows lower in its
@@ -1473,7 +1697,7 @@ test('E557: Issue #310 — Enter and typing low in a long document keep the prev
   expect(Math.abs((await editorScrollTop(page)) - edBefore)).toBeLessThan(1);
   // Keep typing: still level after the next re-render, editor still put.
   await page.keyboard.type(' and more');
-  await expect(page.locator('[data-testid="split-preview"] .doc mark.mm-active-word')).toHaveText('more');
+  await expect(page.locator('[data-testid="split-preview"] .doc [data-mm-head]')).toContainText('and more');
   await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
   expect(Math.abs((await editorScrollTop(page)) - edBefore)).toBeLessThan(1);
 });
@@ -1494,8 +1718,8 @@ test('E558: Issue #310 — with sync scrolling off, caret moves, selection and t
   const pvBefore = await previewScrollTop(page);
   const edBefore = await editorScrollTop(page);
 
-  // Click back in, walk rows, extend a selection, type — the cues still
-  // repaint (SPEC44) but the preview's scrollTop is untouched.
+  // Click back in, walk rows, extend a selection, type — the head anchor
+  // still re-stamps (issue #310) but the preview's scrollTop is untouched.
   const at = await editorRowBelowCaret(page, 60);
   await page.mouse.click(at.x, at.y);
   for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
@@ -1503,23 +1727,24 @@ test('E558: Issue #310 — with sync scrolling off, caret moves, selection and t
   await page.keyboard.press('End');
   await page.keyboard.type(' typedwhileoff');
   await expect(page.getByTestId('split-preview')).toContainText('typedwhileoff');
-  await expect(page.locator('[data-testid="split-preview"] .doc mark.mm-active-word')).toHaveText('typedwhileoff');
+  await expect(page.locator('[data-testid="split-preview"] .doc [data-mm-head]')).toContainText('typedwhileoff');
   await page.waitForTimeout(300); // outlast any frame-coalesced write
   expect(Math.abs((await previewScrollTop(page)) - pvBefore)).toBeLessThan(1);
   expect(Math.abs((await editorScrollTop(page)) - edBefore)).toBeLessThan(1);
 });
 
-test('E559: Issue #310 — a heading cue levels within 16 px and a body-text cue within 10 px, whichever pane leads', async ({
+test('E559: Issue #310 — a heading row levels within 16 px and a body-text row within 10 px, whichever pane leads', async ({
   page,
 }) => {
   await caretSyncApp(page);
-  const pvWord = page.locator('[data-testid="split-preview"] .doc mark.mm-active-word');
+  const pvHead = page.locator('[data-testid="split-preview"] .doc [data-mm-head]');
 
   // Heading: caret on "Heading" (past the '## ' marker).
   await clickEditorLine(page, 'Heading Target Here');
   await page.keyboard.press('Home');
   for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
-  await expect(pvWord).toHaveText('Heading');
+  await expect(pvHead).toHaveText('Heading Target Here');
+  expect(await pvHead.evaluate((el) => el.tagName)).toBe('H2');
   await centreEditorOnCaret(page);
   await expect.poll(() => caretLevelGap(page)).toBeLessThan(16);
   // Each wheel gets the E128 settle: the wheel lands, the follower writes,
@@ -1542,7 +1767,7 @@ test('E559: Issue #310 — a heading cue levels within 16 px and a body-text cue
   await clickEditorLine(page, 'walk0 walk1');
   await page.keyboard.press('Home');
   await page.keyboard.press('ArrowRight');
-  await expect(pvWord).toHaveText('walk0');
+  await expect(pvHead).toContainText('walk0 walk1');
   await centreEditorOnCaret(page);
   await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
   await page.getByTestId('editor').locator('.cm-content').hover();

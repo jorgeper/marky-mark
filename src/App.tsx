@@ -7,7 +7,6 @@ import {
   blockLineFor,
   collectAnchors,
   compileQuery,
-  countNormalized,
   decorateCodeBlocks,
   decorateHeadingLinks,
   diffLineSets,
@@ -16,13 +15,12 @@ import {
   fenceRendererFor,
   findMatchRanges,
   findNormalized,
-  findNormalizedNth,
   lineAtOffset,
   literalReplacement,
   mapSelectionToSource,
   offsetForLine,
   registerMermaidRenderer,
-  renderedOffsetForSource,
+  renderedHeadOffset,
   renderFenceDiagrams,
   renderMarkdown,
   SplitView,
@@ -30,7 +28,6 @@ import {
   sourceOffsetForRendered,
   VimNavResolver,
   visibleTextForRange,
-  wordAt,
   buildAnnotationMenu,
   SMART_EDIT_HASH_SVG,
   SmartEditMenu,
@@ -1453,7 +1450,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
 
   // --- SPEC24 §1: editor → preview synthetic highlight -------------------------
   const mirrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Issue #310: the pending cue repaint for the latest caret report.
+  // Issue #310: the pending head-anchor stamp for the latest caret report.
   const cueRafRef = useRef<number | null>(null);
 
   /** Unwrap every mirror mark; text-node normalization keeps anchors stable. */
@@ -1463,28 +1460,38 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     unwrapMarks(pane, 'mark.mm-mirror-sel');
   }, []);
 
-  // --- SPEC44: active line & word cues (either preview pane) -------------------
-  // §3.1: the "standard containers" the tint may land on.
-  // eslint-disable-next-line no-var — module-ish constant inside the component
-  const ACTIVE_CONTAINERS = 'li, p, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th';
-  const activeCueRef = useRef<{ head: number; headLine: number; hasSel: boolean } | null>(null);
+  // --- Issue #310 / SPEC45: the invisible head-row anchor (split preview) ----
+  // SPEC44 §3 was withdrawn by issue #345: the preview paints NO placement
+  // cue any more — no block tint, no word mark. What survives is the split
+  // sync controller's need to know the caret's RENDERED ROW (issue #310's
+  // following, SPEC45's cue-anchored alignment). That reaches it through an
+  // attribute alone: `data-mm-head` — the head's text offset within its
+  // innermost standard container — stamped on that container. No CSS rule
+  // styles it, no element is inserted, rendered text and offsets are
+  // untouched, and the comment/find marks painted over the same text nodes
+  // are never fragmented (E291).
+  // SPEC44 §3.1's "standard containers", where the stamp may land.
+  const HEAD_CONTAINERS = 'li, p, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th';
+  const headAnchorRef = useRef<{ head: number; headLine: number } | null>(null);
 
-  const clearActiveCues = useCallback((pane: HTMLElement) => {
-    pane.querySelectorAll<HTMLElement>('.mm-active-block, [data-mm-head]').forEach((el) => {
-      el.classList.remove('mm-active-block');
-      delete el.dataset.mmHead; // Issue #310: the head offset rides on the tint
+  const clearHeadAnchor = useCallback((pane: HTMLElement) => {
+    pane.querySelectorAll<HTMLElement>('[data-mm-head]').forEach((el) => {
+      delete el.dataset.mmHead;
     });
-    unwrapMarks(pane, 'mark.mm-active-word');
   }, []);
 
   /**
-   * SPEC44 §3: the caret's block tint + position-exact word mark. The word is
-   * located by normalized occurrence INDEX computed on the source side — the
-   * caret's occurrence, never a text search that could hit a twin elsewhere.
+   * Issue #345: stamp the caret head's rendered row. The head resolves to a
+   * rendered point through the pure mapping layer (SPEC44 §3.1: the caret's
+   * word by occurrence index, else the flat source→rendered offset —
+   * `renderedHeadOffset`), then to the innermost standard container that
+   * holds it; the stamp is that container's `data-mm-head` = the head's text
+   * offset inside it. Nothing when the head resolves to no container (front
+   * matter, an empty document).
    */
-  const applyActiveCues = useCallback(
-    (pane: HTMLElement, head: number, headLine: number, hasSel: boolean) => {
-      clearActiveCues(pane);
+  const stampHeadAnchor = useCallback(
+    (pane: HTMLElement, head: number, headLine: number) => {
+      clearHeadAnchor(pane);
       const buffer = stateRef.current.buffer;
       const stamped = Array.from(pane.querySelectorAll<HTMLElement>('[data-mm-line]'));
       if (stamped.length === 0) return;
@@ -1501,84 +1508,41 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       region.setEndAfter(blockEl);
       const { start: rs, end: re } = rangeToOffsets(pane, region);
       const blockRendered = getDocText(pane).slice(rs, re);
-      // §3.1: the tint target is ALWAYS the innermost standard container of
-      // the caret / selection head — never the whole stamp (which can be an
-      // entire list, table, or quote). The head resolves to a rendered point
-      // through the pure mapping layer; the word mark refines it when it
-      // exists, the stamped element is the last resort.
-      const containerOf = (el: Element | null): HTMLElement | null =>
-        (el?.closest<HTMLElement>(ACTIVE_CONTAINERS) ?? null);
-      // The head's rendered point: its innermost container plus the exact
-      // text position, for the issue #310 head marker. Null when the head
-      // does not resolve to a rendered container.
-      const headPoint = (): { container: HTMLElement; at: { node: Node; offset: number } } | null => {
-        const off = renderedOffsetForSource(buffer, blockStart, head, blockRendered);
-        if (off === null) return null;
-        const r = offsetsToRange(pane, rs + Math.min(off, Math.max(0, blockRendered.length - 1)), rs + Math.min(off + 1, blockRendered.length));
-        if (!r) return null;
-        // The range START can land at the tail of an inter-item whitespace
-        // node (parent = the list itself); the END sits inside the real
-        // container's text — take the first that resolves (the END point
-        // steps back one character so it still sits BEFORE the head's char).
-        const ends = [
-          { node: r.startContainer, offset: r.startOffset },
-          { node: r.endContainer, offset: r.endContainer.nodeType === Node.TEXT_NODE ? Math.max(0, r.endOffset - 1) : r.endOffset },
-        ];
-        for (const at of ends) {
-          const el = at.node.nodeType === Node.ELEMENT_NODE ? (at.node as Element) : at.node.parentElement;
-          const c = el && pane.contains(el) ? containerOf(el) : null;
-          if (c) return { container: c, at };
-        }
-        return null;
-      };
-      const tint = (el: HTMLElement | null) => (el && pane.contains(el) ? el : blockEl).classList.add('mm-active-block');
-      // Issue #310: when no word mark is painted (a selection, a whitespace or
-      // punctuation caret), the head's RENDERED ROW still has to reach the
-      // split sync controller: the head's text offset WITHIN its container
-      // rides on the tint as `data-mm-head`, and the controller reads that
-      // character's rect through a Range. Nothing is inserted into the DOM,
-      // so text nodes stay whole for the find and comment marks painted over
-      // them (E291) and rendered text and offsets are untouched.
-      const tintAtHead = () => {
-        const point = headPoint();
-        tint(point?.container ?? null); // the head's container — like the editor's active line
-        if (!point || !pane.contains(point.container)) return;
+      const off = renderedHeadOffset(buffer, blockStart, head, blockRendered);
+      if (off === null) return;
+      const r = offsetsToRange(pane, rs + Math.min(off, Math.max(0, blockRendered.length - 1)), rs + Math.min(off + 1, blockRendered.length));
+      if (!r) return;
+      // The range END always sits INSIDE the text node holding the head's
+      // character (stepped back one so it points AT that character); the
+      // START can land at the tail of a preceding whitespace node whose
+      // parent is the wrapper itself (a list, a blockquote) — so the END
+      // point is tried first and the START is only a fallback.
+      const ends = [
+        { node: r.endContainer, offset: r.endContainer.nodeType === Node.TEXT_NODE ? Math.max(0, r.endOffset - 1) : r.endOffset },
+        { node: r.startContainer, offset: r.startOffset },
+      ];
+      for (const at of ends) {
+        const el = at.node.nodeType === Node.ELEMENT_NODE ? (at.node as Element) : at.node.parentElement;
+        const container = el && pane.contains(el) ? el.closest<HTMLElement>(HEAD_CONTAINERS) : null;
+        if (!container) continue;
         const pre = document.createRange();
-        pre.setStart(point.container, 0);
-        pre.setEnd(point.at.node, point.at.offset);
-        point.container.dataset.mmHead = String(pre.toString().length);
-      };
-      if (hasSel) {
-        tintAtHead();
+        pre.setStart(container, 0);
+        pre.setEnd(at.node, at.offset);
+        container.dataset.mmHead = String(pre.toString().length);
         return;
       }
-      const w = wordAt(buffer, head);
-      const needle = w ? visibleTextForRange(buffer, w.start, w.end) : '';
-      if (!w || !needle.trim()) {
-        tintAtHead();
-        return;
-      }
-      const nth = countNormalized(visibleTextForRange(buffer, blockStart, w.start), needle);
-      const hit = findNormalizedNth(blockRendered, needle, nth);
-      if (!hit) {
-        tintAtHead();
-        return;
-      }
-      const marks = highlightRange(pane, rs + hit.start, rs + hit.end, '__aw__');
-      for (const m of marks) {
-        m.className = 'mm-active-word';
-        delete m.dataset.cid; // never the comment machinery's business
-      }
-      tint(containerOf(marks[0] ?? null) ?? headPoint()?.container ?? null);
     },
-    [clearActiveCues]
+    [clearHeadAnchor]
   );
 
   /**
-   * SPEC44 §4: a plain preview click (no link/image/comment/find targets, no
-   * drag selection) resolves to a source caret: split mode moves the editor
-   * caret (the report loop re-derives both panes' cues); preview-only shows
-   * the cues now and parks the caret for the next Mod+E (E85 contract).
+   * SPEC44 §4 (amended by issue #345): a plain preview click (no link/image/
+   * comment/find targets, no drag selection) resolves to a source caret and
+   * SCROLLS NOTHING — neither pane, in either mode. Split mode places the
+   * editor caret silently (a host-origin select without `reveal`, so the
+   * editor does not scroll and the follower does not run — E464's model);
+   * preview-only parks the caret for the next Mod+E (E85 contract). The
+   * preview itself changes in no visible way.
    */
   const placeFromPreviewClick = useCallback(
     (pane: HTMLElement | null, e: React.MouseEvent) => {
@@ -1612,16 +1576,14 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         }
       }
       if (stateRef.current.mode === 'edit') {
-        // SPEC44 §4: a click legitimately reveals the placed caret (E125).
-        editorSelectRef.current?.(caret, caret, { reveal: true }); // the report loop paints the cues
+        // Issue #345: no `reveal` — the click never scrolls the editor; the
+        // report loop re-stamps the head anchor without following (E464).
+        editorSelectRef.current?.(caret, caret);
       } else {
         pendingEditorSelRef.current = { from: caret, to: caret }; // Mod+E lands here
-        const headLine = hit.buffer.slice(0, caret).split('\n').length;
-        activeCueRef.current = { head: caret, headLine, hasSel: false };
-        applyActiveCues(pane, caret, headLine, false);
       }
     },
-    [applyActiveCues, resolvePreviewCaret]
+    [resolvePreviewCaret]
   );
 
   /**
@@ -1645,39 +1607,40 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       lastEditorSelRef.current = { from: s.selFrom, to: s.selTo }; // SPEC25 §2.1
       const st = stateRef.current;
       if (st.mode !== 'edit' || !st.settings.splitEdit) return;
-      // SPEC44 §3: block + word cues follow every caret report — in
-      // CANONICAL coordinates (the grid's padding never reaches the html).
-      // Issue #310: they land on the NEXT FRAME (a burst of reports paints
+      // Issue #345: the invisible head-row anchor follows every caret report
+      // — in CANONICAL coordinates (the grid's padding never reaches the
+      // html); the preview paints no cue for it (SPEC44 §3 withdrawn).
+      // Issue #310: it lands on the NEXT FRAME (a burst of reports stamps
       // once), and a caret move made in the editor then asks the split
       // controller to level the preview with the caret's visual row —
       // SPEC15 §1.5's "typing never re-syncs" leg amended: the preview
       // follows, the editor still never scrolls for it. A host-placed
-      // selection (the SPEC23 mirror, a preview click) paints its cues but
-      // moves nothing (E464).
-      let cuesPainted = false;
-      const paintCues = () => {
-        cuesPainted = true;
+      // selection (the SPEC23 mirror, a preview click) re-stamps the anchor
+      // but moves nothing (E464).
+      let headStamped = false;
+      const stampHead = () => {
+        headStamped = true;
         const pane = splitDocRef.current;
         if (!pane) return;
-        activeCueRef.current = { head: s.canonHead, headLine: s.headLine, hasSel: s.selFrom !== s.selTo };
-        applyActiveCues(pane, s.canonHead, s.headLine, s.selFrom !== s.selTo);
+        headAnchorRef.current = { head: s.canonHead, headLine: s.headLine };
+        stampHeadAnchor(pane, s.canonHead, s.headLine);
         if (s.origin === 'editor') splitFollowRef.current?.followCaret();
       };
       if (cueRafRef.current) cancelAnimationFrame(cueRafRef.current);
       cueRafRef.current = requestAnimationFrame(() => {
         cueRafRef.current = null;
-        paintCues();
+        stampHead();
       });
       if (mirrorTimerRef.current) clearTimeout(mirrorTimerRef.current);
       mirrorTimerRef.current = setTimeout(() => {
         const pane = splitDocRef.current;
         if (!pane) return;
         clearMirrorMarks();
-        // The frame callback is skipped in a hidden tab — paint here then.
-        if (!cuesPainted) {
+        // The frame callback is skipped in a hidden tab — stamp here then.
+        if (!headStamped) {
           if (cueRafRef.current) cancelAnimationFrame(cueRafRef.current);
           cueRafRef.current = null;
-          paintCues();
+          stampHead();
         }
         if (!s.focused || s.selFrom === s.selTo) return;
         const buffer = stateRef.current.buffer;
@@ -1710,7 +1673,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         }
       }, 150);
     },
-    [seamEditState, clearMirrorMarks, applyActiveCues]
+    [seamEditState, clearMirrorMarks, stampHeadAnchor]
   );
 
   /** SPEC20 §2: transient feedback chip; each message restarts the 4s clock. */
@@ -2629,7 +2592,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       // post-commit effect — an unmounting editor's snapshot lands after us.
       pendingHistoryRef.current = { value: history };
       pendingEditorSelRef.current = null; // SPEC25: selection never crosses documents
-      activeCueRef.current = null; // SPEC44: cues re-derive from the new caret
+      headAnchorRef.current = null; // Issue #345: the anchor re-derives from the new caret
       pendingPreviewSelRef.current = null;
       lastEditorSelRef.current = { from: 0, to: 0 };
       setFmOverride(null); // SPEC26 §3.3: a new document follows the setting
@@ -4281,7 +4244,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     // The parked history installs after the commit, over the unmounting
     // editor's clobber — openDoc's own pattern.
     pendingHistoryRef.current = { value: entry.editorHistory };
-    activeCueRef.current = null; // SPEC44: cues re-derive from the new caret
+    headAnchorRef.current = null; // Issue #345: the anchor re-derives from the new caret
     // PRD 019 Req 11 / PRD 023 Req 6: `scratch` re-arms — the exemption and
     // the label return; PRD 019 Req 10: an edit-mode surface, like at boot.
     swapInUntitled({
@@ -6848,13 +6811,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
 
     if (!reanchorAndHighlight(doc)) return;
     injectionCompleteRef.current = true; // SPEC25 §2: this DOM is final for now
-    // SPEC44 §3.2: re-derive the placement cues the re-injection wiped.
-    const cue = activeCueRef.current;
-    if (cue) applyActiveCues(doc, cue.head, cue.headLine, cue.hasSel);
   // PRD 011 Req 17: `zoomLevel` joins the deps because the `.doc` container is
   // UNMOUNTED at levels 1–4 — returning to L5 must re-inject the same html
   // into the fresh element, or the full document would come back blank.
-  }, [html, mode, zoomLevel, reanchorAndHighlight, applyActiveCues, copyToClipboard, headingUrlForLine]);
+  }, [html, mode, zoomLevel, reanchorAndHighlight, copyToClipboard, headingUrlForLine]);
 
   // Into preview: once the doc is injected, map the carried line back to a
   // pixel offset (block-anchored, so code blocks don't skew it).
@@ -6968,7 +6928,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // and decorates (images, copy buttons, diagrams) internally. This callback
   // is the app's half, layered through the Preview's post-render decoration
   // hook (PRD 021 Req 8): heading copy-links, the comment highlight marks and
-  // the SPEC44 cues. An identity change (comments, visibility, hosted state)
+  // the issue #310 head-row anchor. An identity change (comments, visibility,
+  // hosted state)
   // re-injects first, so marks always wrap a clean pipeline-produced tree —
   // the same rebuild the inline effect keyed on `reanchorAndHighlight` had.
   const decorateSplitPreview = useCallback(
@@ -6979,11 +6940,12 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         decorateHeadingLinks(el, headingUrlForLine, copyToClipboard);
       }
       if (!reanchorAndHighlight(el)) return;
-      // SPEC44 §3.2: a re-render wiped the synthetic cues — re-derive them.
-      const cue = activeCueRef.current;
-      if (cue) applyActiveCues(el, cue.head, cue.headLine, cue.hasSel);
+      // Issue #345: a re-render wiped the invisible head-row anchor — re-stamp
+      // it so the split follower keeps its reference (issue #310, SPEC45).
+      const head = headAnchorRef.current;
+      if (head) stampHeadAnchor(el, head.head, head.headLine);
     },
-    [reanchorAndHighlight, applyActiveCues, copyToClipboard, headingUrlForLine]
+    [reanchorAndHighlight, stampHeadAnchor, copyToClipboard, headingUrlForLine]
   );
 
   // SPEC41 §2.1/SPEC20 §4.2: the split pane's image seam — local srcs resolve
@@ -8794,7 +8756,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
                 // highlight it shares text with, and reaching a comment opens
                 // the pane onto its card; a highlight has no pane effect.
                 activateFromPreviewClick(e.target);
-                placeFromPreviewClick(docRef.current, e); // SPEC44 §4.2
+                placeFromPreviewClick(docRef.current, e); // SPEC44 §4.2 (issue #345: parks only)
               }}
             />
           </div>
@@ -8904,7 +8866,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
                 onVimModeChange={seamVimMode}
                 onEditState={handleEditState}
                 selectRangeRef={editorSelectRef}
-                activeWordSuppressed={findOpen}
                 pendingSelectionRef={pendingEditorSelRef}
                 searchRef={editorSearchRef}
                 hotkeys={settings.hotkeys}

@@ -4,7 +4,9 @@ Delta spec on top of SPEC.md–SPEC44.md as implemented. This file wins on
 conflict; nothing may regress. Amends ONLY SPEC15's alignment contract.
 
 **What ships:** while the SPEC44 placement cue (the caret's word mark,
-else its block tint) sits near the leading pane's viewport, synchronized
+else its block tint — *since issue #345 (2026-09-08) the INVISIBLE head
+row: the `data-mm-head` stamp on the head's innermost container, no mark
+or tint being painted any more*) sits near the leading pane's viewport, synchronized
 split scrolling aligns the panes ON THE CUE — the selected word keeps
 the same vertical position on both sides, to the extent scrolling limits
 allow (clamped at both ends, ends stay mutually reachable per SPEC15

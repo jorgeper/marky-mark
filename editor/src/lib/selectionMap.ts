@@ -342,6 +342,30 @@ export function renderedOffsetForSource(source: string, blockStart: number, at: 
 }
 
 /**
+ * Issue #345 (SPEC44 §3.1's head resolution, kept as pure logic): the
+ * rendered offset (raw, within `rendered`) of the caret head at source
+ * offset `head`. The caret's WORD is located first, by normalized occurrence
+ * index computed on the source side — the caret's occurrence, never a
+ * look-alike elsewhere in the block — with the within-word offset riding
+ * along (clamped to the word's last character, so an end-of-word caret
+ * stays on the word's row); a caret on no word falls back to the flat-prefix
+ * mapping of `renderedOffsetForSource`. The word route is the exact one: a
+ * table's delimiter row, say, is visible source text with no rendered twin,
+ * so the flat prefix alone overshoots there while the occurrence count does
+ * not. Null only when the rendered text has no visible characters.
+ */
+export function renderedHeadOffset(source: string, blockStart: number, head: number, rendered: string): number | null {
+  const w = wordAt(source, head);
+  const needle = w ? visibleTextForRange(source, w.start, w.end) : '';
+  if (w && needle.trim()) {
+    const nth = countNormalized(visibleTextForRange(source, blockStart, w.start), needle);
+    const hit = findNormalizedNth(rendered, needle, nth);
+    if (hit) return Math.min(hit.start + Math.max(0, head - w.start), hit.end - 1);
+  }
+  return renderedOffsetForSource(source, blockStart, head, rendered);
+}
+
+/**
  * SPEC44 §4.1: the reverse trip — the source offset where raw rendered
  * offset `local` (within the block's rendered text) lands, mapped through
  * the visible text of 1-based source lines [fromLine, toLine].

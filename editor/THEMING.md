@@ -81,10 +81,10 @@ sets these eight is complete; there is nothing per-language to add.
 
 | Variable | Meaning |
 |---|---|
+| `--mm-active-line` | SPEC44 §2.1 (issue #345): the caret line's tint (editor `.cm-activeLine`, CodeMirror's own class) — fallback the accent at 10% |
 | `--mm-find` | Find-match background (editor `.cm-searchMatch`) — **no fallback** |
 | `--mm-find-active` | The current find match's background — **no fallback** |
 | `--mm-find-fg` | Foreground on find matches — **no fallback** |
-| `--mm-active-word` | SPEC44 caret-word tint in the editor — **no fallback** |
 | `--mm-diff-changed-bg` | SPEC16 changed-line tint — **no fallback** |
 | `--mm-diff-removed` | SPEC16 deleted-run red: the 3px left edge on the anchor line and, since issue #315, the read-only block of removed saved text under it — the block's background is this hue at 14% over `--mm-bg`, its edge the hue itself, its text `--mm-fg`, so dark themes keep light text on a dark red-tinted band — **no fallback** |
 | `--mm-comment-tint` | The fixed comment tint (blue) — comment records' editor highlight (PRD 022 Req 12, issue #283); resolved ghosts mix it down (issue #285) |

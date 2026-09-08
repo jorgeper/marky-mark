@@ -10,6 +10,10 @@ the caret. Clicking anywhere in the preview — split **or** preview-only
 mode — selects the word under the pointer the same way, and in split
 mode moves the editor caret to it. One glance at either pane answers
 "where am I in this file?".
+*Amended by issue #345 (2026-09-08): the preview shows NO cue any more
+and a click there scrolls nothing; the editor keeps only its caret-line
+tint, bound to `--mm-active-line` and a little stronger — see the
+"Amended by issue #345" section at the end.*
 
 Out of scope: highlight-all-occurrences, multi-caret, touch/pen
 pointers, a settings toggle (always on), persistence of the active word
@@ -153,3 +157,80 @@ mirror, active word) sharing the E83 pipeline.
    (synthetic marks only); the Windows-reserved-name scan prints
    nothing.
 3. README + ARCHITECTURE.md updated per §7.
+
+---
+
+## Amended by issue #345 (2026-09-08): cues withdrawn from the preview and the editor's word
+
+Observed on the hosted build: the darker word-under-caret tint in the
+editor, and the block tint plus word mark in the preview, read as
+clutter, and a preview click scrolled the panes. The preview should look
+like a preview; the editor keeps one placement cue. Section by section:
+
+- **§2.1 — rewritten.** The active-line tint stays CodeMirror's
+  `cm-activeLine`, but it is now BOUND to the token: a three-class rule in
+  `editor/styles.css` (`.editor-wrap .cm-editor .cm-activeLine`) paints it
+  through `var(--mm-active-line, …)`, outranking CodeMirror's injected
+  two-class base theme (which had painted its own hardcoded picks, so the
+  token changed nothing visible). The token's default in `src/styles.css`
+  rises from the accent at 5.5% to the accent at 10%. Themes overriding
+  the token are unaffected (no bundled theme defines it).
+- **§2.2 — withdrawn.** No `mm-active-word` decoration exists in the
+  editor: not on caret moves, not on a remount restored through
+  `EditorState.fromJSON`, not around the find bar. `activeWordField`,
+  `setActiveWordSuppressed` and the `activeWordSuppressed` prop are gone
+  from `editor/src/components/Editor.tsx`.
+- **§2.3 — the word layer is gone.** `--mm-active-word` is retired (no
+  definition, no use). Stacking is now find > selection > comments >
+  active line; real selections, comment marks, highlight marks and find
+  marks are unchanged.
+- **§3 (the preview mirror) — withdrawn in full.** The preview never
+  carries `.mm-active-block` or `mark.mm-active-word`: not on caret
+  reports, preview clicks, re-injection (§3.2's re-derivation is gone),
+  edit ↔ preview toggles, tab switches or typing. No rule in the repo
+  styles either class; no synthetic mark is inserted for placement, so
+  rendered text stays byte-identical and text nodes stay whole. What
+  survives of §3.1 is INVISIBLE: the host still resolves the caret head to
+  its rendered point through the pure mapping layer — the caret's word by
+  occurrence index (`renderedHeadOffset`, `editor/src/lib/selectionMap.ts`),
+  else the flat source→rendered offset — and stamps only `data-mm-head`
+  (the head's text offset within its innermost standard container) on
+  that container. The one-innermost-container invariant holds for the
+  stamp exactly as it held for the tint. No CSS rule reads the attribute;
+  it exists for the split sync controller alone (issue #310, SPEC45).
+- **§4.1 (split click) — rewritten.** A plain click in the split preview
+  (not on a link, image, comment mark, find mark, input, button or the
+  front-matter card) resolves to the exact clicked source offset (issue
+  #178) and places the editor caret there SILENTLY: a host-origin select
+  without `reveal`, so the editor does not scroll, the follower does not
+  run (E464's model), the editor is not focused, and neither pane's
+  `scrollTop` moves. Nothing is painted.
+- **§4.2 (preview-only click) — rewritten.** The same click parks the
+  collapsed caret for the next ⌘E (E85 / issue #178 contract) and does
+  nothing else: no cue, no scroll, nothing visible.
+- **§4.3 — stands.** Click-drag selection in the preview is the ONE
+  visible selection there and keeps feeding the annotation flows (PRD 023
+  §13: the Marky Mark button, hotkeys, menu). The SPEC23 §1 mirrored
+  selection for a non-empty editor selection is untouched.
+- **§5 — rewritten.** Full edit and split: the editor's caret-line tint
+  only. Preview-only: nothing. The invisible head stamp is volatile
+  per-document view state that re-derives from the caret after tab
+  switches and re-renders; it never persists.
+- **§6 — rewritten (IDs kept).** E124 asserts the caret-line tint and the
+  absence of any word/block cue in either pane on caret moves, repeats,
+  selection and typing, and the position-exact invisible stamp; E125
+  asserts scroll-neutral, cue-free clicks that still place (split) or
+  carry (preview-only, ⌘E) the caret, links unchanged; E126 asserts
+  comment anchoring across a click, find marks standing alone, no word cue
+  around the find bar, the `--mm-active-line` override showing through
+  `.cm-activeLine`, and a clean doc switch; E127 asserts no tint on any
+  shape and the stamp on exactly one innermost container; E128 and the
+  issue #310 yardstick measure the editor caret row against the head row
+  read from `data-mm-head`. New: E623 (split click far below the editor
+  viewport moves neither pane), E624 (preview-only click scrolls and
+  paints nothing, carries into ⌘E, click-drag still authors a highlight),
+  E625 (the token's raised default and its binding), U1366
+  (`renderedHeadOffset`). U76 is untouched.
+- **§7 — ARCHITECTURE.md's placement-cues paragraph is rewritten to this
+  contract; SPEC45 carries a note that its anchor is the invisible head
+  row.**

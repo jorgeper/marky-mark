@@ -103,9 +103,10 @@ body,
   --mm-hover: color-mix(in srgb, var(--mm-accent, #0969da) 8%, transparent);
   /* PRD 025 Req 15 (issue #329): the active file's row in the sidebar — the
      STRONGEST tinted row. The theme accent at 14%: a shade past --mm-hover
-     so the selection still reads under a hovered neighbour, a shade short
-     of --mm-active-word. Derives from the contract accent, so every bundled
-     theme tints it without defining anything. */
+     so the selection still reads under a hovered neighbour, and past the
+     editor's caret-line tint (--mm-active-line, 10%). Derives from the
+     contract accent, so every bundled theme tints it without defining
+     anything. */
   --mm-selected-row: color-mix(in srgb, var(--mm-accent, #0969da) 14%, transparent);
   /* PRD 025 Req 14 (issue #347): the open-but-inactive rows — a lighter
      shade of the same selection colour, half the active row's strength
@@ -172,8 +173,11 @@ body,
   /* PRD 018 Req 16 (issue #204): was the literal #d1242f — the deleted-run
      edge now rides the one danger token (visually the same red). */
   --mm-diff-removed: var(--mm-danger); /* SPEC16 deleted-run edge */
-  --mm-active-line: color-mix(in srgb, var(--mm-accent, #0969da) 5.5%, transparent); /* SPEC44 */
-  --mm-active-word: color-mix(in srgb, var(--mm-accent, #0969da) 16%, transparent); /* SPEC44 */
+  /* SPEC44 §2.1 (issue #345): the editor's caret-line tint — its one
+     placement cue now. Raised from 5.5% to 10% of the accent so the line
+     reads on its own; the darker --mm-active-word (16%) was retired with the
+     word cue. Themes may still override this token (none bundled does). */
+  --mm-active-line: color-mix(in srgb, var(--mm-accent, #0969da) 10%, transparent);
   /* PRD 025 Reqs 14, 17 (issues #329, #331): the lift-shadow one-offs are
      gone — --mm-lift-row / --mm-lift-row-active went with the sidebar
      planes, --mm-lift-tab / --mm-lift-tab-active with the tab-strip planes.
@@ -801,7 +805,7 @@ button {
    the package-owned stylesheet (editor/styles.css, imported from
    @marky-mark/editor in src/main.tsx). What remains app-side here is the
    styling for DOM the app injects into those surfaces through the seams:
-   comment highlights, find marks, SPEC44 preview cues, the diagram-resize
+   comment highlights, find marks, the diagram-resize
    overlay — plus everything keyed on app-owned classes (.workspace, the
    pane wrappers). The --mm-* contract those moved rules consume is documented
    in editor/THEMING.md. */
@@ -1943,21 +1947,6 @@ mark.hl.ghost {
   border-radius: 2px;
 }
 
-/* SPEC44: placement cues. The caret's block wears the active-line tint;
-   the caret's word a darker shade — in the editor (CM decoration, styled in
-   editor/styles.css) and the preview (synthetic mark, app-injected, styled
-   here). Stacking: find > selection > comments > word > line — later marks
-   nest inside and paint on top naturally. */
-.doc .mm-active-block {
-  background: var(--mm-active-line);
-  border-radius: 4px;
-}
-.doc mark.mm-active-word {
-  background: var(--mm-active-word);
-  color: inherit;
-  padding: 0;
-  border-radius: 2px;
-}
 /* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 /* SPEC26 §2: the front-matter metadata card — dim, theme-driven, app UI
