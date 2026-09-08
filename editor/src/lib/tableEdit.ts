@@ -952,6 +952,72 @@ export function snapToCell(w: WholeCellBounds, offset: number): number {
   return best;
 }
 
+/** A grid span's extent — what `clampSelectionToCell` needs of a GridSpan. */
+export interface SpanRange {
+  from: number;
+  to: number;
+}
+
+/**
+ * SPEC39 §2.1 (issue #356): the confinement clamp behind the grid's
+ * transaction filter, as a pure function of the document text, the tracked
+ * spans and one `{ anchor, head }` pair. Idempotent and deterministic — a
+ * pointer drag runs it once per mousemove and it must answer the same for
+ * the same input — and it never collapses a ranged selection except for
+ * Rule D. `spanAt` semantics are inclusive at both ends. In order:
+ *
+ * - Rule C: an empty range, both endpoints outside every span, or a range
+ *   enclosing a whole span (what a document-wide select-all produces even
+ *   when the table starts or ends the document) is returned untouched —
+ *   the SPEC38 escape hatch. Checked FIRST, so a select-all over a
+ *   document starting with a table is not read as "anchor inside".
+ * - Rule A: anchor inside a cells-line cell (its padding and pipes count):
+ *   the confinement cell is the ANCHOR's whole cell (`displayWholeCellBounds`)
+ *   and the anchor NEVER moves — it is returned as is when already on
+ *   content, else snapped onto it; the head is snapped to the cell's
+ *   nearest content position (`snapToCell`) wherever it sits: the same
+ *   cell, its padding, a pipe, the gutter, the separator row, another
+ *   cell of any row, a line outside the table or past the document ends.
+ * - Rule B: anchor outside every span, head strictly inside one: the head
+ *   is clamped to the span edge nearest the anchor, never into a cell.
+ * - Rule D: anchor on a separator line: there is no selectable content, so
+ *   the range collapses to a caret at the anchor — the only collapsing case.
+ *
+ * A grammar-broken span (no parse) is left alone for the watcher to drop.
+ */
+export function clampSelectionToCell(
+  text: string,
+  spans: readonly SpanRange[],
+  sel: { anchor: number; head: number }
+): { anchor: number; head: number } {
+  const { anchor, head } = sel;
+  if (anchor === head) return sel;
+  const lo = Math.min(anchor, head);
+  const hi = Math.max(anchor, head);
+  const spanAt = (pos: number): SpanRange | null => spans.find((s) => pos >= s.from && pos <= s.to) ?? null;
+  const anchorSpan = spanAt(anchor);
+  const headSpan = spanAt(head);
+  const span = anchorSpan ?? headSpan;
+  if (!span) return sel; // Rule C: both outside
+  if (lo <= span.from && hi >= span.to) return sel; // Rule C: whole span enclosed
+  if (!anchorSpan) {
+    // Rule B: the head entered a grid from outside — hold it at the edge.
+    if (head <= span.from || head >= span.to) return sel;
+    return { anchor, head: anchor < span.from ? span.from : span.to };
+  }
+  const region: Region = { start: span.from, end: span.to };
+  const parsed = parseDisplay(text, region);
+  if (!parsed) return sel;
+  const w = displayWholeCellBounds(text, region, parsed, anchor);
+  if (!w) return sel;
+  if (w.kind !== 'cells') return { anchor, head: anchor }; // Rule D
+  // Rule A.
+  const a2 = snapToCell(w, anchor);
+  const h2 = snapToCell(w, head);
+  if (a2 === anchor && h2 === head) return sel;
+  return { anchor: a2, head: h2 };
+}
+
 /**
  * SPEC39 §2.1 (issue #346): the VISIBLE text of a selection confined to one
  * grid cell — the selected parts of the cell's fragments joined per SPEC38's

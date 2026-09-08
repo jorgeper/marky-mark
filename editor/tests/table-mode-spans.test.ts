@@ -10,6 +10,7 @@ import {
 } from '../src/components/tableMode';
 import { layoutTable, parseTable } from '../src/lib/tableEdit';
 
+
 // Issue #156: switching file tabs swaps documents with one whole-document
 // replace (Editor.tsx's [value] effect). tableModeField used to map every
 // stale grid span through that change with plain mapPos, collapsing them ALL
@@ -125,5 +126,52 @@ describe('PRD 020 Req 18 (issue #260): raw editor line → canonical line', () =
     const broken = tracking('intro');
     expect(canonicalizeAll(GRIDDED, broken.field(tableModeField)!)).toBe(GRIDDED);
     expect(canonicalLineAt(broken, broken.doc.line(rawTail))).toBe(rawTail);
+  });
+});
+
+// SPEC39 §2.1 (issue #356): the transaction filter's ranged-selection branch
+// is the pure clampSelectionToCell — checked here through a headless state
+// so the wiring (only `selection` transactions, the main range, no spec
+// added when already clamped) is covered without a view.
+describe('SPEC39 §2.1 the selection clamp through the transaction filter (issue #356)', () => {
+  const FLAT = layoutTable(
+    { header: ['Name', 'Detail'], align: [null, null], rows: [['quick fox', 'lazy dog']] },
+    80
+  ).text;
+  const PROSE = `top\n\n${FLAT}\n\nbottom`;
+  const griddedFlat = (): EditorState => {
+    const state = EditorState.create({ doc: PROSE, extensions: tableModeExtension() });
+    const spans = [{ from: 5, to: 5 + FLAT.length, original: FLAT, sig: 's' }];
+    return state.update({ effects: setGridSet.of({ spans, width: 80 }) }).state;
+  };
+  const sel = (state: EditorState, anchor: number, head: number) => {
+    const main = state.update({ selection: { anchor, head }, userEvent: 'select.pointer' }).state.selection.main;
+    return { anchor: main.anchor, head: main.head };
+  };
+
+  test('U1370: a pointer transaction is clamped to the anchor\'s cell (never collapsed), an outside anchor holds at the edge, a whole-document range and a separator anchor keep their SPEC39 handling', () => {
+    const state = griddedFlat();
+    const cs = PROSE.indexOf('quick');
+    const ce = cs + 'quick fox'.length;
+    const lazy = PROSE.indexOf('lazy');
+    // Head over the padding, the pipe, the next cell, another line: anchor fixed, head at content end.
+    for (const head of [ce + 1, ce + 2, lazy + 3, PROSE.indexOf('bottom') + 2, PROSE.length]) {
+      expect(sel(state, cs + 1, head)).toEqual({ anchor: cs + 1, head: ce });
+    }
+    // Leftwards over the leading pipe: content start.
+    expect(sel(state, lazy + 2, cs + 3)).toEqual({ anchor: lazy + 2, head: lazy });
+    // Already clamped: the transaction goes through as is.
+    expect(sel(state, cs + 1, ce - 2)).toEqual({ anchor: cs + 1, head: ce - 2 });
+    // Rule B from the prose above and below.
+    expect(sel(state, 1, lazy + 2)).toEqual({ anchor: 1, head: 5 });
+    expect(sel(state, PROSE.length, cs + 2)).toEqual({ anchor: PROSE.length, head: 5 + FLAT.length });
+    // Rule C: select-all passes.
+    expect(sel(state, 0, PROSE.length)).toEqual({ anchor: 0, head: PROSE.length });
+    // Rule D: a separator anchor collapses.
+    const sep = PROSE.indexOf('---') + 2;
+    expect(sel(state, sep, lazy)).toEqual({ anchor: sep, head: sep });
+    // Without a grid set, nothing is clamped.
+    const plain = EditorState.create({ doc: PROSE, extensions: tableModeExtension() });
+    expect(sel(plain, cs + 1, lazy + 3)).toEqual({ anchor: cs + 1, head: lazy + 3 });
   });
 });

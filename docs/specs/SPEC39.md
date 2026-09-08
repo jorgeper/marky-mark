@@ -43,26 +43,51 @@ All of the following apply only while the mode is active, via a
 `Prec.highest` keymap plus the transactionFilter; foreign transactions
 (undo/redo, IME, effect-carrying) keep their SPEC38 handling.
 
-1. **Selection clamp.** A selection with its head inside the grid span
-   clamps — both endpoints — to the content span of the head's cell. A
-   selection anchored inside the grid with its head outside clamps to
-   the anchor's cell. (Both endpoints outside: allowed — deleting such
-   a range breaks the grammar and exits per SPEC38, the deliberate
-   escape hatch.) The clamp target is the **whole cell across wrapped
-   lines** (issue #346): from the cell's first fragment's content start
-   through its last fragment's content end, across every display line
-   the cell wraps onto — one contiguous range, so the tint covers each
-   wrapped line. An endpoint that lands in padding, a pipe, a gutter or
-   another column's fragment on an intermediate line snaps onto the
-   cell's own fragment on that line (its end when past it, its start
-   when before it). A head walked onto a separator line while the anchor
-   is inside a cell of the same span (Shift+ArrowDown/Up off the cell's
-   last/first line) clamps to the anchor's cell — the head lands at the
-   cell's content end (down) or start (up); a separator head with no
-   in-cell anchor still collapses to a caret. ⌘A with the caret in the
+1. **Selection clamp.** The confinement cell of a ranged selection is
+   the **anchor's** cell (issue #356): whenever the anchor lies inside a
+   cells-line cell of a grid span — its padding and pipes included — the
+   selection is confined to that cell, whatever the head sits on. The
+   head's cell never decides. The anchor never moves: an anchor already
+   on the cell's content is kept as is (so successive drag steps share
+   one anchor), one on the cell's padding or pipe snaps onto its content
+   once. The head snaps to the cell's nearest content position: a head
+   over the cell's own padding, a pipe, the gutter, the separator row,
+   another cell of any row, a line outside the table or past the
+   document's ends is clamped, **never collapsed** — the only collapsing
+   case is an anchor on a separator line (no selectable content), which
+   collapses to a caret there. A selection anchored outside every grid
+   whose head enters a span is held at the span edge nearest the anchor
+   (the table's start from above, its end from below); the head never
+   lands inside a cell. A range that encloses a whole span passes
+   through untouched, as does one with both endpoints outside every
+   span — deleting such a range breaks the grammar and exits per SPEC38,
+   the deliberate escape hatch, and it is what a document-wide
+   select-all produces even when the table starts or ends the document.
+   The clamp is a pure, idempotent function of the document text, the
+   spans and the `{ anchor, head }` pair (`clampSelectionToCell`),
+   applied by the transaction filter to every ranged selection
+   transaction — a pointer drag's per-mousemove `select.pointer`
+   transactions included — parsing only the confinement span; an
+   already-clamped pair passes through as is. The clamp target is the
+   **whole cell across wrapped lines** (issue #346): from the cell's
+   first fragment's content start through its last fragment's content
+   end, across every display line the cell wraps onto — one contiguous
+   range, so the tint covers each wrapped line. An endpoint that lands
+   in padding, a pipe, a gutter or another column's fragment on an
+   intermediate line snaps onto the cell's own fragment on that line
+   (its end when past it, its start when before it). So Shift+click,
+   Shift+arrows, Shift+Home and Shift+End with the anchor in a cell
+   select to that cell's edges (Shift+ArrowDown/Up off the cell's
+   last/first line lands the head at the cell's content end / start).
+   Double-click selects the word under the pointer, clamped into the
+   cell; triple-click selects the CLICKED cell's whole content (not the
+   display line, whose start would resolve to the first column — the
+   click-count gesture is taken over via `EditorView.mouseSelectionStyle`,
+   the filter remaining the backstop). ⌘A with the caret in the
    grid selects the CURRENT cell's content — the whole cell across its
    wrapped lines — not the document; a second ⌘A, with the cell already
-   selected, selects the document (the escape hatch above). Copy / Cut
+   selected, selects the document (the escape hatch above); ⌘A on a
+   separator line is inert. Copy / Cut
    (⌘C, ⌘X and the menu) over a selection confined to one cell put the
    cell's joined VISIBLE text on the clipboard: fragments joined with
    single spaces (SPEC38's rule; hard-broken pieces join directly, the

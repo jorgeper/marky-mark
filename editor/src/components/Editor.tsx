@@ -392,8 +392,13 @@ export interface EditorProps {
     headLine: number;
     selFrom: number;
     selTo: number;
+    /** SPEC39 §2.1 (issue #356): the main range's anchor and head as set (unordered). */
+    selAnchor: number;
+    selHead: number;
     selText: string;
     focused: boolean;
+    /** SPEC39 §2.1 (issue #356): whether this report comes from an update that set the selection. */
+    selectionSet: boolean;
     /**
      * Issue #310: 'host' when the editor did not make the move itself — the
      * selection arrived through `selectRangeRef` (a mirrored preview
@@ -2336,8 +2341,11 @@ export default function Editor({
             headLine: u.state.doc.lineAt(main.head).number,
             selFrom: main.from,
             selTo: main.to,
+            selAnchor: main.anchor,
+            selHead: main.head,
             selText: u.state.sliceDoc(main.from, main.to),
             focused: u.view.hasFocus,
+            selectionSet: u.selectionSet,
             // Issue #310: a host-placed selection is told apart by its annotation.
             origin: u.transactions.some((tr) => tr.annotation(hostSelection)) ? 'host' : 'editor',
           });
@@ -2536,8 +2544,11 @@ export default function Editor({
         headLine: view.state.doc.lineAt(main.head).number,
         selFrom: main.from,
         selTo: main.to,
+        selAnchor: main.anchor,
+        selHead: main.head,
         selText: view.state.sliceDoc(main.from, main.to),
         focused: view.hasFocus,
+        selectionSet: false,
         // Issue #310: nobody moved this caret — a follow here would race a
         // preview the user is already scrolling (E58); the split mount's own
         // settle realign covers the opening alignment.

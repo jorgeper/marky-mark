@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
   caretInto,
+  dragAcrossText,
   freshApp,
   fsRead,
   fsWrite,
@@ -413,9 +414,12 @@ test('E118: confinement — Enter/Tab navigate, edge deletions inert, pipes self
   await page.keyboard.press('ControlOrMeta+z');
   expect(await text()).toBe(before);
 
+  // SPEC39 §2.1 (issue #356): Shift+End from cell 1's content start clamps
+  // to the ANCHOR's cell — the head walks to the line end (cell 2's side)
+  // and lands on cell 1's content end.
   await caretInto(page, '| 1   | 2   |', 2);
   await page.keyboard.press('Shift+End');
-  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('2');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('1');
 });
 
 test('E119: grids by default — two tables, untouched saves are byte-identical, a hand-typed table snaps to grid, breaking one leaves the other', async ({
@@ -640,6 +644,9 @@ const editState = (page: Page) =>
     selText: window.__mmEdit?.selText ?? '',
     selFrom: window.__mmEdit?.selFrom ?? -1,
     selTo: window.__mmEdit?.selTo ?? -1,
+    // SPEC39 §2.1 (issue #356): the unordered pair — a drag's anchor never moves.
+    selAnchor: window.__mmEdit?.selAnchor ?? -1,
+    selHead: window.__mmEdit?.selHead ?? -1,
   }));
 
 /** The editor text's [k01 … last fragment end] slice — the whole-cell union in doc bytes. */
@@ -705,9 +712,10 @@ test('E613: issue #346 — a pointer drag from a wrapped cell\'s first line to i
   expect(await clip()).toBe(WRAP_CELL);
 
   // (d) A drag from the wrapped cell into the neighbouring cell: confined to
-  // exactly one cell — the head's (SPEC39 §2.1's pivot), no pipe in it.
-  // (Collapse the whole-cell selection first: a mousedown INSIDE a selected
-  // range starts a drag-and-drop of it, not a new selection.)
+  // exactly one cell — the ANCHOR's (SPEC39 §2.1, issue #356), so the head
+  // lands on the Detail cell's content start: k01 through the anchor, no
+  // pipe, no `zq`. (Collapse the whole-cell selection first: a mousedown
+  // INSIDE a selected range starts a drag-and-drop of it, not a new selection.)
   await page.keyboard.press('ArrowLeft');
   await expect.poll(async () => (await editState(page)).selText).toBe('');
   const k05 = await wordRect(page, EDITOR_PANE, 'k05');
@@ -716,7 +724,12 @@ test('E613: issue #346 — a pointer drag from a wrapped cell\'s first line to i
   await page.mouse.down();
   await page.mouse.move(zq.x - 3, zq.y + zq.height / 2, { steps: 10 });
   await page.mouse.up();
-  await expect.poll(async () => (await editState(page)).selText).toBe('zq');
+  // The mousedown two pixels into `k05` lands before its first character,
+  // so the range runs through the space that precedes it.
+  await expect.poll(async () => (await editState(page)).selText).toBe('k01 k02 k03 k04 ');
+  const d = await editState(page);
+  expect(d.selTo).toBe(d.selAnchor);
+  expect(d.selText).not.toMatch(/[|]|zq/);
   // Nothing dirtied; the grid never moved.
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
   await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(7);
@@ -848,4 +861,331 @@ test('E616: issue #346 — a highlight over a whole-cell selection anchors to th
   await page.keyboard.press('Control+e');
   await expect.poll(() => editor.locator('.cm-line.mm-table-mode-line').count()).toBe(7);
   await expect.poll(painted).toEqual({ text: frags.join(''), lines: 3 });
+});
+
+// ---------------------------------------------------------------------------
+// SPEC39 §2.1 (issue #356): in-cell pointer selection — the ANCHOR's cell
+// confines every step of a drag, the head snaps to its nearest content and
+// the range never collapses; an outside anchor holds the head at the grid
+// edge; click-count gestures select the word / the clicked cell.
+
+const FLAT_SOURCE = 'top\n\n| Name | Detail |\n| --- | --- |\n| quick brown fox | lazy dog |\n| second | row two |\n\nbottom\n';
+const LONG_CELL = 'the lazy dog sleeps under the old oak tree';
+const LONG_SOURCE = `top\n\n| Name | Detail |\n| --- | --- |\n| quick brown fox | ${LONG_CELL} |\n\nbottom\n`;
+
+/** Open an unwrapped grid fixture at a width that keeps every row on one display line. */
+async function openFlatGrid(page: Page, path: string, source: string, rows: number): Promise<void> {
+  await page.setViewportSize({ width: 1600, height: 720 });
+  await openGridDoc(page, path, source, 'top');
+  const gridLines = () => page.getByTestId('editor').locator('.cm-line.mm-table-mode-line').count();
+  await expect.poll(gridLines).toBe(rows);
+}
+
+/**
+ * The editor's document text in DOC offsets, read off the seam: ⌘A in a
+ * cell selects that cell, a second ⌘A the document (SPEC39 §2.1), and
+ * `selText` is then the whole buffer. Leaves the caret collapsed in `word`.
+ */
+async function editorDocText(page: Page, word: string): Promise<string> {
+  await caretInto(page, word, 2);
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('ControlOrMeta+a');
+  await expect.poll(async () => (await editState(page)).selText).toContain('bottom');
+  const text = (await editState(page)).selText;
+  await caretInto(page, word, 2);
+  await expect.poll(async () => (await editState(page)).selText).toBe('');
+  return text;
+}
+
+/** Screen x/y for `chars` into `word` (left edge of that character), in the editor pane. */
+async function charPoint(page: Page, word: string, chars: number, nth = 0): Promise<{ x: number; y: number; w: number }> {
+  const r = await wordRect(page, EDITOR_PANE, word, nth, { from: chars, to: chars + 1 });
+  return { x: r.x + 1, y: r.y + r.height / 2, w: r.width };
+}
+
+test('E626: issue #356 — a pointer drag anchored on a cell\'s second character keeps its anchor on every step and clamps the head to the cell\'s content end over the padding, the pipe and the next cell, releasing there', async ({
+  page,
+}) => {
+  await openFlatGrid(page, '/docs/v356a.md', FLAT_SOURCE, 5);
+  const doc = await editorDocText(page, 'quick brown');
+  const cs = doc.indexOf('quick brown fox');
+  const ce = cs + 'quick brown fox'.length;
+  expect(doc[ce]).toBe(' ');
+  expect(doc[ce + 1]).toBe('|');
+
+  const start = await charPoint(page, 'quick', 1);
+  const fox = await wordRect(page, EDITOR_PANE, 'fox');
+  const lazy = await wordRect(page, EDITOR_PANE, 'lazy');
+  const foxEnd = fox.x + fox.width;
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await expect.poll(async () => (await editState(page)).selAnchor).toBe(cs + 1);
+
+  // One mouse.move per step; after each the anchor is unchanged and the
+  // head sits inside the cell's content (never past its end, never before
+  // the anchor).
+  const steps: Array<{ x: number; expectHead?: number }> = [];
+  for (let k = 1; k <= 5; k++) steps.push({ x: start.x + ((foxEnd - start.x) * k) / 5 });
+  steps[4].expectHead = ce; // the fifth step reaches the end of `fox`
+  steps.push({ x: foxEnd + start.w * 0.5, expectHead: ce }); // the trailing padding
+  steps.push({ x: foxEnd + start.w * 1.5, expectHead: ce }); // the pipe
+  steps.push({ x: lazy.x + lazy.width / 2, expectHead: ce }); // the next cell
+  for (const step of steps) {
+    await page.mouse.move(step.x, start.y);
+    await expect
+      .poll(async () => {
+        const s = await editState(page);
+        return { anchor: s.selAnchor, inCell: s.selHead > cs + 1 && s.selHead <= ce, head: step.expectHead ?? s.selHead };
+      })
+      .toEqual({ anchor: cs + 1, inCell: true, head: step.expectHead ?? (await editState(page)).selHead });
+  }
+  await page.mouse.up();
+  await expect.poll(async () => (await editState(page)).selText).toBe('uick brown fox');
+  const st = await editState(page);
+  expect([st.selAnchor, st.selHead, st.selFrom, st.selTo]).toEqual([cs + 1, ce, cs + 1, ce]);
+  expect(st.selText).not.toContain('|');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+});
+
+test('E627: issue #356 — the same drag leftwards over the cell\'s leading pipe into the previous cell clamps the head to the anchor cell\'s content start', async ({
+  page,
+}) => {
+  await openFlatGrid(page, '/docs/v356b.md', FLAT_SOURCE, 5);
+  const doc = await editorDocText(page, 'quick brown');
+  const ls = doc.indexOf('lazy dog');
+
+  const start = await charPoint(page, 'lazy', 1);
+  const lazy = await wordRect(page, EDITOR_PANE, 'lazy');
+  const fox = await wordRect(page, EDITOR_PANE, 'fox');
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await expect.poll(async () => (await editState(page)).selAnchor).toBe(ls + 1);
+  const xs = [
+    lazy.x + 1, // the first character
+    lazy.x - start.w * 0.5, // the leading padding
+    lazy.x - start.w * 1.5, // the pipe
+    fox.x + fox.width / 2, // the previous cell
+  ];
+  for (const x of xs) {
+    await page.mouse.move(x, start.y);
+    await expect
+      .poll(async () => {
+        const s = await editState(page);
+        return { anchor: s.selAnchor, head: s.selHead };
+      })
+      .toEqual({ anchor: ls + 1, head: ls });
+  }
+  await page.mouse.up();
+  await expect.poll(async () => (await editState(page)).selText).toBe('l');
+  const st = await editState(page);
+  expect([st.selFrom, st.selTo]).toEqual([ls, ls + 1]);
+});
+
+test('E628: issue #356 — double-click selects one word of the cell (a word abutting the cell edge included); triple-click on a non-first cell selects exactly that cell\'s content', async ({
+  page,
+}) => {
+  await openFlatGrid(page, '/docs/v356c.md', FLAT_SOURCE, 5);
+  const doc = await editorDocText(page, 'quick brown');
+  const sel = () => editState(page).then((s) => s.selText);
+
+  const brown = await wordRect(page, EDITOR_PANE, 'brown');
+  await page.mouse.dblclick(brown.x + brown.width / 2, brown.y + brown.height / 2);
+  await expect.poll(sel).toBe('brown');
+  const fox = await wordRect(page, EDITOR_PANE, 'fox');
+  await page.mouse.dblclick(fox.x + fox.width / 2, fox.y + fox.height / 2);
+  await expect.poll(sel).toBe('fox');
+
+  // Triple-click on the SECOND cell: its content, not the display line, the
+  // pipes or the first cell.
+  const dog = await wordRect(page, EDITOR_PANE, 'dog');
+  await page.mouse.click(dog.x + dog.width / 2, dog.y + dog.height / 2, { clickCount: 3 });
+  await expect.poll(sel).toBe('lazy dog');
+  const st = await editState(page);
+  expect([st.selFrom, st.selTo]).toEqual([doc.indexOf('lazy dog'), doc.indexOf('lazy dog') + 'lazy dog'.length]);
+  // …and on the first cell.
+  await page.mouse.click(brown.x + brown.width / 2, brown.y + brown.height / 2, { clickCount: 3 });
+  await expect.poll(sel).toBe('quick brown fox');
+  // A triple-click on prose still selects the line.
+  const top = await wordRect(page, EDITOR_PANE, 'top');
+  await page.mouse.click(top.x + 2, top.y + top.height / 2, { clickCount: 3 });
+  await expect.poll(sel).toContain('top');
+  expect(await sel()).not.toContain('|');
+});
+
+test('E629: issue #356 — Shift+End, Shift+Home, Shift+arrows and Shift+click with the anchor in a cell select to that cell\'s edges; ⌘A selects the cell, a second ⌘A the document; ⌘A on a separator is inert', async ({
+  page,
+}) => {
+  await openFlatGrid(page, '/docs/v356d.md', FLAT_SOURCE, 5);
+  const editor = page.getByTestId('editor');
+  const sel = () => editState(page).then((s) => s.selText);
+  const lineTexts = await editor.locator('.cm-line.mm-table-mode-line').allTextContents();
+  const lazyCol = lineTexts[2].indexOf('lazy');
+
+  await caretInto(page, 'quick brown', 2);
+  await page.keyboard.press('Shift+End');
+  await expect.poll(sel).toBe('quick brown fox');
+
+  // Shift+Home from inside the SECOND cell: the line start is in the first
+  // cell, but the anchor's cell wins — the head lands on `lazy`'s start.
+  await caretInto(page, 'lazy dog', lazyCol + 2);
+  await page.keyboard.press('Shift+Home');
+  await expect.poll(sel).toBe('la');
+  await caretInto(page, 'lazy dog', lazyCol + 2);
+  await page.keyboard.press('Shift+End');
+  await expect.poll(sel).toBe('zy dog');
+  // Shift+ArrowDown / Up walk the head onto other rows: clamped to the cell's ends.
+  await caretInto(page, 'lazy dog', lazyCol + 2);
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect.poll(sel).toBe('zy dog');
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect.poll(sel).toBe('zy dog');
+  await caretInto(page, 'lazy dog', lazyCol + 2);
+  await page.keyboard.press('Shift+ArrowUp');
+  await expect.poll(sel).toBe('la');
+  // Shift+ArrowRight past the cell's end holds there; never a collapse.
+  await caretInto(page, 'lazy dog', lazyCol + 2);
+  for (let i = 0; i < 'zy dog'.length + 4; i++) await page.keyboard.press('Shift+ArrowRight');
+  await expect.poll(sel).toBe('zy dog');
+  await caretInto(page, 'lazy dog', lazyCol + 2);
+  for (let i = 0; i < 6; i++) await page.keyboard.press('Shift+ArrowLeft');
+  await expect.poll(sel).toBe('la');
+
+  // Shift+click on another row's cell: the anchor's cell, whole.
+  await caretInto(page, 'quick brown', 2);
+  const row = await wordRect(page, EDITOR_PANE, 'row two');
+  await page.keyboard.down('Shift');
+  await page.mouse.click(row.x + row.width / 2, row.y + row.height / 2);
+  await page.keyboard.up('Shift');
+  await expect.poll(sel).toBe('quick brown fox');
+
+  // ⌘A: the cell, then the document.
+  await caretInto(page, 'lazy dog', lazyCol + 2);
+  await page.keyboard.press('ControlOrMeta+a');
+  await expect.poll(sel).toBe('lazy dog');
+  await page.keyboard.press('ControlOrMeta+a');
+  await expect.poll(sel).toContain('top');
+  expect(await sel()).toContain('bottom');
+  // ⌘A on the separator row: nothing to select.
+  await caretInto(page, '---', 3);
+  await expect.poll(sel).toBe('');
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.waitForTimeout(100);
+  expect(await sel()).toBe('');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+});
+
+test('E630: issue #356 — a drag from the prose above (or below) the table into a cell holds the head at the table\'s start (or end), never inside a cell', async ({
+  page,
+}) => {
+  await openFlatGrid(page, '/docs/v356e.md', FLAT_SOURCE, 5);
+  const doc = await editorDocText(page, 'quick brown');
+  const tableStart = doc.indexOf('| Name');
+  const tableEnd = doc.indexOf('\n\nbottom');
+  expect(doc[tableEnd - 1]).toBe('|');
+
+  const top = await wordRect(page, EDITOR_PANE, 'top');
+  const brown = await wordRect(page, EDITOR_PANE, 'brown');
+  await page.mouse.move(top.x + 2, top.y + top.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(brown.x + brown.width / 2, brown.y + brown.height / 2, { steps: 6 });
+  await expect.poll(async () => (await editState(page)).selHead).toBe(tableStart);
+  await page.mouse.up();
+  let st = await editState(page);
+  expect(st.selHead).toBe(tableStart);
+  expect(st.selText).not.toContain('|');
+  expect(st.selText).toContain('op');
+
+  // From below, upwards: the head holds at the table's end.
+  await caretInto(page, 'bottom', 0);
+  const bottom = await wordRect(page, EDITOR_PANE, 'bottom');
+  const lazy = await wordRect(page, EDITOR_PANE, 'lazy');
+  await page.mouse.move(bottom.x + bottom.width - 2, bottom.y + bottom.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(lazy.x + lazy.width / 2, lazy.y + lazy.height / 2, { steps: 6 });
+  await expect.poll(async () => (await editState(page)).selHead).toBe(tableEnd);
+  await page.mouse.up();
+  st = await editState(page);
+  expect(st.selHead).toBe(tableEnd);
+  expect(st.selText).not.toContain('|');
+  expect(st.selText).toContain('bottom'.slice(0, 5));
+});
+
+test('E631: issue #356 — on a wrapped cell a drag across the wrap boundary keeps the whole-cell clamp: the anchor holds, the head follows onto later lines and stops at the union\'s end', async ({
+  page,
+}) => {
+  const frags = await openWrappedGrid(page, '/docs/v356f.md');
+  const union = await wholeCellUnion(page, frags);
+  const k02 = await wordRect(page, EDITOR_PANE, 'k02');
+  const lastWord = WRAP_WORDS[WRAP_WORDS.length - 1];
+  const last = await wordRect(page, EDITOR_PANE, lastWord);
+  const line3First = await wordRect(page, EDITOR_PANE, frags[2].slice(0, 3));
+
+  await page.mouse.move(k02.x + 1, k02.y + k02.height / 2);
+  await page.mouse.down();
+  await expect.poll(async () => (await editState(page)).selText).toBe('');
+  const anchor = (await editState(page)).selAnchor;
+  // Across the wrap boundary onto the third line's first token.
+  await page.mouse.move(line3First.x + line3First.width, line3First.y + line3First.height / 2, { steps: 8 });
+  await expect.poll(async () => (await editState(page)).selText.split('\n').length).toBe(3);
+  let st = await editState(page);
+  expect(st.selAnchor).toBe(anchor);
+  expect(st.selText.startsWith('k02')).toBe(true);
+  expect(st.selText.endsWith(frags[2].slice(0, 3))).toBe(true);
+  // Then into the padding past the last token: the union's end, and no further.
+  await page.mouse.move(last.x + last.width + 30, last.y + last.height / 2, { steps: 4 });
+  await expect.poll(async () => (await editState(page)).selText).toBe(union.slice(union.indexOf('k02')));
+  await page.mouse.up();
+  st = await editState(page);
+  expect(st.selAnchor).toBe(anchor);
+  expect(st.selText).toBe(union.slice(union.indexOf('k02')));
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+});
+
+test('E632: issue #356 — a 20-step drag inside a cell records no collapsed selection after the mousedown and keeps one anchor throughout (window.__mmSelLog)', async ({
+  page,
+}) => {
+  await openFlatGrid(page, '/docs/v356g.md', LONG_SOURCE, 3);
+  const doc = await editorDocText(page, 'quick brown');
+  const cs = doc.indexOf(LONG_CELL);
+  const ce = cs + LONG_CELL.length;
+
+  const start = await charPoint(page, 'the', 1);
+  const tree = await wordRect(page, EDITOR_PANE, 'tree');
+  await page.evaluate(() => {
+    window.__mmSelLog = [];
+  });
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await expect.poll(async () => (await editState(page)).selAnchor).toBe(cs + 1);
+  await page.mouse.move(tree.x + tree.width, start.y, { steps: 20 });
+  await page.mouse.up();
+  await expect.poll(async () => (await editState(page)).selText).toBe(LONG_CELL.slice(1));
+
+  const log = await page.evaluate(() => window.__mmSelLog ?? []);
+  expect(log.length).toBeGreaterThanOrEqual(20);
+  // Only the mousedown's own caret may be collapsed; from the first move on,
+  // every recorded selection is a range anchored where the drag began.
+  const firstRanged = log.findIndex((e) => e.anchor !== e.head);
+  expect(firstRanged).toBeGreaterThanOrEqual(0);
+  expect(firstRanged).toBeLessThanOrEqual(1);
+  expect(log.slice(firstRanged).every((e) => e.anchor !== e.head)).toBe(true);
+  expect(log.every((e) => e.anchor === cs + 1)).toBe(true);
+  expect(log.every((e) => e.head >= cs + 1 && e.head <= ce)).toBe(true);
+  // The heads never step backwards: no flicker between clamped and unclamped.
+  for (let i = 1; i < log.length; i++) expect(log[i].head).toBeGreaterThanOrEqual(log[i - 1].head);
+});
+
+test('E633: issue #356 — with the grid view off, selection is ordinary text: a drag across a pipe selects the raw slice including the `|`', async ({
+  page,
+}) => {
+  await openFlatGrid(page, '/docs/v356h.md', FLAT_SOURCE, 5);
+  const editor = page.getByTestId('editor');
+  await editor.locator('.cm-line').filter({ hasText: 'quick brown' }).click();
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-table').click();
+  await page.getByTestId('smart-edit-toggle-grid').click();
+  await expect.poll(() => editor.locator('.cm-line.mm-table-mode-line').count()).toBe(0);
+
+  await dragAcrossText(page, EDITOR_PANE, 'fox', 'lazy');
+  await expect.poll(async () => (await editState(page)).selText).toBe('fox | lazy');
 });

@@ -3284,9 +3284,10 @@ test('E611: issue #344 (SPEC40 §2, PRD 023 §19) — grid view ON: a cell selec
   const editor = page.getByTestId('editor');
   const selText = () => page.evaluate(() => window.__mmEdit?.selText);
 
-  // Select the whole first cell by extending the head through it (a
-  // Shift+End would put the head in the LAST cell, and SPEC39 §2.1 clamps
-  // a ranged selection to its head's cell).
+  // Select the whole first cell by extending the head through it (SPEC39
+  // §2.1 clamps a ranged selection to its ANCHOR's cell — issue #356 — so a
+  // Shift+End would land there too; the walk keeps this test's steps
+  // explicit).
   const extend = async (n: number) => {
     for (let i = 0; i < n; i++) await page.keyboard.press('Shift+ArrowRight');
   };

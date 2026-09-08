@@ -1213,9 +1213,23 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
 
   // --- SPEC23 §4: dev-shim-only __mmEdit seam (same gating as __mmMenu) ---------
   const seamEditState = useCallback(
-    (s: { canonHead: number; head: number; headLine: number; selFrom: number; selTo: number; selText: string; focused: boolean }) => {
+    (s: {
+      canonHead: number;
+      head: number;
+      headLine: number;
+      selFrom: number;
+      selTo: number;
+      selAnchor: number;
+      selHead: number;
+      selText: string;
+      focused: boolean;
+      selectionSet: boolean;
+    }) => {
       if (stateRef.current.platform?.kind !== 'browser') return;
-      window.__mmEdit = { nav: window.__mmEdit?.nav ?? false, ...s };
+      const { selectionSet, ...rest } = s;
+      window.__mmEdit = { nav: window.__mmEdit?.nav ?? false, ...rest };
+      // SPEC39 §2.1 (issue #356): every selection-setting update, in order.
+      if (selectionSet) (window.__mmSelLog ??= []).push({ anchor: s.selAnchor, head: s.selHead });
     },
     []
   );
@@ -1226,6 +1240,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       headLine: 1,
       selFrom: 0,
       selTo: 0,
+      selAnchor: 0,
+      selHead: 0,
       selText: '',
       focused: false,
       ...(window.__mmEdit ?? {}),
@@ -1600,9 +1616,12 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       headLine: number;
       selFrom: number;
       selTo: number;
+      selAnchor: number;
+      selHead: number;
       selText: string;
       focused: boolean;
       origin: 'editor' | 'host';
+      selectionSet: boolean;
     }) => {
       seamEditState(s);
       lastEditorSelRef.current = { from: s.selFrom, to: s.selTo }; // SPEC25 §2.1

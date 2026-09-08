@@ -79,6 +79,9 @@ declare global {
       headLine: number;
       selFrom: number;
       selTo: number;
+      /** SPEC39 §2.1 (issue #356): the main range's anchor and head, unordered — a drag's anchor must never move. */
+      selAnchor: number;
+      selHead: number;
       selText: string;
       /** SPEC24 §1: whether the editor had focus at report time. */
       focused: boolean;
@@ -86,6 +89,13 @@ declare global {
       origin?: 'editor' | 'host';
       nav: boolean;
     };
+    /**
+     * SPEC39 §2.1 (issue #356): one entry per editor update that set the
+     * selection, in order — the record a drag test reads to prove no step
+     * collapsed the range. A test may reset it to `[]` before a gesture.
+     * Browser shim only, like __mmEdit.
+     */
+    __mmSelLog?: Array<{ anchor: number; head: number }>;
     /** SPEC35 §1: paths moved to the (virtual) Trash, newest last. */
     __mmTrash?: string[];
     /** SPEC35 §1: paths handed to revealPath, newest last. */

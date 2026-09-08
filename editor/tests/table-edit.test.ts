@@ -3,6 +3,7 @@ import {
   cellAt,
   cellContentSpan,
   cellSelectionText,
+  clampSelectionToCell,
   deleteCol,
   displayCellAt,
   displayCellBounds,
@@ -578,5 +579,199 @@ describe('SPEC39 §2.1 whole-cell selection helpers (issue #346)', () => {
     expect(sel(at('| a ') + 2, at('k02'))).toBeNull();
     expect(sel(at('| ----') + 3, at('| ----') + 6)).toBeNull();
     expect(sel(at('k01'), at('| ----', 1) + 3)).toBeNull();
+  });
+});
+
+describe('SPEC39 §2.1 clampSelectionToCell (issue #356)', () => {
+  type Sel = { anchor: number; head: number };
+  const idx = (doc: string, needle: string, nth = 0) => {
+    let i = -1;
+    for (let k = 0; k <= nth; k++) i = doc.indexOf(needle, i + 1);
+    if (i === -1) throw new Error(`not found: ${needle}`);
+    return i;
+  };
+  /** clamp() twice equals clamp() once — every case must hold it. */
+  const stable = (doc: string, spans: Array<{ from: number; to: number }>, sel: Sel): Sel => {
+    const once = clampSelectionToCell(doc, spans, sel);
+    const twice = clampSelectionToCell(doc, spans, once);
+    expect(twice).toEqual(once);
+    return once;
+  };
+
+  // --- an unwrapped grid with a prose line above and below ------------------
+  const FLAT = layoutTable(
+    { header: ['Name', 'Detail'], align: [null, null], rows: [['quick fox', 'lazy dog'], ['second', 'row two']] },
+    80
+  ).text;
+  const DOC = `top\n\n${FLAT}\n\nbottom`;
+  const SPAN = { from: 5, to: 5 + FLAT.length };
+  const SPANS = [SPAN];
+  const at = (needle: string, nth = 0) => idx(DOC, needle, nth);
+  const clamp = (anchor: number, head: number) => stable(DOC, SPANS, { anchor, head });
+  const cs = at('quick'); // cell (0,0) content start
+  const ce = cs + 'quick fox'.length; // …and end (the padding space follows)
+
+  test('U1367: Rule A — the anchor\'s cell confines the head wherever it sits (padding, pipe, separator, other cells, outside, past the ends) and never collapses', () => {
+    expect(DOC[ce]).toBe(' ');
+    expect(DOC[ce + 1]).toBe('|');
+    const a = cs + 1; // on content: never moves
+    const cases: Array<[string, number, number]> = [
+      ['same cell content', at('fox') + 1, at('fox') + 1],
+      ['trailing padding', ce + 1, ce],
+      ['the pipe', ce + 2, ce],
+      ['the gutter past the pipe', ce + 3, ce],
+      ['the next cell of the row', at('lazy') + 2, ce],
+      ['a cell on another row', at('second') + 3, ce],
+      ['the header row', at('Name') + 1, cs],
+      ['the separator row', at('---') + 2, cs],
+      ['the separator below', at('\n| ---', 1) + 4, ce],
+      ['prose above', 1, cs],
+      ['prose below', at('bottom') + 2, ce],
+      ['past the document end', DOC.length + 10, ce],
+      ['before the document start', -5, cs],
+    ];
+    for (const [label, head, expectHead] of cases) {
+      const out = clamp(a, head);
+      expect({ label, ...out }).toEqual({ label, anchor: a, head: expectHead });
+      expect(out.anchor).not.toBe(out.head);
+    }
+    // An anchor on content with a head on content of the same cell: the
+    // input object itself comes back (no spec for the filter to add).
+    const same = { anchor: a, head: at('fox') + 2 };
+    expect(clampSelectionToCell(DOC, SPANS, same)).toBe(same);
+    // An anchor on the cell's padding, pipe or gutter snaps onto its content
+    // once and stays there; the head is clamped to that cell.
+    expect(clamp(ce + 1, cs + 2)).toEqual({ anchor: ce, head: cs + 2 });
+    expect(clamp(cs - 1, at('fox') + 1)).toEqual({ anchor: cs, head: at('fox') + 1 }); // after the leading pipe
+    expect(clamp(cs - 2, at('lazy'))).toEqual({ anchor: cs, head: ce }); // on the leading pipe
+    // The second column's leading pipe/gutter resolves to the SECOND cell.
+    const ls = at('lazy');
+    expect(clamp(ls - 1, at('row two'))).toEqual({ anchor: ls, head: ls + 'lazy dog'.length });
+    expect(clamp(ls + 2, 0)).toEqual({ anchor: ls + 2, head: ls });
+    // Dragging leftwards from the second cell over its pipe into the first: contentStart.
+    expect(clamp(ls + 1, at('fox'))).toEqual({ anchor: ls + 1, head: ls });
+  });
+
+  test('U1368: Rules B, C and D — an outside anchor holds the head at the nearest grid edge, whole-span and both-outside ranges pass through, a separator anchor collapses', () => {
+    // Rule B: anchor above, head in a cell → the span's start; below → its end.
+    expect(clamp(1, at('lazy') + 2)).toEqual({ anchor: 1, head: SPAN.from });
+    expect(clamp(at('bottom') + 3, at('quick') + 2)).toEqual({ anchor: at('bottom') + 3, head: SPAN.to });
+    expect(clamp(1, at('---') + 1)).toEqual({ anchor: 1, head: SPAN.from }); // the separator row too
+    // A head already on an edge is inside per spanAt but not strictly: untouched.
+    const onFrom = { anchor: 1, head: SPAN.from };
+    expect(clampSelectionToCell(DOC, SPANS, onFrom)).toBe(onFrom);
+    const onTo = { anchor: DOC.length, head: SPAN.to };
+    expect(clampSelectionToCell(DOC, SPANS, onTo)).toBe(onTo);
+    // Rule C: both outside.
+    const outside = { anchor: 0, head: 3 };
+    expect(clampSelectionToCell(DOC, SPANS, outside)).toBe(outside);
+    const below = { anchor: at('bottom'), head: DOC.length };
+    expect(clampSelectionToCell(DOC, SPANS, below)).toBe(below);
+    // Rule C: a range enclosing the whole span, from either side.
+    const all = { anchor: 0, head: DOC.length };
+    expect(clampSelectionToCell(DOC, SPANS, all)).toBe(all);
+    const allRev = { anchor: DOC.length, head: 0 };
+    expect(clampSelectionToCell(DOC, SPANS, allRev)).toBe(allRev);
+    const exact = { anchor: SPAN.from, head: SPAN.to };
+    expect(clampSelectionToCell(DOC, SPANS, exact)).toBe(exact);
+    // …including a select-all over a document that STARTS with the table
+    // (anchor 0 is inclusive-inside the span, so enclosure must win first).
+    const DOC0 = `${FLAT}\n\nbottom`;
+    const S0 = [{ from: 0, to: FLAT.length }];
+    const all0 = { anchor: 0, head: DOC0.length };
+    expect(clampSelectionToCell(DOC0, S0, all0)).toBe(all0);
+    expect(clampSelectionToCell(DOC0, S0, { anchor: DOC0.length, head: 0 })).toEqual({ anchor: DOC0.length, head: 0 });
+    // …and one that ENDS with the table.
+    const DOC1 = `top\n\n${FLAT}`;
+    const S1 = [{ from: 5, to: DOC1.length }];
+    expect(clampSelectionToCell(DOC1, S1, { anchor: 0, head: DOC1.length })).toEqual({ anchor: 0, head: DOC1.length });
+    // A range from the table's first line that stays inside the span is
+    // anchored IN the first cell (line start → column 0): a triple-click's
+    // line selection resolves there, which is why tableMode.ts takes the
+    // click-count gesture over.
+    expect(clamp(SPAN.from, at('lazy'))).toEqual({ anchor: at('Name'), head: at('Name') + 4 });
+    // Rule D: an anchor on the separator row collapses to a caret there.
+    const sep = at('---') + 2;
+    expect(clamp(sep, at('lazy'))).toEqual({ anchor: sep, head: sep });
+    expect(clamp(sep, 0)).toEqual({ anchor: sep, head: sep });
+    // An empty range is returned untouched (idempotence closes Rule D).
+    const empty = { anchor: sep, head: sep };
+    expect(clampSelectionToCell(DOC, SPANS, empty)).toBe(empty);
+    // A span that no longer parses as a display is left to the watcher.
+    const broken = { anchor: 1, head: 2 };
+    expect(clampSelectionToCell(DOC, [{ from: 0, to: 3 }], broken)).toBe(broken);
+    // Multiple spans: the anchor's span decides; a head in ANOTHER grid
+    // clamps into the anchor's cell like any outside head.
+    const TWO = `${DOC}\n\n${FLAT}`;
+    const S2 = [SPAN, { from: DOC.length + 2, to: TWO.length }];
+    const a = at('quick') + 1;
+    expect(stable(TWO, S2, { anchor: a, head: idx(TWO, 'lazy', 1) + 2 })).toEqual({ anchor: a, head: ce });
+  });
+
+  // --- the wrapped grid of issue #346 (U1359's fixture) ----------------------
+  const M = {
+    header: ['Name', 'Detail'],
+    align: [null, null] as Array<null>,
+    rows: [
+      ['a', 'k01 k02 k03 k04 k05 k06 k07 k08 k09'],
+      ['', 'solo'],
+      ['b', 'abcdefghijklmnopqrstuv'],
+    ],
+  };
+  const WRAPPED = layoutTable(M, 26).text;
+  const WDOC = `intro\n\n${WRAPPED}\n\noutro`;
+  const WSPANS = [{ from: 7, to: 7 + WRAPPED.length }];
+
+  test('U1369: on a wrapped grid the anchor\'s WHOLE cell confines the head — fragments on other lines, the separator rows, the empty cell and outside all snap to the union\'s nearest content, idempotently', () => {
+    const wat = (needle: string, nth = 0) => idx(WDOC, needle, nth);
+    const parsed = parseDisplay(WDOC, { start: WSPANS[0].from, end: WSPANS[0].to })!;
+    const w = displayWholeCellBounds(WDOC, { start: WSPANS[0].from, end: WSPANS[0].to }, parsed, wat('k01'))!;
+    const [f1, f2, f3] = w.fragments;
+    const wclamp = (anchor: number, head: number) => stable(WDOC, WSPANS, { anchor, head });
+    const a = wat('k02') + 1;
+    const cases: Array<[string, number, number]> = [
+      ['a later fragment', wat('k06') + 1, wat('k06') + 1],
+      ['padding on the second line', f2.contentEnd + 1, f2.contentEnd],
+      ['the second line\'s trailing pipe', f2.lineEnd, f2.contentEnd],
+      ['the Name column\'s padding on the third line', f3.lineStart + 3, f3.contentStart],
+      ['the gutter left of the third fragment', f3.contentStart - 1, f3.contentStart],
+      ['past the last fragment', f3.lineEnd + 3, w.contentEnd],
+      ['the separator below', wat('\n| ----', 1) + 4, w.contentEnd],
+      ['the empty cell\'s row', wat('solo') - 6, w.contentEnd],
+      ['the hard-broken cell', wat('opqr') + 1, w.contentEnd],
+      ['the header line', wat('Detail') + 2, w.contentStart],
+      ['prose above', 2, w.contentStart],
+      ['prose below', WDOC.length - 1, w.contentEnd],
+      ['past the document end', WDOC.length + 40, w.contentEnd],
+    ];
+    for (const [label, head, expectHead] of cases) {
+      const out = wclamp(a, head);
+      expect({ label, ...out }).toEqual({ label, anchor: a, head: expectHead });
+      expect(out.anchor).not.toBe(out.head);
+    }
+    // E613 (a): a drag from the gutter left of k01 to the padding after k09
+    // is the whole cell — both ends snapped, the anchor onto contentStart.
+    expect(wclamp(f1.contentStart - 1, f3.contentEnd + 2)).toEqual({ anchor: w.contentStart, head: w.contentEnd });
+    // E613 (d) under the anchor rule: from k05 (line 2) leftwards into the
+    // Name cell's `a`: the head lands on the union's content start — the
+    // Detail cell's k01 — so the range is k01..k05, not `a`.
+    expect(wclamp(wat('k05') + 2, wat('| a') + 2)).toEqual({ anchor: wat('k05') + 2, head: w.contentStart });
+    // An anchor in the Name cell `a` with the head in the wrapped cell: `a` wins.
+    expect(wclamp(wat('| a') + 2, wat('k07'))).toEqual({ anchor: wat('| a') + 2, head: wat('| a') + 3 });
+    // Anchored in the empty cell: its one content position; a head elsewhere
+    // snaps there too — the only allowed collapse, the input covered no content.
+    const emptyAnchor = wat('solo') - 6;
+    const out = wclamp(emptyAnchor, wat('solo') + 2);
+    expect(out.anchor).toBe(out.head);
+    expect(WDOC.slice(WDOC.lastIndexOf('\n', out.anchor) + 1, WDOC.indexOf('\n', out.anchor))).toContain('solo');
+    // Rule B on the wrapped grid, both directions.
+    expect(wclamp(1, wat('k05'))).toEqual({ anchor: 1, head: WSPANS[0].from });
+    expect(wclamp(WDOC.length, wat('k05'))).toEqual({ anchor: WDOC.length, head: WSPANS[0].to });
+    // Rule D: separator anchor.
+    const sep = wat('| ----') + 3;
+    expect(wclamp(sep, wat('k05'))).toEqual({ anchor: sep, head: sep });
+    // Rule C: the whole span.
+    const all = { anchor: 0, head: WDOC.length };
+    expect(clampSelectionToCell(WDOC, WSPANS, all)).toBe(all);
   });
 });

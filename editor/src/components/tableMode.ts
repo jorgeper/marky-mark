@@ -1,4 +1,5 @@
 import {
+  EditorSelection,
   EditorState,
   MapMode,
   StateEffect,
@@ -15,6 +16,7 @@ import {
   cellAt,
   cellContentSpan,
   cellNavTarget,
+  clampSelectionToCell,
   displayCellAt,
   displayCellBounds,
   displayPosOf,
@@ -25,7 +27,6 @@ import {
   parseTable,
   sanitizeCellInsert,
   serializeCompactTable,
-  snapToCell,
   type ParsedDisplay,
   type Region,
   type TableModel,
@@ -155,44 +156,23 @@ const alignFilter = EditorState.transactionFilter.of((tr) => {
   if (ue && (ue.startsWith('undo') || ue.startsWith('redo'))) return tr;
   if (ue && ue.startsWith('input.type.compose')) return tr;
 
-  // SPEC39 §2.1: ranged selections clamp to one cell of their pivot's span.
+  // SPEC39 §2.1 (issue #356): a ranged selection is confined by the pure
+  // clamp — the ANCHOR's whole cell when the anchor is in one (the anchor
+  // never moves, the head snaps to the cell's nearest content, never a
+  // collapse), the nearest grid edge for a head that entered from outside,
+  // untouched when both ends are outside or a whole span is enclosed. The
+  // clamp parses only the confinement span, once per transaction; an
+  // already-clamped pair returns the original transaction, so repeated
+  // mousemoves at one position add no selection change.
   if (!tr.docChanged) {
     if (!tr.selection) return tr;
     const sel = tr.newSelection.main;
     if (sel.empty) return tr;
+    if (!spanAt(set, sel.anchor) && !spanAt(set, sel.head)) return tr; // both outside: allowed
     const text = tr.startState.doc.toString();
-    const headSpan = spanAt(set, sel.head);
-    const anchorSpan = spanAt(set, sel.anchor);
-    const span = headSpan ?? anchorSpan;
-    if (!span) return tr; // both endpoints outside every grid: allowed
-    const pivot = headSpan ? sel.head : sel.anchor;
-    const region: Region = { start: span.from, end: span.to };
-    const parsed = parseDisplay(text, region);
-    if (!parsed) return tr;
-    // SPEC39 §2.1 (issue #346): the clamp target is the pivot's WHOLE cell
-    // across its wrapped display lines — the per-line bounds cut a drag from
-    // a cell's first line to its last down to the pivot line's fragment.
-    let w = displayWholeCellBounds(text, region, parsed, pivot);
-    if (w && w.kind !== 'cells' && headSpan && anchorSpan === headSpan) {
-      // SPEC39 §2.1 (issue #346): a head walked onto a separator line
-      // (Shift+ArrowDown/Up off the cell's last/first line) with the anchor
-      // still in a cell of the same span clamps to the ANCHOR's cell rather
-      // than collapsing, so the head lands at the cell's content end (down)
-      // or content start (up). A separator head with no in-cell anchor
-      // still collapses.
-      const wa = displayWholeCellBounds(text, region, parsed, sel.anchor);
-      if (wa && wa.kind === 'cells') w = wa;
-    }
-    if (!w || w.kind !== 'cells') {
-      return [tr, { selection: { anchor: Math.max(span.from, Math.min(pivot, span.to)) } }];
-    }
-    // Endpoints in padding, pipes, the newline or another column's fragment
-    // on an intermediate line snap onto the cell's own fragments; the range
-    // stays ONE contiguous CodeMirror range across the wrapped lines.
-    const a2 = snapToCell(w, sel.anchor);
-    const h2 = snapToCell(w, sel.head);
-    if (a2 === sel.anchor && h2 === sel.head) return tr;
-    return [tr, { selection: { anchor: a2, head: h2 } }];
+    const c = clampSelectionToCell(text, set.spans, { anchor: sel.anchor, head: sel.head });
+    if (c.anchor === sel.anchor && c.head === sel.head) return tr;
+    return [tr, { selection: { anchor: c.anchor, head: c.head } }];
   }
 
   // Which span do the changes touch? Cross-boundary or multi-span edits pass
@@ -792,6 +772,36 @@ function navigate(view: EditorView, dir: 'up' | 'down' | 'next' | 'prev'): boole
   return true; // consumed even at the ends — Enter/Tab never insert
 }
 
+/**
+ * SPEC39 §2.1 (issue #356): triple-click in a grid cell selects THAT cell's
+ * whole content (across its wrapped lines), not the display line. CodeMirror's
+ * default triple-click is a line selection anchored at the line start, which
+ * the anchor rule would resolve to the FIRST column — so the click-count
+ * gesture is taken over here through the sanctioned seam; the transaction
+ * filter stays the backstop. A separator line or a pipe-less position falls
+ * through to the default.
+ */
+const tripleClickCell = EditorView.mouseSelectionStyle.of((view, event) => {
+  if (event.detail !== 3 || event.button !== 0) return null;
+  const set = view.state.field(tableModeField, false);
+  if (!set || set.spans.length === 0) return null;
+  const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+  if (pos == null) return null;
+  const span = spanAt(set, pos);
+  if (!span) return null;
+  const text = view.state.doc.toString();
+  const region: Region = { start: span.from, end: span.to };
+  const parsed = parseDisplay(text, region);
+  if (!parsed) return null;
+  const w = displayWholeCellBounds(text, region, parsed, pos);
+  if (!w || w.kind !== 'cells') return null;
+  const range = EditorSelection.range(w.contentStart, w.contentEnd);
+  return {
+    get: () => EditorSelection.create([range]),
+    update: () => false,
+  };
+});
+
 const confineKeymap = Prec.highest(
   keymap.of([
     { key: 'Enter', run: (v) => navigate(v, 'down'), shift: (v) => navigate(v, 'up') },
@@ -881,6 +891,7 @@ export function tableModeExtension() {
     alignFilter,
     tableModeWatcher,
     confineKeymap,
+    tripleClickCell,
     refitPlugin,
   ];
 }
