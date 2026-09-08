@@ -3,6 +3,7 @@ import { expect, test } from './fixtures';
 import {
   clickCharBoundary,
   clickWord,
+  editorBottomGutterLine,
   editorTopGutterLine,
   freshApp,
   freshNativeMenuApp,
@@ -946,16 +947,6 @@ test('E128: cue-anchored split sync — the caret row stays level with the invis
 });
 
 // --- Issue #345: no cues, no scroll on a preview click ------------------------
-
-/** The last 1-based gutter line whose row is fully inside the editor's viewport. */
-const editorBottomGutterLine = (page: Page) =>
-  page.evaluate(() => {
-    const bottom = document.querySelector('.cm-scroller')!.getBoundingClientRect().bottom;
-    const gutters = Array.from(document.querySelectorAll('.cm-lineNumbers .cm-gutterElement')).filter(
-      (g) => g.getBoundingClientRect().bottom <= bottom - 1 && /\d/.test(g.textContent ?? '')
-    );
-    return gutters.length ? Number(gutters[gutters.length - 1].textContent) : -1;
-  });
 
 test('E623: Issue #345 — a plain split-preview click far below the editor viewport places the caret and scrolls NEITHER pane, sync on', async ({
   page,

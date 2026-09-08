@@ -619,6 +619,16 @@ export const editorTopGutterLine = (page: Page) =>
     return first ? Number(first.textContent) : -1;
   });
 
+/** The last 1-based gutter line whose row is fully inside the editor's viewport. */
+export const editorBottomGutterLine = (page: Page) =>
+  page.evaluate(() => {
+    const bottom = document.querySelector('.cm-scroller')!.getBoundingClientRect().bottom;
+    const gutters = Array.from(document.querySelectorAll('.cm-lineNumbers .cm-gutterElement')).filter(
+      (g) => g.getBoundingClientRect().bottom <= bottom - 1 && /\d/.test(g.textContent ?? '')
+    );
+    return gutters.length ? Number(gutters[gutters.length - 1].textContent) : -1;
+  });
+
 /**
  * PRD 012 Req 6 (issue #300): where the editor's caret is, read from the DOM
  * selection CodeMirror keeps in sync while focused — the column within the

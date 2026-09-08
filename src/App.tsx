@@ -1451,7 +1451,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // --- SPEC24 §1: editor → preview synthetic highlight -------------------------
   const mirrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Issue #310: the pending head-anchor stamp for the latest caret report.
-  const cueRafRef = useRef<number | null>(null);
+  const headRafRef = useRef<number | null>(null);
 
   /** Unwrap every mirror mark; text-node normalization keeps anchors stable. */
   const clearMirrorMarks = useCallback(() => {
@@ -1470,7 +1470,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // styles it, no element is inserted, rendered text and offsets are
   // untouched, and the comment/find marks painted over the same text nodes
   // are never fragmented (E291).
-  // SPEC44 §3.1's "standard containers", where the stamp may land.
+  // SPEC44 §3.1's "standard containers": where the stamp may land, and the
+  // unit a §4.1 preview click resolves to when its offset does not map.
   const HEAD_CONTAINERS = 'li, p, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th';
   const headAnchorRef = useRef<{ head: number; headLine: number } | null>(null);
 
@@ -1565,7 +1566,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         // source start (its first visible character) — inside a list that is
         // the clicked item, not the whole stamp.
         caret = hit.blockStart;
-        const clickedContainer = hit.base?.closest<HTMLElement>('li, p, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th');
+        const clickedContainer = hit.base?.closest<HTMLElement>(HEAD_CONTAINERS);
         if (clickedContainer && hit.blockEl.contains(clickedContainer)) {
           const cRegion = document.createRange();
           cRegion.setStartBefore(hit.blockEl);
@@ -1626,9 +1627,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         stampHeadAnchor(pane, s.canonHead, s.headLine);
         if (s.origin === 'editor') splitFollowRef.current?.followCaret();
       };
-      if (cueRafRef.current) cancelAnimationFrame(cueRafRef.current);
-      cueRafRef.current = requestAnimationFrame(() => {
-        cueRafRef.current = null;
+      if (headRafRef.current) cancelAnimationFrame(headRafRef.current);
+      headRafRef.current = requestAnimationFrame(() => {
+        headRafRef.current = null;
         stampHead();
       });
       if (mirrorTimerRef.current) clearTimeout(mirrorTimerRef.current);
@@ -1638,8 +1639,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         clearMirrorMarks();
         // The frame callback is skipped in a hidden tab — stamp here then.
         if (!headStamped) {
-          if (cueRafRef.current) cancelAnimationFrame(cueRafRef.current);
-          cueRafRef.current = null;
+          if (headRafRef.current) cancelAnimationFrame(headRafRef.current);
+          headRafRef.current = null;
           stampHead();
         }
         if (!s.focused || s.selFrom === s.selTo) return;
@@ -6929,9 +6930,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // is the app's half, layered through the Preview's post-render decoration
   // hook (PRD 021 Req 8): heading copy-links, the comment highlight marks and
   // the issue #310 head-row anchor. An identity change (comments, visibility,
-  // hosted state)
-  // re-injects first, so marks always wrap a clean pipeline-produced tree —
-  // the same rebuild the inline effect keyed on `reanchorAndHighlight` had.
+  // hosted state) re-injects first, so marks always wrap a clean
+  // pipeline-produced tree — the same rebuild the inline effect keyed on
+  // `reanchorAndHighlight` had.
   const decorateSplitPreview = useCallback(
     (el: HTMLElement) => {
       // PRD 020 Req 18: the split reading pane offers the same heading
