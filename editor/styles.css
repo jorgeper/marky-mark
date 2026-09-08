@@ -1150,6 +1150,69 @@
   box-shadow: inset 0 0 0 1px var(--mm-fence-ring);
 }
 
+/* Issue #343: the annotation copy-link at the left margin — present only on
+   hosted (the Editor gets the seam nowhere else), on the head's line when
+   the head rests in a painted comment or highlight. The geometry is
+   .smart-edit-anchor's exactly: a zero-size inline anchor at the line's
+   start and a 24px button hanging left into .cm-content's 32px padding
+   column with the SAME right edge as the smart-edit hash — one button-height
+   higher (top: -1.4em against the hash's top: 0), so it stacks directly
+   above the hash rather than beside it, and it never covers a glyph: the
+   column is padding on every line. */
+.margin-link-anchor {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+  vertical-align: top;
+}
+.margin-link-btn {
+  --mm-margin-link-gap: 4px;
+  --mm-margin-link-h: 1.4em;
+  position: absolute;
+  top: calc(-1 * var(--mm-margin-link-h));
+  right: var(--mm-margin-link-gap);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: var(--mm-margin-link-h);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--mm-accent, #0969da);
+  cursor: pointer;
+}
+.margin-link-btn:hover {
+  filter: brightness(1.2);
+}
+/* The ~2s confirmation caption: an opaque pill hung RIGHT of the glyph,
+   level with it — leftward it would leave the 32px column and be clipped
+   by the scroller; below it is the smart-edit hash. It floats over the
+   previous line's opening words, opaque and legible (the issue #309 rule
+   for the preview's pill), and stays a pseudo-element: no text node enters
+   the document. */
+.margin-link-btn.is-copied::after {
+  content: 'Link copied';
+  position: absolute;
+  left: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px 6px;
+  font-size: var(--mm-text-caption);
+  white-space: nowrap;
+  color: var(--mm-accent, #0969da);
+  background: var(--mm-bg-elevated, #f6f8fa);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: var(--mm-radius-small);
+  z-index: 10;
+}
+/* Issue #343 on a fence-card line: pushed out of the card by the card's
+   inset, exactly as the smart-edit hash is (the rule below). */
+.editor-wrap .cm-line.mm-fence-card .margin-link-btn {
+  right: calc(var(--mm-margin-link-gap) + var(--mm-fence-inset));
+}
+
 /* SPEC43 §3 (issue #263): the smart-edit button on a card line — pushed out
    of the card, not hidden. The button hangs left of its zero-width anchor at
    the line's start; on a card line that start is --mm-fence-inset past the

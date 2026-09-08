@@ -793,3 +793,61 @@ test('W20: PRD 025 Reqs 20, 27 (issue #332) — the static build renders the one
   await expect(page.locator('.edge-cluster').getByTestId('edit-toggle')).toHaveText(/Preview/);
   await expect(page.locator('.toolbar').getByTestId('edit-toggle')).toHaveCount(0);
 });
+
+test('W21: issue #343 (PRD 020 Req 15) — the static web build renders no copy-link anywhere: a click-activated comment grows the Marky Mark button alone in the preview, and the editor caret inside the range paints no margin control', async ({
+  page,
+}) => {
+  await dropFile(page, 'w21.md', SAMPLE_MD);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Web Sample');
+  await page.evaluate(() => {
+    const doc = document.querySelector('[data-testid="doc"]')!;
+    const walker = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT);
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      const idx = node.nodeValue?.indexOf('plenty of unique text') ?? -1;
+      if (idx !== -1) {
+        const range = document.createRange();
+        range.setStart(node, idx);
+        range.setEnd(node, idx + 'plenty of unique text'.length);
+        const sel = window.getSelection()!;
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return;
+      }
+    }
+    throw new Error('phrase not found');
+  });
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
+  await page.getByTestId('composer-input').fill('web comment');
+  await page.getByTestId('composer-submit').click();
+  await expect(page.getByTestId('card-body')).toHaveText('web comment');
+  await expect(page.getByTestId('copy-link-comment')).toHaveCount(0);
+
+  // Preview: the click activates the comment and grows the button — with no
+  // copy-link above it on this build.
+  const mark = page.locator('mark.hl').first();
+  await mark.click();
+  await expect(mark).toHaveClass(/active/);
+  await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
+  const btn = page.getByTestId('smart-edit-selection');
+  await expect(btn).toBeVisible();
+  const box = (await btn.boundingBox())!;
+  const markBox = (await mark.boundingBox())!;
+  expect(box.x + box.width).toBeLessThanOrEqual(markBox.x);
+  await page.keyboard.press('Escape');
+  await expect(btn).toHaveCount(0);
+
+  // Editor: the caret inside the painted range — the Smart Edit hash alone.
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+  await expect(editor.locator('.mm-hl').first()).toBeVisible();
+  await editor.locator('.mm-hl').first().click();
+  await expect(editor.getByTestId('smart-edit-gutter')).toBeVisible();
+  await page.waitForTimeout(150);
+  await expect(page.getByTestId('margin-copy-link')).toHaveCount(0);
+  await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
+});

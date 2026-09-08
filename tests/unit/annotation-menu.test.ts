@@ -301,3 +301,49 @@ describe('PRD 023 §13 preview selection context model (issue #287)', () => {
 // frozen store and a missing comment.write, U1145 does the same for the
 // preview selection button, and E154/E463 drive them through the shipped
 // menu. Both numbers are retired, never reused.
+
+describe('Issue #343 — the preview button for a click-activated record with the selection collapsed', () => {
+  const collapsed = (over: Partial<PreviewAnnotationInput> = {}): PreviewAnnotationInput => ({
+    gate: openGate,
+    start: 7,
+    end: 7,
+    positions: { c: { start: 0, end: 10 }, h: { start: 0, end: 10 } },
+    records: [comment('c'), highlight('h')],
+    ...over,
+  });
+
+  test('U1364: the active record builds the rows from its own context — Delete Comment for a comment, recolor + Remove Highlight for a highlight, insert rows disabled; no active or unpainted record closes as before', () => {
+    // A comment: Delete Comment armed, nothing that needs a fresh anchor.
+    expect(previewAnnotationModel(collapsed({ activeId: 'c' }))).toEqual({
+      show: true,
+      anchor: null,
+      insertCommentEnabled: false,
+      deleteCommentId: 'c',
+      colorsEnabled: false,
+      recolorId: null,
+      removeHighlightId: null,
+    });
+    // A highlight: the color rows recolor it and Remove Highlight deletes it.
+    expect(previewAnnotationModel(collapsed({ activeId: 'h' }))).toEqual({
+      show: true,
+      anchor: null,
+      insertCommentEnabled: false,
+      deleteCommentId: null,
+      colorsEnabled: true,
+      recolorId: 'h',
+      removeHighlightId: 'h',
+    });
+    // Collapsed with nothing click-active: closed, exactly as before.
+    expect(previewAnnotationModel(collapsed()).show).toBe(false);
+    expect(previewAnnotationModel(collapsed({ activeId: null })).show).toBe(false);
+    // A record painting nowhere on this surface, or naming no record: closed.
+    expect(previewAnnotationModel(collapsed({ activeId: 'c', positions: { c: null } })).show).toBe(false);
+    expect(previewAnnotationModel(collapsed({ activeId: 'ghost', positions: { ghost: { start: 0, end: 1 } } })).show).toBe(false);
+    // The gate still closes everything.
+    expect(previewAnnotationModel(collapsed({ activeId: 'c', gate: { ...openGate, canWrite: false } })).show).toBe(false);
+    // A real selection ignores activeId: the selection is the context.
+    const withSel = previewAnnotationModel(collapsed({ activeId: 'c', start: 2, end: 6 }));
+    expect(withSel.insertCommentEnabled).toBe(true);
+    expect(withSel.anchor).toEqual({ start: 2, end: 6 });
+  });
+});
