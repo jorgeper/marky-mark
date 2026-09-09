@@ -584,6 +584,19 @@ export const menuItem = (page: Page, command: string) =>
     command
   );
 
+/**
+ * Merge `patch` into the shim's settings.json without rebooting — the caller
+ * reloads so the app reads it (the E261 boot pattern shared by `splitApp`,
+ * `bootEditorOn` and `enableActiveLine`).
+ */
+export async function patchSettings(page: Page, patch: Record<string, unknown>): Promise<void> {
+  await page.evaluate((p) => {
+    const raw = window.__mmfs!.read('/config/settings.json');
+    const settings = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...settings, ...p }));
+  }, patch);
+}
+
 /** Long fixture + doc open + edit mode (split by default, full when false). */
 export async function splitApp(page: Page, split = true): Promise<void> {
   await freshApp(page);
@@ -596,11 +609,7 @@ export async function splitApp(page: Page, split = true): Promise<void> {
     }
     window.__mmfs!.write('/docs/long.md', sections.join('\n'));
   });
-  await page.evaluate((s) => {
-    const raw = window.__mmfs!.read('/config/settings.json');
-    const settings = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...settings, splitEdit: s }));
-  }, split);
+  await patchSettings(page, { splitEdit: split });
   await page.reload(); // boot again so the app reads splitEdit from settings.json
   await page.goto('/#open=/docs/long.md'); // hashchange → the shim's onOpenFile
   await expect(page.getByTestId('doc').locator('h2').first()).toContainText('Marker 1');
@@ -622,11 +631,7 @@ export async function bootEditorOn(
   patch: Record<string, unknown>
 ): Promise<void> {
   await fsWrite(page, path, doc);
-  await page.evaluate((p) => {
-    const raw = window.__mmfs!.read('/config/settings.json');
-    const settings = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...settings, ...p }));
-  }, patch);
+  await patchSettings(page, patch);
   await page.reload();
   await page.goto(`/#open=${path}`);
   await expect(page.locator('.doc h1, .cm-content').first()).toBeVisible();
@@ -642,11 +647,7 @@ export async function bootEditorOn(
  * line calls this before opening its document.
  */
 export async function enableActiveLine(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const raw = window.__mmfs!.read('/config/settings.json');
-    const settings = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...settings, activeLine: true }));
-  });
+  await patchSettings(page, { activeLine: true });
   await page.reload();
   await expect(page.getByTestId('empty-hint')).toBeVisible({ timeout: 20_000 });
 }
