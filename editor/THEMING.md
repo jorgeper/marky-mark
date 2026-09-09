@@ -81,7 +81,7 @@ sets these eight is complete; there is nothing per-language to add.
 
 | Variable | Meaning |
 |---|---|
-| `--mm-active-line` | SPEC44 §2.1 (issue #345): the caret line's tint (editor `.cm-activeLine`, CodeMirror's own class) — fallback the accent at 10% |
+| `--mm-active-line` | SPEC44 §2.1 (issue #345): the caret line's tint (editor `.cm-activeLine`, CodeMirror's own class; opt-in, issue #358 — present only with the `activeLine` prop on) — fallback the accent at 10% |
 | `--mm-find` | Find-match background (editor `.cm-searchMatch`) — **no fallback** |
 | `--mm-find-active` | The current find match's background — **no fallback** |
 | `--mm-find-fg` | Foreground on find matches — **no fallback** |

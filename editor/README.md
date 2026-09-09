@@ -79,7 +79,8 @@ import '@marky-mark/editor/default-theme.css';  // presentable defaults (optiona
 - **`Editor` / `EditorProps`** — the editing surface. Core props:
   `value`, `onChange(next)`, and `historyRef` (parks serialized undo history
   across unmounts, so mode toggles never lose undo). Feature switches:
-  `lineNumbers`, `syntax` (markdown highlighting), `codeSyntax` (fenced-code
+  `lineNumbers`, `activeLine` (the caret-line tint, off by default),
+  `syntax` (markdown highlighting), `codeSyntax` (fenced-code
   highlighting), `livePreview`, `tableGridView`, `inlineImages`,
   `codeBlockView`, `diagramView`, `vimNav`, `readOnly`. Environment:
   `hotkeys` (a `HotkeyMap` — start from `DEFAULT_HOTKEYS`), `isMac`,

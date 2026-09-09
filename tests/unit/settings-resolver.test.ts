@@ -26,6 +26,8 @@ describe('PRD 002 §B5 scope inventory', () => {
       // Issue #308: the editor pane's anchor paint — a reader's preference
       // like the gutter beside it.
       editorHighlights: 'U',
+      // Issue #358: the caret-line tint — the reader's editor pane again.
+      activeLine: 'U',
       editorSyntax: 'U',
       // Issue #122: code-block colouring sits beside editorSyntax — a reader's
       // own preference, honored at the User layer like its neighbour.

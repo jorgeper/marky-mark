@@ -83,6 +83,12 @@ export interface Settings {
    */
   editorHighlights: boolean;
   /**
+   * SPEC44 §2.1 (issue #358): tint the caret's line in the editor
+   * (CodeMirror's highlightActiveLine). Off by default — a fresh profile
+   * shows no .cm-activeLine; on restores the issue #345/#355 tint exactly.
+   */
+  activeLine: boolean;
+  /**
    * PRD 022 Req 4 (semantics kept by PRD 023 §9, issue #286): the most
    * recently used marker color — remembered state (the `lastViewMode`
    * precedent, no Settings row) that cues the menu's armed color row and is
@@ -221,6 +227,9 @@ export const DEFAULT_SETTINGS: Settings = {
   // Issue #308: the editor paints anchors by default; the setting exists to
   // turn that paint off.
   editorHighlights: true,
+  // SPEC44 §2.1 (issue #358): the caret-line tint is opt-in — an existing
+  // settings.json without the key parses as off, which is the migration.
+  activeLine: false,
   // PRD 022 Req 4: yellow matches the legacy tint family.
   lastMarkerColor: 'yellow',
   splitEdit: true,
@@ -319,6 +328,9 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   // Issue #308: a reader's preference like lineNumbers — how their editor
   // pane looks is theirs, not a workspace's to dictate.
   editorHighlights: 'U',
+  // SPEC44 §2.1 (issue #358): how a reader's editor pane looks is theirs —
+  // the lineNumbers / editorHighlights precedent.
+  activeLine: 'U',
   // PRD 022 Req 4: the reader's own marker memory — user-scoped like its
   // comment-authoring neighbours.
   lastMarkerColor: 'U',
@@ -478,6 +490,8 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   showComments: bool,
   // Issue #308: a hand-edited non-boolean falls back to the default (on).
   editorHighlights: bool,
+  // SPEC44 §2.1 (issue #358): a stored non-boolean or an absent key ⇒ off.
+  activeLine: bool,
   // PRD 022 Req 4: only the four marker literals; anything else falls back.
   lastMarkerColor: (raw) => (MARKER_COLORS.includes(raw as CommentColor) ? (raw as CommentColor) : undefined),
   splitEdit: bool,

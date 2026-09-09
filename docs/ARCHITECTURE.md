@@ -520,8 +520,9 @@ forward mirror's CM dispatch always arrives unfocused (and clears stale
 marks on the way through).
 
 Placement (SPEC44 as amended by issue #345) paints nothing in the
-preview and only CodeMirror's own `cm-activeLine` in the editor — bound to
-the `--mm-active-line` token by a three-class rule in `editor/styles.css`.
+preview and only CodeMirror's own `cm-activeLine` in the editor, when the
+`activeLine` setting is on (issue #358, off by default) — bound to the
+`--mm-active-line` token by a three-class rule in `editor/styles.css`.
 What the same pure layer still does is resolve the caret head to its
 RENDERED ROW for the split sync controller (issue #310, SPEC45):
 `activePosition.ts` finds the caret's word (`wordAt`, Unicode, left

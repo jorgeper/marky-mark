@@ -269,3 +269,32 @@ band — the layering problem issue #123 solved for the ranged selection.
   is stamped from the report's canonical `canonHead`/`headLine` (SPEC23 §4
   as amended) — `mapOffsetByLineFlat` is no longer the report's mapper (it
   remains for §3.1's rendered-text purpose). E638 pins the placement.
+
+## Amended by issue #358 (2026-09-09): the caret-line tint is opt-in
+
+- **§2.1 — amended.** The tint is gated by the `activeLine` setting
+  (`src/lib/settings.ts`: default **off**, user-scoped `'U'`, `bool`-parsed —
+  a settings.json without the key parses as off, which is the migration).
+  Off ⇒ `highlightActiveLine()` is not mounted: no `.cm-activeLine` on any
+  line and no gutter tint (`highlightActiveLineGutter` was never mounted
+  and stays unmounted in both states). On ⇒ the issue #345/#355 contract
+  exactly: CodeMirror's own line class, painted through `--mm-active-line`
+  (the accent at 10%), continuous through code spans.
+- **Editor package.** `EditorProps.activeLine?: boolean` (absent ⇒ off)
+  holds the extension in a Compartment beside the gutter's, reconfigured
+  live by a `useEffect` — no remount, undo history intact. `src/App.tsx`
+  passes `settings.activeLine`.
+- **Settings ▸ Editor.** A "Highlight the current line" checkbox
+  (`data-testid` `editor-active-line`, after the live-preview row) drives
+  it; it lands on Save (issue #246) and the mounted editor picks it up
+  without a reload. No View-menu item or command.
+- **Tests.** U1379–U1382 (default, round-trip, malformed fallback, scope);
+  E645 (fresh-profile count 0 in editor and gutter, the checkbox's live
+  on/off, the token-bound colour) and E646 (persistence of both states
+  across reload, an absent key ⇒ off). Existing tests that assert or locate
+  `.cm-activeLine` now enable the setting in their own boot — E124–E127,
+  E355, E624, E625 (`enableActiveLine` / `splitApp`), E626 (its `boot`
+  patch), E317, E527, E490, E337, E338, E533 (`enableActiveLine`), E638
+  (`openSeamSplit`'s patch), E576 and E642 (the hosted settings-blob PUT) —
+  while E555–E559's `centreEditorOnCaret` locates the caret line through
+  the DOM selection instead. `SEED_SETTINGS` stays default-off.

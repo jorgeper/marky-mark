@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import { editorCaret, freshApp, fsWrite, openSettings, saveSettings } from './helpers';
+import { editorCaret, enableActiveLine, freshApp, fsWrite, openSettings, saveSettings } from './helpers';
 
 // Smart Edit: the gutter button, formatting commands, the context menu and
 // its hotkeys.
@@ -584,6 +584,7 @@ test('E490: issue #263 — the smart-edit button sits entirely left of a fence c
     '```txt', // no trailing newline: the block is this single line
   ].join('\n');
   await fsWrite(page, '/docs/card263.md', DOC);
+  await enableActiveLine(page); // issue #358: the caret-line tint is opt-in
   await page.goto('/#open=/docs/card263.md');
   await expect(page.getByTestId('doc')).toContainText('intro');
   await page.keyboard.press('Control+e');

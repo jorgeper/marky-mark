@@ -634,6 +634,23 @@ export async function bootEditorOn(
   await expect(page.locator('.cm-content').first()).toBeVisible();
 }
 
+/**
+ * SPEC44 §2.1 (issue #358): turn the opt-in caret-line tint on for THIS
+ * test's boot — merge `activeLine: true` into settings.json and reboot so the
+ * editor mounts `.cm-activeLine`. The shared seed stays default-off (E645
+ * proves the shipped default), so a test that asserts or locates the tinted
+ * line calls this before opening its document.
+ */
+export async function enableActiveLine(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const raw = window.__mmfs!.read('/config/settings.json');
+    const settings = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...settings, activeLine: true }));
+  });
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible({ timeout: 20_000 });
+}
+
 /** First fully/partially visible gutter line number in the editor pane. */
 export const editorTopGutterLine = (page: Page) =>
   page.evaluate(() => {

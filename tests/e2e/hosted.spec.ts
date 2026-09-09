@@ -7747,7 +7747,8 @@ test('E576: a #heading visit that comes up in edit mode lands the EDITOR on the 
       const stored = res.status() === 200 ? ((await res.json()) as Record<string, unknown>) : {};
       const put = await request.put(settingsBlob, {
         headers,
-        data: JSON.stringify({ ...stored, lastViewMode: 'edit', splitEdit }),
+        // issue #358: the caret line is located by its opt-in tint.
+        data: JSON.stringify({ ...stored, lastViewMode: 'edit', splitEdit, activeLine: true }),
       });
       expect(put.status()).toBe(200);
       await page.goto('about:blank');
@@ -7851,7 +7852,8 @@ test('E642: issue #357 — a #heading visit landing below two grid tables puts t
       const stored = res.status() === 200 ? ((await res.json()) as Record<string, unknown>) : {};
       const put = await request.put(settingsBlob, {
         headers,
-        data: JSON.stringify({ ...stored, lastViewMode: 'edit', splitEdit, tableGridView: true }),
+        // issue #358: the caret line is located by its opt-in tint.
+        data: JSON.stringify({ ...stored, lastViewMode: 'edit', splitEdit, tableGridView: true, activeLine: true }),
       });
       expect(put.status()).toBe(200);
       await page.goto('about:blank');

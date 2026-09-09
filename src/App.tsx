@@ -8871,6 +8871,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
                 // (Req 3), not a mapping of Nones.
                 fluid={settings.fluidMode ? settings.fluidEffects : null}
                 lineNumbers={settings.lineNumbers}
+                // SPEC44 §2.1 (issue #358): the caret-line tint is opt-in;
+                // the package reconfigures it live off this prop.
+                activeLine={settings.activeLine}
                 onChange={editorChanged}
                 historyRef={editorHistoryRef}
                 syncRef={editorSyncRef}

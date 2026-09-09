@@ -5,6 +5,7 @@ import {
   clickWord,
   editorBottomGutterLine,
   editorTopGutterLine,
+  enableActiveLine,
   freshApp,
   freshNativeMenuApp,
   fsRead,
@@ -530,6 +531,7 @@ test('E124: split mode — the caret line alone is tinted in the editor; no word
   page,
 }) => {
   await fsWrite(page, '/docs/place.md', '# Title\n\nalpha beta gamma\n\ncat and cat again\n\n- one two\n- three four\n- five six\n');
+  await enableActiveLine(page); // issue #358: the caret-line tint is opt-in
   await page.goto('/#open=/docs/place.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Title');
   await page.keyboard.press('Control+e');
@@ -610,6 +612,7 @@ test('E125: preview clicks place the caret with no cue and no scroll — split s
   page,
 }) => {
   await fsWrite(page, '/docs/click.md', '# Click\n\nalpha beta gamma\n\nplus +++ plus2\n\n[ext](https://example.com/x)\n');
+  await enableActiveLine(page); // issue #358: the caret-line tint is opt-in
   await page.goto('/#open=/docs/click.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Click');
   const docCues = page.locator('[data-testid="doc"] .mm-active-block, [data-testid="doc"] mark.mm-active-word');
@@ -748,6 +751,7 @@ test('E126: hygiene — comments anchor across a click, find marks stand alone, 
 }) => {
   await fsWrite(page, '/docs/hyg.md', '# Hyg\n\nalpha beta gamma delta\n');
   await fsWrite(page, '/docs/other.md', '# Other\n\nplain here\n');
+  await enableActiveLine(page); // issue #358: the caret-line tint is opt-in
   await page.goto('/#open=/docs/hyg.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Hyg');
   const docCues = page.locator('[data-testid="doc"] .mm-active-block, [data-testid="doc"] mark.mm-active-word');
@@ -821,6 +825,7 @@ test('E127: granularity invariant — drags, punctuation carets, table cells, qu
     '/docs/grain.md',
     '# G\n\n- one two\n- three four\n- pp +++ qq\n\n| h1 | h2 |\n| -- | -- |\n| ca | cb |\n\n> quoted words here\n'
   );
+  await enableActiveLine(page); // issue #358: the caret-line tint is opt-in
   await page.goto('/#open=/docs/grain.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('G');
   await page.keyboard.press('Control+e');
@@ -1020,6 +1025,7 @@ test('E624: Issue #345 — a preview-only click scrolls nothing and paints nothi
 }) => {
   const paras = Array.from({ length: 60 }, (_, i) => `Paragraph ${i} holds token tok${i}x and a few more words.\n`).join('\n');
   await fsWrite(page, '/docs/pv-click.md', `# PV\n\n${paras}`);
+  await enableActiveLine(page); // issue #358: the caret-line tint is opt-in
   await page.goto('/#open=/docs/pv-click.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('PV');
   const ws = page.locator('.workspace');
@@ -1076,6 +1082,7 @@ test('E625: Issue #345 — --mm-active-line defaults to the accent at ~10% and i
   page,
 }) => {
   await fsWrite(page, '/docs/tint.md', '# Tint\n\nfirst line here\n\nsecond line here\n');
+  await enableActiveLine(page); // issue #358: the caret-line tint is opt-in
   await page.goto('/#open=/docs/tint.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Tint');
   const tokens = await page.evaluate(() => {
@@ -1347,6 +1354,7 @@ test('E355: issue #165 — the split opens over rendered content, the editor ins
 }) => {
   // Full edit on the long doc, pane closed — the state an opening toggle
   // starts from.
+  await enableActiveLine(page); // issue #358: the caret-line tint is opt-in
   await splitApp(page, false);
   await expect(page.getByTestId('editor')).toBeVisible();
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
@@ -1516,11 +1524,15 @@ async function clickEditorLine(page: Page, text: string): Promise<void> {
   await target.click({ position: { x: 4, y: 6 } });
 }
 
-/** Put the caret's line mid-viewport (an editor lead — the preview follows), away from both end clamps. */
+/** Put the caret's line mid-viewport (an editor lead — the preview follows), away from both end clamps.
+ *  Issue #358: the caret line is found through the DOM selection (editorCaret's
+ *  technique) — `.cm-activeLine` is opt-in now and off in these boots. */
 const centreEditorOnCaret = (page: Page) =>
   page.evaluate(() => {
     const sc = document.querySelector('.cm-scroller')!;
-    const line = document.querySelector('.cm-activeLine')!;
+    const r0 = document.getSelection()!.getRangeAt(0);
+    const start = r0.startContainer instanceof Element ? r0.startContainer : r0.startContainer.parentElement!;
+    const line = start.closest('.cm-line')!;
     const r = line.getBoundingClientRect();
     const s = sc.getBoundingClientRect();
     sc.scrollTop += r.top - s.top - s.height / 2;

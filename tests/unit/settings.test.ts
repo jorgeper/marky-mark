@@ -228,6 +228,31 @@ describe('Issue #308 editorHighlights setting', () => {
   });
 });
 
+describe('SPEC44 §2.1 (issue #358) activeLine setting', () => {
+  test('U1379: activeLine defaults false and an absent key parses as off (the migration)', () => {
+    expect(DEFAULT_SETTINGS.activeLine).toBe(false);
+    expect(parseSettings('{}').activeLine).toBe(false);
+    expect(parseSettings('{"lineNumbers":true}').activeLine).toBe(false);
+  });
+
+  test('U1380: a stored true round-trips through serializeSettings', () => {
+    expect(parseSettings('{"activeLine":true}').activeLine).toBe(true);
+    const round = parseSettings(serializeSettings({ ...DEFAULT_SETTINGS, activeLine: true }));
+    expect(round.activeLine).toBe(true);
+    expect(parseSettings(serializeSettings(DEFAULT_SETTINGS)).activeLine).toBe(false);
+  });
+
+  test('U1381: malformed activeLine values fall back to false', () => {
+    expect(parseSettings('{"activeLine":"on"}').activeLine).toBe(false);
+    expect(parseSettings('{"activeLine":1}').activeLine).toBe(false);
+    expect(parseSettings('{"activeLine":null}').activeLine).toBe(false);
+  });
+
+  test('U1382: activeLine is user-scoped', () => {
+    expect(SETTINGS_SCOPES.activeLine).toBe('U');
+  });
+});
+
 describe('Issue #167 scrollbar and sync-scroll settings', () => {
   // Intent: the three keys follow their neighbours' boolean contract — all
   // three ship ON, a hand-written `false` is obeyed, and a non-boolean in

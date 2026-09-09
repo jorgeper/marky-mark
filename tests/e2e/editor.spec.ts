@@ -2,6 +2,8 @@ import type { Locator } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
   bootEditorOn,
+  editorCaret,
+  enableActiveLine,
   freshApp,
   freshNativeMenuApp,
   fsRead,
@@ -880,6 +882,7 @@ test('E317: issue #163 — the card copy control copies the body only, a selecti
 }) => {
   const DOC = 'intro\n\n```js\nconst a = 1;\nconst b = 2;\n```\n\noutro\n';
   await fsWrite(page, '/docs/code163.md', DOC);
+  await enableActiveLine(page); // issue #358: the caret-line tint is opt-in
   await page.goto('/#open=/docs/code163.md');
   await expect(page.getByTestId('doc')).toContainText('intro');
   await page.keyboard.press('Control+e');
@@ -1128,6 +1131,7 @@ test('E527: issue #265 — the code card holding the caret keeps its copy button
   // the revealed card.
   const DOC = 'intro\n\n```js\nconst a = 1;\nconst b = 2;\n```\n\nmiddle\n\n```py\nx = 1\n```\n\noutro\n';
   await fsWrite(page, '/docs/code265.md', DOC);
+  await enableActiveLine(page); // issue #358: the caret-line tint is opt-in
   await page.goto('/#open=/docs/code265.md');
   await expect(page.getByTestId('doc')).toContainText('intro');
   await page.keyboard.press('Control+e');
@@ -1273,7 +1277,8 @@ test('E626: issue #355 — caret-line tint paints over code: inline, raw table r
   const CODE_BG = 'rgb(246, 248, 250)'; // crisp's opaque --mm-code-bg
 
   /** Boot the app on DOC with a settings patch applied, in edit mode (E261). */
-  const boot = (patch: Record<string, unknown>) => bootEditorOn(page, '/docs/caret-code.md', DOC, patch);
+  // Issue #358: the tint under test is opt-in — every boot turns it on.
+  const boot = (patch: Record<string, unknown>) => bootEditorOn(page, '/docs/caret-code.md', DOC, { activeLine: true, ...patch });
   const css = (loc: Locator, prop: string) =>
     loc.evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), prop);
   const beforeCss = (loc: Locator, prop: string) =>
@@ -1371,4 +1376,110 @@ test('E626: issue #355 — caret-line tint paints over code: inline, raw table r
   // The grid wash behind the line is untouched.
   expect(await beforeCss(gridLine, 'background-color')).toBe(CODE_BG);
   expect(await beforeCss(gridLine, 'z-index')).toBe('-3');
+});
+
+// SPEC44 §2.1 (issue #358): the caret-line tint is opt-in. A fresh profile
+// mounts no highlightActiveLine (no .cm-activeLine, and the gutter twin was
+// never mounted); Settings ▸ Editor's checkbox turns it on and off live, and
+// on is exactly the issue #345/#355 tint through --mm-active-line. Against
+// the pre-change build the first count-0 assertion fails (the class was
+// present by default).
+test('E645: issue #358 — a fresh profile shows no caret-line tint in the editor or the gutter; "Highlight the current line" turns it on and off live, painted by --mm-active-line', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/active358.md', '# Tint\n\nfirst line here\n\nsecond line here\n');
+  await page.goto('/#open=/docs/active358.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Tint');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+  const target = editor.locator('.cm-line', { hasText: 'second line here' });
+  await target.click();
+  await expect.poll(() => editorCaret(page).then((c) => c?.text)).toBe('second line here');
+  const tinted = editor.locator('.cm-line.cm-activeLine');
+  const stored = async () =>
+    (JSON.parse((await fsRead(page, '/config/settings.json'))!) as Record<string, unknown>).activeLine;
+
+  // Default off: the caret is parked on a line and nothing carries the class.
+  await expect(tinted).toHaveCount(0);
+  await expect(editor.locator('.cm-activeLineGutter')).toHaveCount(0);
+  expect(await stored()).not.toBe(true);
+
+  // Settings ▸ Editor: unchecked by default; check + save ⇒ the class lands
+  // on the caret's line without a reload, and the gutter stays untouched.
+  await openSettings(page, 'editor');
+  const box = page.getByTestId('editor-active-line');
+  await expect(box).not.toBeChecked();
+  await box.check();
+  await saveSettings(page);
+  await expect(tinted).toHaveCount(1);
+  await expect(tinted).toHaveText('second line here');
+  await expect(editor.locator('.cm-activeLineGutter')).toHaveCount(0);
+  expect(await stored()).toBe(true);
+  // The token paints it: the line's colour is --mm-active-line as the theme
+  // resolves it (a probe carrying the same var), not CodeMirror's own pick.
+  const [lineBg, tokenBg] = await page.evaluate(() => {
+    const line = document.querySelector('.cm-content .cm-activeLine')!;
+    const probe = document.createElement('div');
+    probe.style.background = 'var(--mm-active-line)';
+    document.querySelector('.theme-root')!.appendChild(probe);
+    const token = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return [getComputedStyle(line).backgroundColor, token];
+  });
+  expect(lineBg).not.toBe('rgba(0, 0, 0, 0)');
+  expect(lineBg).toBe(tokenBg);
+
+  // Uncheck + save ⇒ gone again, still without a reload; the key is stored false.
+  await openSettings(page, 'editor');
+  await expect(box).toBeChecked();
+  await box.uncheck();
+  await saveSettings(page);
+  await expect(tinted).toHaveCount(0);
+  expect(await stored()).toBe(false);
+});
+
+test('E646: issue #358 — the caret-line setting persists across reload in both states, and an older settings.json without the key comes up off', async ({
+  page,
+}) => {
+  const DOC = '# Persist\n\nfirst line here\n\nsecond line here\n';
+  const boot = (patch: Record<string, unknown>) => bootEditorOn(page, '/docs/persist358.md', DOC, patch);
+  const editor = page.getByTestId('editor');
+  const tinted = editor.locator('.cm-line.cm-activeLine');
+  const park = async () => {
+    await editor.locator('.cm-line', { hasText: 'second line here' }).click();
+    await expect.poll(() => editorCaret(page).then((c) => c?.text)).toBe('second line here');
+  };
+  const stored = async () =>
+    (JSON.parse((await fsRead(page, '/config/settings.json'))!) as Record<string, unknown>).activeLine;
+
+  // Stored true survives a reload.
+  await boot({ activeLine: true });
+  await park();
+  await expect(tinted).toHaveText('second line here');
+  await boot({});
+  await park();
+  await expect(tinted).toHaveText('second line here');
+  expect(await stored()).toBe(true);
+
+  // Turned off through the dialog: off now, and still off after a reload.
+  await openSettings(page, 'editor');
+  await page.getByTestId('editor-active-line').uncheck();
+  await saveSettings(page);
+  await expect(tinted).toHaveCount(0);
+  expect(await stored()).toBe(false);
+  await boot({});
+  await park();
+  await expect(tinted).toHaveCount(0);
+
+  // The migration: a settings.json from before the key existed parses as off.
+  await page.evaluate(() => {
+    const settings = JSON.parse(window.__mmfs!.read('/config/settings.json')!) as Record<string, unknown>;
+    delete settings.activeLine;
+    window.__mmfs!.write('/config/settings.json', JSON.stringify(settings));
+  });
+  await boot({});
+  await park();
+  await expect(tinted).toHaveCount(0);
+  await expect(editor.locator('.cm-activeLineGutter')).toHaveCount(0);
 });

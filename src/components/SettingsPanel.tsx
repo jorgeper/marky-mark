@@ -1126,6 +1126,21 @@ export function SettingsPanel({
         </label>
         {scopeNote('livePreview')}
       </div>
+      {/* SPEC44 §2.1 (issue #358): the caret-line tint is opt-in, off by
+          default; lands on Save (issue #246) and the editor reconfigures live. */}
+      <div className="checkbox-row">
+        <input
+          id="editor-active-line"
+          type="checkbox"
+          data-testid="editor-active-line"
+          checked={settings.activeLine}
+          onChange={(e) => onChange({ ...settings, activeLine: e.target.checked })}
+        />
+        <label htmlFor="editor-active-line" style={{ margin: 0, fontWeight: 400 }}>
+          Highlight the current line
+        </label>
+        {scopeNote('activeLine')}
+      </div>
 
       <SectionHeader>Tables</SectionHeader>
       <div className="checkbox-row">

@@ -886,7 +886,9 @@
    never consulted; three classes outrank that two-class base theme, the
    same trick the find-match rules below use. The fallback is the token's
    default (the accent at 10%) for a host that defines no token at all. The
-   darker word-under-caret decoration (.mm-active-word) was withdrawn. */
+   darker word-under-caret decoration (.mm-active-word) was withdrawn.
+   Issue #358: the class is present only with the activeLine prop on (the
+   default is off), so this rule is inert until then. */
 .editor-wrap .cm-editor .cm-activeLine {
   background: var(--mm-active-line, rgba(9, 105, 218, 0.1));
 }
@@ -903,7 +905,8 @@
    --mm-code-bg themes get the line through the code background AND the
    layer — the same accepted doubling as .mm-code-sel. Three classes beat
    .editor-wrap .mm-md-code. Live preview's .mm-lp-code never sits on the
-   caret line (PRD 006 §8 reveals it raw), so it needs no rule. */
+   caret line (PRD 006 §8 reveals it raw), so it needs no rule. Issue #358:
+   present only with the activeLine prop on, like the rule above. */
 .editor-wrap .cm-editor .cm-activeLine .mm-md-code {
   background:
     linear-gradient(var(--mm-active-line, rgba(9, 105, 218, 0.1)), var(--mm-active-line, rgba(9, 105, 218, 0.1))),

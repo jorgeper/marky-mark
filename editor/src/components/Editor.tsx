@@ -371,6 +371,13 @@ export interface EditorProps {
   fluid?: FluidEffectMap | null;
   /** Show the line-number gutter (SPEC3 §2, reconfigurable live). */
   lineNumbers: boolean;
+  /**
+   * SPEC44 §2.1 (issue #358): tint the caret's line (CodeMirror's
+   * highlightActiveLine, painted through --mm-active-line). Absent ⇒ off,
+   * so no .cm-activeLine is ever added; reconfigurable live, no remount.
+   * The gutter counterpart (highlightActiveLineGutter) is never mounted.
+   */
+  activeLine?: boolean;
   onChange(next: string): void;
   /** SPEC15 §3.2: populated on mount when the owner wants scroll sync. */
   syncRef?: MutableRefObject<EditorSyncHandle | null>;
@@ -1550,6 +1557,7 @@ export default function Editor({
   value,
   fluid = null,
   lineNumbers: showLineNumbers,
+  activeLine = false,
   onChange,
   historyRef,
   syncRef,
@@ -1603,6 +1611,9 @@ export default function Editor({
   const seedRef = useRef(false);
 
   const gutterComp = useRef(new Compartment());
+  // SPEC44 §2.1 (issue #358): the caret-line tint rides a compartment like
+  // the gutter, so the setting flips it live with the undo history intact.
+  const activeLineComp = useRef(new Compartment());
   const diffComp = useRef(new Compartment());
   // PRD 022 Req 12 (issue #234): comment highlights ride a compartment like
   // diff; the click seam reads through a live ref (headingLink precedent).
@@ -2325,8 +2336,9 @@ export default function Editor({
       // SPEC44 §2.1 (issue #345): the caret line's tint is the editor's ONE
       // placement cue — CodeMirror's own line class, painted through the
       // host's --mm-active-line token (editor/styles.css); the darker
-      // word-under-caret decoration was withdrawn.
-      highlightActiveLine(),
+      // word-under-caret decoration was withdrawn. (issue #358): opt-in —
+      // off (the default) mounts nothing, so no .cm-activeLine appears.
+      activeLineComp.current.of(activeLine ? highlightActiveLine() : []),
       // SPEC23 §1: CM-drawn selection so a mirrored range shows while the
       // editor is unfocused (styled via .cm-selectionBackground).
       drawSelection(),
@@ -2738,6 +2750,14 @@ export default function Editor({
       effects: gutterComp.current.reconfigure(showLineNumbers ? lineNumbers() : []),
     });
   }, [showLineNumbers]);
+
+  // SPEC44 §2.1 (issue #358): the caret-line tint toggles live — same
+  // compartment pattern as the gutter, no remount.
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: activeLineComp.current.reconfigure(activeLine ? highlightActiveLine() : []),
+    });
+  }, [activeLine]);
 
   // SPEC23 §3: live highlight toggle — same compartment pattern as the gutter.
   // PRD 006 §1/§12: the live-preview toggle reconfigures the same way (no

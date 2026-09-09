@@ -3,6 +3,7 @@ import { expect, test } from './fixtures';
 import {
   editorCaret,
   editorTopGutterLine,
+  enableActiveLine,
   freshApp,
   fsRead,
   fsWrite,
@@ -238,6 +239,7 @@ test('E336: TOC expand/collapse — default expanded, the collapsed row stays, s
 test('E337: TOC click in edit mode scrolls the editor and puts the caret on the heading line, in full edit and in the split', async ({
   page,
 }) => {
+  await enableActiveLine(page); // issue #358: the caret-line tint is opt-in
   await openTree(page);
   await showToc(page);
   await expect(page.getByTestId('toc-item')).toHaveCount(5);
@@ -276,6 +278,7 @@ test('E337: TOC click in edit mode scrolls the editor and puts the caret on the 
 test('E338: the TOC re-derives from the buffer while typing, and says so when a document has no headings', async ({
   page,
 }) => {
+  await enableActiveLine(page); // issue #358: the caret-line tint is opt-in
   await fsWrite(page, '/docs/flat.md', 'Just a paragraph, no headings anywhere.\n');
   await openPath(page, '/docs/flat.md');
   await showToc(page);
@@ -903,6 +906,7 @@ test('E532: a filtered match jumps exactly as the palette did — the preview he
 test('E533: the filtered jump lands on the source line in edit mode, and Esc or the toggle restores the full list', async ({
   page,
 }) => {
+  await enableActiveLine(page); // issue #358: the caret-line tint is opt-in
   await openTree(page);
   await showToc(page);
   await expect(page.getByTestId('toc-item')).toHaveCount(5);

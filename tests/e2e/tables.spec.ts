@@ -1369,7 +1369,7 @@ test('E638: issue #357 — a plain split-preview click below two grids places th
   page,
 }) => {
   const doc = seamDoc();
-  await openSeamSplit(page, '/docs/seam638.md', doc);
+  await openSeamSplit(page, '/docs/seam638.md', doc, { activeLine: true }); // issue #358: the caret line is located by its tint
   const editor = page.locator('[data-testid="editor"] .cm-scroller');
   const preview = page.getByTestId('split-preview');
   // Bring the paragraph below the grids into the preview's viewport first
