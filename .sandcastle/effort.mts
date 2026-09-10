@@ -16,8 +16,15 @@
 
 import { AGENT_TIERS, EFFORT_TIERS } from "./config.mts";
 
+// Harnesses this template knows how to spawn (harness.mts maps each to an
+// engine provider). A tier names one; adding a harness means extending this
+// list, agentFor() in harness.mts, and the Dockerfile with its CLI.
+export const KNOWN_HARNESSES = ["claude-code", "codex"] as const;
+export type Harness = (typeof KNOWN_HARNESSES)[number];
+
 export interface EffortTier {
   name: string;
+  harness: Harness;
   model: string;
 }
 
@@ -62,19 +69,39 @@ const tierByName = (name: string, config: EffortConfig): EffortTier => {
   return tier;
 };
 
-/** The model an agent runs on: its configured tier's model. */
-export const modelFor = (
+/** The full tier an agent is configured at (name, harness, model). */
+export const tierFor = (
   role: string,
   config: EffortConfig = LIVE_CONFIG,
-): string => {
+): EffortTier => {
   const tierName = config.agentTiers[role];
   if (tierName === undefined) {
     throw new Error(
       `agent "${role}" has no tier in AGENT_TIERS — add it to .sandcastle/config.mts`,
     );
   }
-  return tierByName(tierName, config).model;
+  return tierByName(tierName, config);
 };
+
+/** The model an agent runs on: its configured tier's model. */
+export const modelFor = (
+  role: string,
+  config: EffortConfig = LIVE_CONFIG,
+): string => tierFor(role, config).model;
+
+/** The harness an agent runs under: its configured tier's harness. */
+export const harnessFor = (
+  role: string,
+  config: EffortConfig = LIVE_CONFIG,
+): Harness => tierFor(role, config).harness;
+
+/** Every harness some configured agent actually runs under — what the
+ *  preflight checks credentials for. */
+export const harnessesInUse = (
+  config: EffortConfig = LIVE_CONFIG,
+): Harness[] => [
+  ...new Set(Object.keys(config.agentTiers).map((role) => harnessFor(role, config))),
+];
 
 /** Every configuration problem the doctor (and the loop, before it starts)
  *  should name. Empty means the config is sound. */
@@ -92,6 +119,11 @@ export const effortConfigErrors = (
     }
     names.add(tier.name);
     if (!tier.model) errors.push(`tier "${tier.name}" has no model`);
+    if (!KNOWN_HARNESSES.includes(tier.harness)) {
+      errors.push(
+        `tier "${tier.name}" names unknown harness "${tier.harness}" (known: ${KNOWN_HARNESSES.join(", ")})`,
+      );
+    }
   }
   for (const [role, tierName] of Object.entries(config.agentTiers)) {
     if (!names.has(tierName)) {
@@ -179,7 +211,7 @@ export const eligibility = (
  *  commented on once per configuration rather than once per run. */
 export const configSignature = (config: EffortConfig = LIVE_CONFIG): string => {
   const canonical = JSON.stringify({
-    tiers: config.tiers.map((t) => [t.name, t.model]),
+    tiers: config.tiers.map((t) => [t.name, t.harness, t.model]),
     agents: Object.entries(config.agentTiers).sort(([a], [b]) =>
       a.localeCompare(b),
     ),
@@ -233,19 +265,25 @@ export const agentTable = (config: EffortConfig = LIVE_CONFIG): string => {
     "tier".length,
   );
   const modelWidth = Math.max(...config.tiers.map((t) => t.model.length), 0);
+  const harnessWidth = Math.max(
+    ...config.tiers.map((t) => t.harness.length),
+    "harness".length,
+  );
   const lines = [
     `Effort tiers (weakest → strongest), from .sandcastle/config.mts:`,
     ``,
     ...config.tiers.map(
-      (t) => `  ${t.name.padEnd(tierWidth)}  ${t.model.padEnd(modelWidth)}  label: ${effortLabelFor(t.name)}`,
+      (t) => `  ${t.name.padEnd(tierWidth)}  ${t.harness.padEnd(harnessWidth)}  ${t.model.padEnd(modelWidth)}  label: ${effortLabelFor(t.name)}`,
     ),
     ``,
     `Agents:`,
     ``,
-    `  ${"agent".padEnd(roleWidth)}  ${"tier".padEnd(tierWidth)}  model`,
+    `  ${"agent".padEnd(roleWidth)}  ${"tier".padEnd(tierWidth)}  ${"harness".padEnd(harnessWidth)}  model`,
     ...Object.entries(config.agentTiers).map(([role, tier]) => {
-      const model = config.tiers.find((t) => t.name === tier)?.model ?? "(unknown tier!)";
-      return `  ${role.padEnd(roleWidth)}  ${tier.padEnd(tierWidth)}  ${model}`;
+      const t = config.tiers.find((t) => t.name === tier);
+      const harness = t?.harness ?? "(unknown tier!)";
+      const model = t?.model ?? "(unknown tier!)";
+      return `  ${role.padEnd(roleWidth)}  ${tier.padEnd(tierWidth)}  ${harness.padEnd(harnessWidth)}  ${model}`;
     }),
     ``,
     `Issue path (all must meet the issue's label): ${ISSUE_PATH_AGENTS.join(", ")}; plus ${PR_PATH_AGENTS.join(", ")} for PR-labeled issues.`,

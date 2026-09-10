@@ -3,17 +3,18 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as readline from "node:readline/promises";
-import { modelFor } from "./effort.mts";
+import { harnessesInUse, harnessFor, modelFor } from "./effort.mts";
 
 // Helpers shared by the conversational-prd template scripts (design.ts,
 // decompose.ts, issue.ts). Shared *within* the template only — ADR 0009
 // forbids sharing across templates, not within one. Pure functions live at
 // the top so tests can import this file without side effects.
 
-// Models come from config.mts (EFFORT_TIERS × AGENT_TIERS) via effort.mts;
-// re-exported so the scripts import one module for their identity.
-export { modelFor } from "./effort.mts";
-export const HARNESS = "claude-code";
+// Models and harnesses come from config.mts (EFFORT_TIERS × AGENT_TIERS)
+// via effort.mts; re-exported (with agentFor, which builds the provider for
+// a role's tier) so the scripts import one module for their identity.
+export { harnessFor, modelFor } from "./effort.mts";
+export { agentFor } from "./harness.mts";
 
 /** Routing labels: which lane (agent) handles an issue. */
 export const DESIGN_LABEL = "sandcastle:design";
@@ -23,7 +24,7 @@ export const IMPLEMENT_LABEL = "Sandcastle";
 /** Identity marker for everything an agent writes on GitHub on the human's
  *  behalf: [agent · harness · model]. Unmarked text = the human. */
 export const markerFor = (role: string): string =>
-  `**[${role} · ${HARNESS} · ${modelFor(role)}]**`;
+  `**[${role} · ${harnessFor(role)} · ${modelFor(role)}]**`;
 
 export const slugify = (text: string): string =>
   text
@@ -264,9 +265,19 @@ export const preflight = async (): Promise<void> => {
     );
   } else {
     const envVars = parseEnv(readFileSync(envUrl, "utf8"));
-    if (!envVars.CLAUDE_CODE_OAUTH_TOKEN && !envVars.ANTHROPIC_API_KEY) {
+    const harnesses = harnessesInUse();
+    if (
+      harnesses.includes("claude-code") &&
+      !envVars.CLAUDE_CODE_OAUTH_TOKEN &&
+      !envVars.ANTHROPIC_API_KEY
+    ) {
       problems.push(
         "no CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in .sandcastle/.env",
+      );
+    }
+    if (harnesses.includes("codex") && !envVars.OPENAI_API_KEY) {
+      problems.push(
+        "a tier uses the codex harness but .sandcastle/.env has no OPENAI_API_KEY",
       );
     }
     if (!envVars.GH_TOKEN) {

@@ -80,15 +80,20 @@ export const QUICK_VERIFY_COMMANDS: string[] = [
 
 // --- Effort tiers (issue label → required tier; agent → configured tier) --
 
-// Effort tiers, ordered weakest → strongest. Each tier names the model that
-// agents configured at that tier run on. Every tier also provisions an
+// Effort tiers, ordered weakest → strongest. Each tier names the harness
+// (the CLI the agent runs under: "claude-code" or "codex") and the model
+// that agents configured at that tier run on. Every tier also provisions an
 // issue label `sandcastle:effort-<name>` (created by `sandcastle:init`)
 // that says "this issue needs at least this tier". An unlabeled issue needs
 // the first (weakest) tier. Add a tier here and the label, the eligibility
 // check, and `/config-agents` all follow.
+//
+// A "codex" tier needs OPENAI_API_KEY in .sandcastle/.env (forwarded into
+// sandboxes) — the Dockerfile installs both CLIs. Example:
+//   { name: "hard-codex", harness: "codex", model: "gpt-5.6-sol" },
 export const EFFORT_TIERS = [
-  { name: "normal", model: "claude-opus-5" },
-  { name: "hard", model: "claude-fable-5-1" },
+  { name: "normal", harness: "claude-code", model: "claude-opus-5" },
+  { name: "hard", harness: "claude-code", model: "claude-fable-5-1" },
 ] as const;
 
 // The tier each agent runs at — a static choice you make for this setup,

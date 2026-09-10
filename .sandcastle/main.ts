@@ -78,10 +78,13 @@ import { printAgents, printHelp, runDoctor, runInit } from "./setup.mts";
 import {
   effortConfigErrors,
   eligibility,
+  harnessesInUse,
+  harnessFor,
   modelFor,
   skipAlreadyPosted,
   skipComment,
 } from "./effort.mts";
+import { agentFor } from "./harness.mts";
 import {
   COPY_TO_WORKTREE,
   GOAL_MAX_TURNS,
@@ -224,9 +227,10 @@ const QUICK_VERIFY_TEXT = verifyCommandsText(
 // Agent identity & attribution
 // ---------------------------------------------------------------------------
 
-// Each agent's harness is declared inline at its sandbox.run() call site
-// and its model resolved there with modelFor("<role>"). Pass the same
-// values to markerFor so the marker can never drift from what actually ran.
+// Each agent's harness and model come from its configured tier: agentFor()
+// (harness.mts) constructs the provider, and harnessFor()/modelFor()
+// (effort.mts) resolve the same tier for markerFor, so the marker can
+// never drift from what actually ran.
 
 // Every action an agent performs on a PR (opening it, commenting, replying)
 // is attributed with this marker, like a signature on behalf of the owner.
@@ -442,11 +446,11 @@ const runDebate = async (
         sandbox.run({
           name: "pr-reviewer",
           maxIterations: 1,
-          agent: sandcastle.claudeCode(model),
+          agent: agentFor("pr-reviewer"),
           promptFile: "./.sandcastle/pr-review-prompt.md",
           promptArgs: {
             AGENT_NAME: "pr-reviewer",
-            AGENT_MARKER: markerFor("pr-reviewer", "claude-code", model),
+            AGENT_MARKER: markerFor("pr-reviewer", harnessFor("pr-reviewer"), model),
             PR_NUMBER: prNumber,
             REPO: repo,
             THREADS_JSON: threadsJson,
@@ -462,11 +466,11 @@ const runDebate = async (
         sandbox.run({
           name: "addresser",
           maxIterations: 25,
-          agent: sandcastle.claudeCode(model),
+          agent: agentFor("addresser"),
           promptFile: "./.sandcastle/pr-address-prompt.md",
           promptArgs: {
             AGENT_NAME: "addresser",
-            AGENT_MARKER: markerFor("addresser", "claude-code", model),
+            AGENT_MARKER: markerFor("addresser", harnessFor("addresser"), model),
             PR_NUMBER: prNumber,
             REPO: repo,
             THREADS_JSON: threadsJson,
@@ -709,7 +713,7 @@ const runPrdLane = async (): Promise<void> => {
             sandbox: docker(),
             name: "decomposer",
             maxIterations: 1,
-            agent: sandcastle.claudeCode(decomposerModel),
+            agent: agentFor("decomposer"),
             promptFile: "./.sandcastle/decompose-prompt.md",
             promptArgs: {
               PARENT_NUMBER: issue.number,
@@ -718,7 +722,7 @@ const runPrdLane = async (): Promise<void> => {
               REPO: repo,
               AGENT_MARKER: markerFor(
                 "decomposer",
-                "claude-code",
+                harnessFor("decomposer"),
                 decomposerModel,
               ),
               TRIGGER_LABEL: github.TRIGGER_LABEL,
@@ -785,6 +789,15 @@ const runPrdLane = async (): Promise<void> => {
   if (errors.length > 0) {
     console.error(
       `Effort tier configuration is invalid (.sandcastle/config.mts):\n${errors.map((e) => `  ✗ ${e}`).join("\n")}\nFix it by hand or with /config-agents, then re-run.`,
+    );
+    process.exit(1);
+  }
+  // A codex tier without a sandbox-visible OpenAI credential would 401 deep
+  // inside a lane. Only keys declared in .sandcastle/.env reach the sandbox
+  // (engine EnvResolver), so an exported-but-undeclared key is still a miss.
+  if (harnessesInUse().includes("codex") && !envVars.OPENAI_API_KEY) {
+    console.error(
+      `A tier in .sandcastle/config.mts uses the "codex" harness, but .sandcastle/.env has no OPENAI_API_KEY — sandboxed codex agents cannot authenticate.\nAdd OPENAI_API_KEY to .sandcastle/.env (see .env.example), or move the affected agents back to a claude-code tier with /config-agents.`,
     );
     process.exit(1);
   }
@@ -924,7 +937,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         sandbox.run({
           name: "conflict-resolver",
           maxIterations: 10,
-          agent: sandcastle.claudeCode(modelFor("conflict-resolver")),
+          agent: agentFor("conflict-resolver"),
           promptFile: "./.sandcastle/pr-conflict-prompt.md",
           // TARGET_BRANCH is a built-in prompt arg (injected by run()) —
           // passing it in promptArgs is a PromptError that kills the run
@@ -1072,7 +1085,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
               name: "planner",
               // One iteration is enough: the planner just needs to read and reason.
               maxIterations: 1,
-              agent: sandcastle.claudeCode(modelFor("planner")),
+              agent: agentFor("planner"),
               promptFile: "./.sandcastle/plan-prompt.md",
               promptArgs: {
                 CANDIDATE_NUMBERS: candidates.join(", "),
@@ -1149,7 +1162,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           sandbox.run({
             name: "spec-writer",
             maxIterations: 1,
-            agent: sandcastle.claudeCode(specModel),
+            agent: agentFor("spec-writer"),
             promptFile: "./.sandcastle/spec-prompt.md",
             promptArgs: {
               TASK_ID: issue.id,
@@ -1157,7 +1170,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
               BRANCH: issue.branch,
               SPEC_PATH: specPath,
               REPO: await github.repoSlug(),
-              AGENT_MARKER: markerFor("spec-writer", "claude-code", specModel),
+              AGENT_MARKER: markerFor("spec-writer", harnessFor("spec-writer"), specModel),
               VERIFY_COMMANDS: VERIFY_TEXT,
               QUICK_VERIFY_COMMANDS: QUICK_VERIFY_TEXT,
             },
@@ -1191,7 +1204,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             goal: spec.goal,
             goalMaxTurns: GOAL_MAX_TURNS,
             maxIterations: IMPLEMENT_ATTEMPTS,
-            agent: sandcastle.claudeCode(implementerModel),
+            agent: agentFor("implementer"),
           }),
         );
 
@@ -1241,7 +1254,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             sandbox.run({
               name: "reviewer",
               maxIterations: 1,
-              agent: sandcastle.claudeCode(modelFor("reviewer")),
+              agent: agentFor("reviewer"),
               promptFile: "./.sandcastle/review-prompt.md",
               // TARGET_BRANCH reaches the prompt via the built-in arg.
               promptArgs: {
@@ -1306,7 +1319,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         const prNumber = await github.createPr({
           branch: issue.branch,
           title,
-          body: `${markerFor("implementer", "claude-code", implementerModel)} opened this PR.\n\n${body}${closesLine}`,
+          body: `${markerFor("implementer", harnessFor("implementer"), implementerModel)} opened this PR.\n\n${body}${closesLine}`,
         });
         console.log(`  #${issue.id}: opened PR #${prNumber}`);
         await runDebate(
@@ -1384,7 +1397,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       sandbox: docker(),
       name: "merger",
       maxIterations: 1,
-      agent: sandcastle.claudeCode(modelFor("merger")),
+      agent: agentFor("merger"),
       promptFile: "./.sandcastle/merge-prompt.md",
       promptArgs: {
         BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),

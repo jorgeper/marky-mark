@@ -1,13 +1,12 @@
 import { existsSync } from "node:fs";
 import {
-  claudeCode,
   conversation,
   type Conversation,
 } from "@ai-hero/sandcastle";
 import { chat } from "@ai-hero/sandcastle/chat";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import {
-  modelFor,
+  agentFor,
   DECOMPOSE_LABEL,
   IMPLEMENT_LABEL,
   markerFor,
@@ -36,7 +35,7 @@ import {
 //
 // Ctrl-C is always safe — the conversation is durable and re-attaches.
 
-const agent = claudeCode(modelFor("decomposer"));
+const agent = agentFor("decomposer");
 const sandbox = docker();
 const AGENT_MARKER = markerFor("decomposer");
 

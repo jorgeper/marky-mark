@@ -23,6 +23,11 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
   && apt-get update && apt-get install -y gh \
   && rm -rf /var/lib/apt/lists/*
 
+# Codex CLI (OpenAI) — for tiers configured with harness "codex" in
+# .sandcastle/config.mts. Installed globally as root so it sits on PATH for
+# any user; authenticates via OPENAI_API_KEY from .sandcastle/.env.
+RUN npm install -g @openai/codex
+
 # Build-args for UID/GID alignment: sandcastle docker build-image
 # defaults these to the host user's UID/GID so image-built files
 # and bind-mounted files share an owner without runtime chown.
@@ -35,6 +40,13 @@ USER ${AGENT_UID}:${AGENT_GID}
 
 # Install Claude Code CLI
 RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# Pre-create the agent-owned CLI state dirs. Without them, a bind mount
+# targeting e.g. ~/.codex would make Docker create the dir root:root and
+# the agent user could not write it (docs/research/permissions-systemic-fix
+# in the sandcastle fork documents the trap); codex also writes its session
+# rollouts under ~/.codex/sessions.
+RUN mkdir -p /home/agent/.codex /home/agent/.claude
 
 # Add Claude to PATH
 # (No Rust toolchain here: sandbox lanes only run validate:quick, which has

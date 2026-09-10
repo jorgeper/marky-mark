@@ -6,6 +6,8 @@ import {
   effortConfigErrors,
   effortLabelDefs,
   eligibility,
+  harnessesInUse,
+  harnessFor,
   modelFor,
   requiredTier,
   skipAlreadyPosted,
@@ -14,9 +16,9 @@ import {
 } from "./effort.mts";
 
 // A two-tier fixture so the tests never depend on what config.mts says today.
-const tiers = [
-  { name: "normal", model: "model-normal" },
-  { name: "hard", model: "model-hard" },
+const tiers: EffortConfig["tiers"] = [
+  { name: "normal", harness: "claude-code", model: "model-normal" },
+  { name: "hard", harness: "codex", model: "model-hard" },
 ];
 const allNormal: EffortConfig = {
   tiers,
@@ -56,9 +58,22 @@ describe("effort tiers: model resolution", () => {
 
   it("the real config resolves every agent to a model", () => {
     for (const role of Object.keys(AGENT_TIERS)) {
-      expect(modelFor(role)).toMatch(/^claude-/);
+      expect(modelFor(role)).toBeTruthy();
     }
     expect(effortConfigErrors()).toEqual([]);
+  });
+
+  it("resolves an agent's harness through its configured tier", () => {
+    expect(harnessFor("implementer", withHardPath)).toBe("codex");
+    expect(harnessFor("planner", withHardPath)).toBe("claude-code");
+  });
+
+  it("harnessesInUse names each harness some agent runs under, once", () => {
+    expect(harnessesInUse(allNormal)).toEqual(["claude-code"]);
+    expect([...harnessesInUse(withHardPath)].sort()).toEqual([
+      "claude-code",
+      "codex",
+    ]);
   });
 });
 
@@ -81,6 +96,16 @@ describe("effort tiers: config validation", () => {
 
   it("reports an empty tier list", () => {
     expect(effortConfigErrors({ tiers: [], agentTiers: {} })).not.toEqual([]);
+  });
+
+  it("reports a tier naming an unknown harness", () => {
+    const errors = effortConfigErrors({
+      tiers: [
+        { name: "normal", harness: "cursor" as never, model: "model-normal" },
+      ],
+      agentTiers: allNormal.agentTiers,
+    });
+    expect(errors.join("\n")).toMatch(/unknown harness "cursor"/);
   });
 });
 
@@ -213,10 +238,23 @@ describe("effort tiers: the skip comment", () => {
 });
 
 describe("effort tiers: the agent table", () => {
-  it("lists every tier with its model and every agent with tier and model", () => {
+  it("lists every tier with its harness and model, and every agent with tier, harness and model", () => {
     const table = agentTable(withHardPath);
-    expect(table).toMatch(/hard\s+model-hard/);
-    expect(table).toMatch(/implementer\s+hard\s+model-hard/);
-    expect(table).toMatch(/planner\s+normal\s+model-normal/);
+    expect(table).toMatch(/hard\s+codex\s+model-hard/);
+    expect(table).toMatch(/implementer\s+hard\s+codex\s+model-hard/);
+    expect(table).toMatch(/planner\s+normal\s+claude-code\s+model-normal/);
+  });
+});
+
+describe("effort tiers: harness in the signature", () => {
+  it("a tier's harness change is a new configuration", () => {
+    const codexNormal: EffortConfig = {
+      tiers: [
+        { name: "normal", harness: "codex", model: "model-normal" },
+        { name: "hard", harness: "codex", model: "model-hard" },
+      ],
+      agentTiers: allNormal.agentTiers,
+    };
+    expect(configSignature(codexNormal)).not.toBe(configSignature(allNormal));
   });
 });

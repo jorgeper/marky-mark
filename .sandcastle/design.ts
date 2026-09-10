@@ -1,14 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  claudeCode,
   conversation,
   type Conversation,
 } from "@ai-hero/sandcastle";
 import { chat } from "@ai-hero/sandcastle/chat";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import {
-  modelFor,
+  agentFor,
   DESIGN_LABEL,
   DECOMPOSE_LABEL,
   IMPLEMENT_LABEL,
@@ -52,7 +51,7 @@ import { mergePrArgs } from "./github.mts";
 //
 // Ctrl-C is always safe — conversations are durable and re-attach.
 
-const agent = claudeCode(modelFor("designer"));
+const agent = agentFor("designer");
 const sandbox = docker();
 const AGENT_MARKER = markerFor("designer");
 const ANCHOR_TEXT = "Designer conversation started";

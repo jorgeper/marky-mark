@@ -7,7 +7,7 @@ import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { EFFORT_TIERS, QUICK_VERIFY_COMMANDS, VERIFY_COMMANDS } from "./config.mts";
-import { agentTable, effortConfigErrors, EFFORT_LABEL_PREFIX } from "./effort.mts";
+import { agentTable, effortConfigErrors, EFFORT_LABEL_PREFIX, harnessesInUse } from "./effort.mts";
 import { parseEnvFile } from "./env.mts";
 import * as github from "./github.mts";
 import {
@@ -257,6 +257,43 @@ export const runDoctor = async (options?: {
       };
     }
     return { ok: true, detail: `${label} authenticates against the API` };
+  });
+
+  await check("OpenAI credentials (codex tiers)", async () => {
+    // Only demanded when a configured tier actually runs on the codex
+    // harness; the key must be declared in .sandcastle/.env to reach the
+    // sandbox (engine EnvResolver forwards declared keys only).
+    if (!harnessesInUse().includes("codex")) {
+      return { ok: true, detail: "no codex tier in use — not required" };
+    }
+    if (!envVars.OPENAI_API_KEY) {
+      return {
+        ok: false,
+        detail: "a tier uses the codex harness but OPENAI_API_KEY is missing from .sandcastle/.env",
+        hint: "add OPENAI_API_KEY to .sandcastle/.env (see .env.example)",
+      };
+    }
+    let status: number;
+    try {
+      const res = await fetch("https://api.openai.com/v1/models", {
+        headers: { Authorization: `Bearer ${envVars.OPENAI_API_KEY}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+      status = res.status;
+    } catch {
+      return {
+        ok: true,
+        detail: "OPENAI_API_KEY set (API unreachable — could not verify)",
+      };
+    }
+    if (status === 401) {
+      return {
+        ok: false,
+        detail: "OPENAI_API_KEY rejected by the API (401) — codex agents will fail to authenticate",
+        hint: "check the key in the OpenAI console and update .sandcastle/.env",
+      };
+    }
+    return { ok: true, detail: "OPENAI_API_KEY authenticates against the API" };
   });
 
   await check("GH_TOKEN (sandbox agents)", async () => {
