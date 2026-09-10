@@ -270,7 +270,7 @@ export const runDoctor = async (options?: {
       return {
         ok: false,
         detail: "a tier uses the codex harness but OPENAI_API_KEY is missing from .sandcastle/.env",
-        hint: "add OPENAI_API_KEY to .sandcastle/.env (see .env.example)",
+        hint: "run /sandcastle-auth to set it up (or add OPENAI_API_KEY to .sandcastle/.env)",
       };
     }
     let status: number;

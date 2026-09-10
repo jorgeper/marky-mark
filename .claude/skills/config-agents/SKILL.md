@@ -64,7 +64,8 @@ Use AskUserQuestion, one question at a time, until the owner is done:
      `gpt-5.6-luna` (light); GPT-6 Astra is in staged rollout and may not
      be available to every account.
    When switching a tier to codex, check `.sandcastle/.env` declares
-   `OPENAI_API_KEY` and warn if it does not (see `.env.example`).
+   `OPENAI_API_KEY` (presence only — never read the value) and, if it does
+   not, point the owner at `/sandcastle-auth` to set it up.
 4. For a new tier: its name (lowercase, label-safe: letters, digits, `-`),
    its harness, its model, and where it sits in the order (weakest →
    strongest). Tell the owner the label `sandcastle:effort-<name>` will

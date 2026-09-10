@@ -797,7 +797,7 @@ const runPrdLane = async (): Promise<void> => {
   // (engine EnvResolver), so an exported-but-undeclared key is still a miss.
   if (harnessesInUse().includes("codex") && !envVars.OPENAI_API_KEY) {
     console.error(
-      `A tier in .sandcastle/config.mts uses the "codex" harness, but .sandcastle/.env has no OPENAI_API_KEY — sandboxed codex agents cannot authenticate.\nAdd OPENAI_API_KEY to .sandcastle/.env (see .env.example), or move the affected agents back to a claude-code tier with /config-agents.`,
+      `A tier in .sandcastle/config.mts uses the "codex" harness, but .sandcastle/.env has no OPENAI_API_KEY — sandboxed codex agents cannot authenticate.\nRun /sandcastle-auth to set it up (or add OPENAI_API_KEY to .sandcastle/.env by hand), or move the affected agents back to a claude-code tier with /config-agents.`,
     );
     process.exit(1);
   }
