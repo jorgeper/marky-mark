@@ -231,3 +231,22 @@ highlighter. README: one bullet under Edit mode covering the trio.
   read display bounds off them) and adds `canonFrom`/`canonTo`/`canonHead`.
   The seed report is sent once the grids have adopted, so a parked grid-form
   document never seeds raw offsets as canonical. E634–E641 pin the contract.
+
+## Amended by issue #359 (2026-09-14): the selection tint stops at the backticks
+
+- **§3 — amended.** The issue #123 selection tint (`.mm-code-sel`, nested
+  inside the highlighter's code span at `Prec.highest`) covers, for an
+  inline code span, ONLY the code text between its `CodeMark` backtick runs
+  — never the backticks themselves. `@lezer/markdown` styles `CodeMark` as
+  `tags.processingInstruction`, so the backticks are flat `.mm-md-mark`
+  spans (§3.2's dimmed punctuation) with no `--mm-code-bg`: the drawn
+  selection layer already shows through them, and a nested tint painted the
+  selection a second time, in a darker shade than the prose and the code
+  text beside it. `codeSelectionDeco` (`editor/src/components/Editor.tsx`)
+  therefore pushes the range between `getChildren('CodeMark')` for an
+  `InlineCode` node; `CodeText` (fenced bodies, whose fence lines never
+  carried the tint) is unchanged, and so is every CSS rule. A selection that
+  covers only part of the code text tints exactly the intersection of the
+  selection with the content between the marks; a two-backtick span treats
+  its inner single backtick as content. E655 pins this; E261 and U675 stand
+  as written.

@@ -1483,3 +1483,87 @@ test('E646: issue #358 — the caret-line setting persists across reload in both
   await expect(tinted).toHaveCount(0);
   await expect(editor.locator('.cm-activeLineGutter')).toHaveCount(0);
 });
+
+// Issue #359 (SPEC23 §3): the selection tint of issue #123 covered the whole
+// InlineCode node, backticks included. But @lezer/markdown styles CodeMark as
+// processingInstruction, so the backticks are flat .mm-md-mark spans with NO
+// code background: over them the drawn selection layer already shows through,
+// and the nested tint painted a second time on top (at the mark's 0.7 opacity)
+// — two shades of --mm-selection on one line. The tint now covers only the text
+// between the marks. Against the pre-fix build, `.mm-md-mark .mm-code-sel` has
+// count 2 on every selected inline-code line below.
+test('E655: issue #359 — selection over inline code leaves the backtick marks untinted while the code text between them keeps its tint, whole-line, partial, double-backtick, live preview', async ({
+  page,
+}) => {
+  const DOC =
+    '# T\n\nprose with `inline code` inside\n\ndouble `` a ` b `` here\n\nother code `x` line\n\ntail\n';
+  const SEL = 'rgba(9, 105, 218, 0.18)'; // crisp --mm-selection
+
+  const boot = (patch: Record<string, unknown>) =>
+    bootEditorOn(page, '/docs/sel359.md', DOC, { splitEdit: false, themeLight: 'crisp', ...patch });
+  /** Put the whole of the line holding `text` in the selection (E261's pattern). */
+  const selectLine = async (pane: Locator, text: string) => {
+    await pane.locator('.cm-line', { hasText: text }).first().click();
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Shift+End');
+  };
+  const bgOf = (loc: Locator) => loc.evaluate((el) => getComputedStyle(el).backgroundColor);
+  const line = (pane: Locator, text: string) => pane.locator('.cm-line', { hasText: text }).first();
+  /** The contract on one selected line: no tint under a mark, `code` tinted. */
+  const expectMarksUntinted = async (pane: Locator, text: string, code: string) => {
+    const l = line(pane, text);
+    // The backticks are still dimmed punctuation (SPEC23 §3.2)…
+    expect(await l.locator('.mm-md-mark').count()).toBeGreaterThanOrEqual(2);
+    // …but carry no nested tint: they show the one drawn selection layer, like prose.
+    await expect(l.locator('.mm-md-mark .mm-code-sel')).toHaveCount(0);
+    for (const t of await l.locator('.mm-code-sel').allTextContents()) expect(t).not.toMatch(/^`+$/);
+    // The code text between the marks is tinted, at the selection colour, legibly.
+    const tint = l.locator('.mm-md-code .mm-code-sel');
+    await expect(tint.first()).toBeVisible();
+    expect((await tint.allTextContents()).join('')).toBe(code);
+    expect(await bgOf(tint.first())).toBe(SEL);
+    expect(await tint.first().evaluate((el) => getComputedStyle(el).color)).toBe(
+      await tint.first().evaluate((el) => getComputedStyle(el.parentElement!).color),
+    );
+  };
+
+  // --- raw highlighting: whole line ------------------------------------------
+  await boot({});
+  const editor = page.getByTestId('editor');
+  await expect(line(editor, 'prose with').locator('.mm-md-code')).toBeVisible();
+  await expect(editor.locator('.mm-code-sel')).toHaveCount(0);
+  await selectLine(editor, 'prose with');
+  await expectMarksUntinted(editor, 'prose with', 'inline code');
+
+  // --- partial: from inside the code text past the closing backtick ----------
+  await page.keyboard.press('End');
+  await expect(editor.locator('.mm-code-sel')).toHaveCount(0); // collapse clears every tint
+  for (let i = 0; i < 'code` inside'.length; i++) await page.keyboard.press('Shift+ArrowLeft');
+  await expectMarksUntinted(editor, 'prose with', 'code');
+
+  // --- partial: the opening backtick plus the first characters of the code ---
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 'prose with `in'.length; i++) await page.keyboard.press('Shift+ArrowRight');
+  await expectMarksUntinted(editor, 'prose with', 'in');
+
+  // --- a two-backtick fence: the marks are the `` runs, the inner ` is content
+  await selectLine(editor, 'double');
+  await expectMarksUntinted(editor, 'double', ' a ` b ');
+
+  // --- live preview on: the selected line is revealed raw (PRD 006 §8) -------
+  await boot({ livePreview: true });
+  const lp = page.getByTestId('editor');
+  const other = line(lp, 'other code').locator('.mm-lp-code').first();
+  await expect(other).toBeVisible();
+  await selectLine(lp, 'prose with');
+  await expect(line(lp, 'prose with')).toContainText('`inline code`'); // revealed
+  await expectMarksUntinted(lp, 'prose with', 'inline code');
+  // A rendered, unselected line's code span is untouched: no tint, still rendered.
+  await expect(other).toBeVisible();
+  await expect(other).toHaveText('x');
+  await expect(lp.locator('.mm-lp-code .mm-code-sel')).toHaveCount(0);
+
+  // Collapse: every tint goes away.
+  await page.keyboard.press('End');
+  await expect(lp.locator('.mm-code-sel')).toHaveCount(0);
+});
