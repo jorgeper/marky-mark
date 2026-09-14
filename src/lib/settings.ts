@@ -197,6 +197,13 @@ export interface Settings {
    */
   fluidMode: boolean;
   /**
+   * PRD 027 Req 1: the Experimental section's Agent bridge switch, off by
+   * default. Off means no agent-control UI exists and the client makes no
+   * agent-token request — the feature is absent, not disabled. Only the
+   * hosted flavor declares the capability that lets it be turned on.
+   */
+  agentBridge: boolean;
+  /**
    * PRD 025 Reqs 5+6: the action → effect mapping behind the switch, one
    * entry per editor action; `'none'` leaves that action instant. Read only
    * while `fluidMode` is on.
@@ -285,6 +292,8 @@ export const DEFAULT_SETTINGS: Settings = {
   semanticZoom: false,
   // PRD 025 Req 1: off by default like every experiment.
   fluidMode: false,
+  // PRD 027 Req 1: off by default like every experiment.
+  agentBridge: false,
   // PRD 025 Req 6: Glide / Elastic / Fade / Pop on first enable — the
   // catalogue's own defaults, imported rather than restated here.
   fluidEffects: { ...DEFAULT_FLUID_EFFECTS },
@@ -409,6 +418,10 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   // can turn the mode on, or choose effects, for someone else.
   fluidMode: 'U',
   fluidEffects: 'U',
+  // PRD 027 Req 1: user-personal exactly like the two above — listed in
+  // EXPERIMENTAL_KEYS, so no workspace layer can turn the bridge on for
+  // someone else.
+  agentBridge: 'U',
 };
 
 /**
@@ -417,7 +430,8 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
  * WORKSPACE_PINNABLE_KEYS nor WORKSPACE_ELIGIBLE_KEYS.
  */
 // PRD 025 Req 2: Fluid mode's switch and mapping join the list.
-export const EXPERIMENTAL_KEYS: ReadonlyArray<keyof Settings> = ['semanticZoom', 'fluidMode', 'fluidEffects'];
+// PRD 027 Req 1: the Agent bridge switch joins it.
+export const EXPERIMENTAL_KEYS: ReadonlyArray<keyof Settings> = ['semanticZoom', 'fluidMode', 'fluidEffects', 'agentBridge'];
 
 const bool = (raw: unknown): boolean | undefined => (typeof raw === 'boolean' ? raw : undefined);
 
@@ -560,6 +574,8 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   semanticZoom: bool,
   // PRD 025 Req 2: a hand-edited non-boolean falls back to the default (off).
   fluidMode: bool,
+  // PRD 027 Req 1: a hand-edited non-boolean falls back to the default (off).
+  agentBridge: bool,
   // PRD 025 Req 6: never rejected as a whole — every malformed entry falls
   // back per action, so one bad name cannot reset a reader's other choices.
   fluidEffects: parseFluidEffects,

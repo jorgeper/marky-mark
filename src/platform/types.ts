@@ -389,6 +389,16 @@ export interface Platform {
    */
   semanticZoom?: boolean;
 
+  /**
+   * PRD 027 Req 1: whether this host can run the agent-bridge experiment at
+   * all. Declared by the hosted flavor only — the bridge is a server-backed
+   * feature (workspace agent tokens, later the MCP endpoint) that neither
+   * desktop nor the static web build has a server for. Their Settings panel
+   * draws the row disabled with a note. A capability like `semanticZoom`:
+   * app code mounts on this being present, never on which flavor is running.
+   */
+  agentBridge?: boolean;
+
   updates?: {
     /** null ⇒ already up to date. Throws on network/manifest/signature errors. */
     check(): Promise<{ version: string; notes: string } | null>;

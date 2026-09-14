@@ -334,6 +334,9 @@ export function createHostedPlatform(): Platform {
   return {
     kind: 'hosted',
     isMac: navigator.platform.toLowerCase().includes('mac'),
+    // PRD 027 Req 1: this host has the server the agent bridge needs, so the
+    // Experimental row's checkbox is live here and nowhere else.
+    agentBridge: true,
 
     async readTextFile(path) {
       if (local.owns(path)) {

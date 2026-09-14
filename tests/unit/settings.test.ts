@@ -634,3 +634,16 @@ describe('issue #246 pending settings edits', () => {
     expect(resolveSettings({ user: { calloutView: 'raw' } }).calloutView).toBe(true); // invalid → default
   });
 });
+
+describe('PRD 027 Req 1: the Agent bridge experiment ships off', () => {
+  test('U1393: agentBridge defaults to false, is U-scoped, tolerates a non-boolean as off, and round-trips', () => {
+    expect(DEFAULT_SETTINGS.agentBridge).toBe(false);
+    expect(SETTINGS_SCOPES.agentBridge).toBe('U');
+    expect(parseSettings('{}').agentBridge).toBe(false);
+    expect(parseSettings('{"agentBridge":true}').agentBridge).toBe(true);
+    // A non-boolean is rejected rather than coerced — the feature stays off.
+    expect(parseSettings('{"agentBridge":"yes"}').agentBridge).toBe(false);
+    expect(parseSettings('{"agentBridge":1}').agentBridge).toBe(false);
+    expect(parseSettings(serializeSettings({ ...DEFAULT_SETTINGS, agentBridge: true })).agentBridge).toBe(true);
+  });
+});

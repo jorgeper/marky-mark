@@ -84,6 +84,7 @@ async function handleApi(
   llm: LlmApi,
   admins: ReadonlySet<string>,
   deployment: DeploymentPolicy,
+  agentBridge: boolean,
 ): Promise<void> {
   const { pathname } = url;
 
@@ -271,7 +272,9 @@ async function handleApi(
   // PRD 007 Req 7+13: everything under /api/workspaces is per-workspace
   // scoped and permission-checked (server/workspaces.ts).
   if (pathname === '/api/workspaces' || pathname.startsWith('/api/workspaces/')) {
-    await handleWorkspaceApi(req, res, url, providers.storage, auth, providers.directory, deployment);
+    // PRD 027 Req 2: the flag rides along so the agent-token routes exist
+    // only on a deployment that turned the bridge on.
+    await handleWorkspaceApi(req, res, url, providers.storage, auth, providers.directory, deployment, agentBridge);
     return;
   }
 
@@ -409,6 +412,10 @@ export function createApp(
   // PRD 017 Req 1: ids from MM_ADMINS — defaulted empty, so a deployment (or
   // test) that names no admins wires byte-identically to before.
   admins: ReadonlySet<string> = new Set(),
+  // PRD 027 Req 2: MM_AGENT_BRIDGE — defaulted off, so every existing caller
+  // wires byte-identically and the agent-token routes answer the ordinary
+  // 404 unless a deployment asks for them.
+  agentBridge = false,
 ): RequestListener {
   const staticRoot = path.resolve(staticDir);
   // PRD 017 Reqs 8+9+15: one policy per app — its settings read is per
@@ -417,7 +424,7 @@ export function createApp(
   return (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
-      handleApi(req, res, url, providers, llm, admins, deployment).catch((err: unknown) => {
+      handleApi(req, res, url, providers, llm, admins, deployment, agentBridge).catch((err: unknown) => {
         console.error('API error:', err);
         if (!res.headersSent) sendJson(res, 500, { error: 'internal server error' });
         else res.end();

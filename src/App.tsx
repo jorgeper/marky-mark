@@ -9193,6 +9193,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           // Issue #247: the capability beside the two above — whether the
           // Experimental row's checkbox is live on this host at all.
           semanticZoomAvailable={semanticZoomAvailable}
+          // PRD 027 Req 1: the same kind of capability — only the hosted
+          // flavor declares it, so only there is the Agent bridge row live.
+          agentBridgeAvailable={platform?.agentBridge === true}
           // Issue #183 §1 (was PRD 007 Req 12's appended sections): a
           // capability check, not a flavor check — only a platform offering
           // the workspace lifecycle has a Workspace tab to show. The panel gates

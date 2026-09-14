@@ -169,3 +169,17 @@ describe('diffSettings', () => {
     expect(diffSettings(DEFAULT_SETTINGS, rebound)).toEqual({ hotkeys: rebound.hotkeys });
   });
 });
+
+describe('PRD 027 Req 1 the Agent bridge switch is a user-personal experiment', () => {
+  test('U1394: agentBridge is in EXPERIMENTAL_KEYS, U-scoped, and never workspace-pinnable or eligible', () => {
+    expect(EXPERIMENTAL_KEYS).toContain('agentBridge');
+    expect(SETTINGS_SCOPES.agentBridge).toBe('U');
+    expect(WORKSPACE_PINNABLE_KEYS).not.toContain('agentBridge');
+    expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain('agentBridge');
+    expect(settingsRowStatus('agentBridge', 'workspace', {}).userOnly).toBe(true);
+    // `U` all the same: with no layer supplying one the experiment stays off,
+    // and the user's own layer is what turns it on.
+    expect(resolveSettings({ user: {} }).agentBridge).toBe(false);
+    expect(resolveSettings({ user: { agentBridge: true } }).agentBridge).toBe(true);
+  });
+});

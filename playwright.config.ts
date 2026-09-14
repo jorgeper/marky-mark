@@ -58,7 +58,10 @@ export default defineConfig({
       // gate run starts from an empty store — no crash-safe draft or
       // workspace leftovers from a previous run (hand-run `server:local`
       // still persists; see server/README.md § Local development).
-      env: { MM_AZURITE_IN_MEMORY: '1' },
+      // PRD 027 Req 2: the lane runs with the agent bridge ON so the hosted
+      // suite can drive the agent-token UI end to end; the flag-off 404 is
+      // proven at the unit level (U1390), since one lane runs one server.
+      env: { MM_AZURITE_IN_MEMORY: '1', MM_AGENT_BRIDGE: '1' },
     },
   ],
 });

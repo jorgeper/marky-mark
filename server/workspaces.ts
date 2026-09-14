@@ -13,6 +13,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
+import { listAgentTokens, mintAgentToken, revokeAgentToken } from './agentTokens.ts';
 import {
   addWorkspaceMember,
   buildNewWorkspaceManifest,
@@ -93,7 +94,9 @@ export interface WorkspaceRouteRequirement {
    * The path under `/api/workspaces/<id>` (`''` is the workspace itself),
    * with four placeholders standing for whatever the caller addresses:
    * `<new>` a blob that does not exist yet, `<existing>` one that does,
-   * `<sidecar>` a comment sidecar, `<folder>` a folder that exists.
+   * `<sidecar>` a comment sidecar, `<folder>` a folder that exists,
+   * `<token>` an agent-token row id (PRD 027 Req 3; served only under the
+   * MM_AGENT_BRIDGE flag, which the sweep turns on).
    */
   path: string;
   required: Permission;
@@ -132,6 +135,12 @@ export const WORKSPACE_ROUTE_PERMISSIONS: readonly WorkspaceRouteRequirement[] =
   { method: 'DELETE', path: 'summary-cache', required: 'workspace.settings', why: 'PRD 011 Req 30: Clear throws away every member’s summaries, not just the caller’s' },
   { method: 'GET', path: 'summary-cache/entry', required: 'doc.read', why: 'PRD 011 Req 28: a summary of content this caller may already read' },
   { method: 'PUT', path: 'summary-cache/entry', required: 'doc.read', why: 'PRD 011 Req 29: caching what a reader just generated is still a read of the document' },
+  // PRD 027 Req 3: an agent token is workspace administration — minting one
+  // hands a credential to act on the workspace, so all three routes take the
+  // same verb the whole-manifest write does (PRD 017's admin union applies).
+  { method: 'POST', path: 'agent-tokens', required: 'workspace.settings', why: 'PRD 027 Req 3: minting a credential that acts on the workspace' },
+  { method: 'GET', path: 'agent-tokens', required: 'workspace.settings', why: 'PRD 027 Req 3: which credentials exist is administration, not content' },
+  { method: 'DELETE', path: 'agent-tokens/<token>', required: 'workspace.settings', why: 'PRD 027 Req 3: revoking one' },
   { method: 'GET', path: 'files', required: 'doc.read', why: 'the file listing is workspace content' },
   { method: 'GET', path: 'files/<existing>', required: 'doc.read', why: 'reading a document or a pasted image' },
   { method: 'PUT', path: 'files/<existing>', required: 'doc.edit', why: 'a PUT over an existing blob is a save' },
@@ -721,6 +730,10 @@ export async function handleWorkspaceApi(
   auth: RequestAuth,
   directory: DirectoryProvider,
   deployment: DeploymentPolicy,
+  // PRD 027 Req 2: the MM_AGENT_BRIDGE flag. Off (the default) means the
+  // agent-token routes below are not mounted at all — they fall through to
+  // the ordinary 404 and no token module code path runs.
+  agentBridge = false,
 ): Promise<void> {
   const pathname = url.pathname;
   const rest = pathname.slice('/api/workspaces'.length);
@@ -1349,6 +1362,41 @@ export async function handleWorkspaceApi(
       const existing = await requirePermission(res, storage, id, auth, 'workspace.roles');
       if (!existing) return;
       await saveMutation(res, storage, id, existing, removeCustomRole(existing, roleName));
+      return;
+    }
+  }
+
+  // PRD 027 Req 3: /api/workspaces/<id>/agent-tokens — mint, list, revoke.
+  // Mounted only under the MM_AGENT_BRIDGE flag (Req 2); every route is
+  // behind `workspace.settings` through the one gate above. The mint answer
+  // is the only response that ever carries the plaintext (Req 4).
+  if (agentBridge && segments[1] === 'agent-tokens') {
+    if (segments.length === 2 && req.method === 'POST') {
+      if (!(await requirePermission(res, storage, id, auth, 'workspace.settings'))) return;
+      const body = await readJsonBody(req, res);
+      if (body === undefined) return;
+      const label = (body as { label?: unknown } | null)?.label;
+      if (typeof label !== 'string' || label.trim() === '') {
+        sendJson(res, 400, { error: 'label must be a non-empty string' });
+        return;
+      }
+      sendJson(res, 201, await mintAgentToken(storage, id, label.trim()));
+      return;
+    }
+    if (segments.length === 2 && req.method === 'GET') {
+      if (!(await requirePermission(res, storage, id, auth, 'workspace.settings'))) return;
+      sendJson(res, 200, await listAgentTokens(storage, id));
+      return;
+    }
+    if (segments.length === 3 && req.method === 'DELETE') {
+      if (!(await requirePermission(res, storage, id, auth, 'workspace.settings'))) return;
+      // `segments` is already decoded once above; a row id is a UUID anyway.
+      if (await revokeAgentToken(storage, id, segments[2])) {
+        res.writeHead(204);
+        res.end();
+      } else {
+        sendJson(res, 404, { error: 'no such agent token' });
+      }
       return;
     }
   }

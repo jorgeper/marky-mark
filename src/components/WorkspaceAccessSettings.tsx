@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import type { Permission, WorkspaceManifest } from '../lib/hostedWorkspace';
 import type { DeploymentAdmin } from '../platform/hostedAdmin';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
+import { WorkspaceAgentTokens } from './WorkspaceAgentTokens';
 import { WorkspaceDangerZone } from './WorkspaceDangerZone';
 import { WorkspaceMembers } from './WorkspaceMembers';
 import { WorkspaceNames } from './WorkspaceNames';
@@ -81,12 +82,19 @@ export function WorkspaceSettingsTab({
   access,
   admin,
   me,
+  agentBridge,
 }: {
   lifecycle: WorkspaceLifecycle;
   access: WorkspaceAccess;
   /** PRD 017 Req 32: the admin transport + session facts for the invite row. */
   admin?: DeploymentAdmin;
   me?: { admin?: boolean } | null;
+  /**
+   * PRD 027 Req 1: whether the agent-bridge experiment is APPLIED on this
+   * host. Off (the default) means the Agent tokens section does not exist
+   * and no agent-token request is made.
+   */
+  agentBridge?: boolean;
 }) {
   const { workspaceId, manifest, permissions, setManifest } = access;
   if (!workspaceId || !manifest) return null;
@@ -119,6 +127,11 @@ export function WorkspaceSettingsTab({
           manifest={manifest}
           onManifest={setManifest}
         />
+      )}
+      {/* PRD 027 Reqs 1+3: agent tokens — only with the experiment on AND
+          for a holder of workspace.settings (the verb the routes require). */}
+      {agentBridge === true && permissions.includes('workspace.settings') && (
+        <WorkspaceAgentTokens lifecycle={lifecycle} workspaceId={workspaceId} />
       )}
       {/* The danger zone self-gates on `workspace.delete`, exactly as before. */}
       <WorkspaceDangerZone lifecycle={lifecycle} />
