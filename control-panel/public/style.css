@@ -255,9 +255,48 @@ footer {
 .stat-table td:first-child { font-weight: 600; font-variant-numeric: normal; }
 
 /* ---------- timeline ---------- */
-.tl-card { padding: 10px 6px; overflow: hidden; }
-.tl-card svg, .tl-inline svg { display: block; max-width: 100%; }
+/* the viewport: one screen tall, scrolled in both axes. The SVG inside covers
+   the whole dataset at the current zoom, so this is the only thing that moves. */
+.tl-card {
+  padding: 0; overflow-y: auto; overflow-x: hidden; position: relative;
+  height: calc(100dvh - 216px); min-height: 320px;
+  overscroll-behavior: contain; cursor: grab;
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+.tl-card.dragging { cursor: grabbing; user-select: none; }
+/* the spacer is pure scroll extent; the layer rides the scrollport and holds
+   the only marks that exist at any moment */
+.tl-spacer { position: relative; }
+.tl-layer {
+  position: sticky; top: 0; overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+.tl-row { display: flex; align-items: flex-start; width: max-content; }
+/* tick labels ride along horizontally so the clock stays readable when the
+   lanes are scrolled sideways; the panel fill hides marks passing beneath */
+.tl-gutter { position: sticky; left: 0; z-index: 2; background: var(--panel); }
+.tl-card svg, .tl-inline svg { display: block; }
+.tl-inline svg { max-width: none; }
 .tl-inline { overflow: hidden; }
+
+.tl-toolbar { align-items: center; gap: 10px; }
+.tl-zoom { display: flex; align-items: center; gap: 4px; }
+.tl-zoom button {
+  appearance: none; width: 28px; height: 28px; line-height: 1; font-size: 17px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; cursor: pointer; padding: 0;
+}
+.tl-zoom button:hover:not(:disabled) { background: var(--panel2); }
+.tl-zoom button:disabled { opacity: .35; cursor: default; }
+.tl-scale {
+  min-width: 62px; text-align: center; color: var(--muted);
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.tl-window { color: var(--muted); font-size: 12px; flex: 1; }
+.tl-now {
+  appearance: none; background: #12351c; color: var(--green); border: 1px solid #23582f;
+  border-radius: 999px; padding: 4px 11px; font: inherit; font-size: 12px; cursor: pointer;
+}
 .tl-seg { cursor: pointer; }
 .tl-seg:hover { filter: brightness(1.25); }
 /* hover a lane: it lights up, sibling lanes recede (trunk/grid untouched) */

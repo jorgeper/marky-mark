@@ -6,7 +6,8 @@ const state = {
   filter: 'all',
   page: 0,
   pageSize: 20,
-  range: 24 * 3600e3, // shared window for Timeline + Stats
+  range: 24 * 3600e3, // Stats window (the Timeline has its own scroll/zoom viewport)
+  tl: { zoom: 6, pinned: true }, // zoom indexes TL_ZOOMS; pinned = top edge tracks now
   runs: [],
   issues: [],
   prs: [],
@@ -293,7 +294,7 @@ function renderPrs() {
     </div>`).join('');
 }
 
-// ---------- range picker (shared by Timeline + Stats) ----------
+// ---------- range picker (Stats only; the Timeline scrolls and zooms) ----------
 
 const RANGES = [
   { ms: 3600e3, label: '1h' },
@@ -316,30 +317,24 @@ function setRange(ms) {
   for (const c of document.querySelectorAll('.range-chips .chip')) {
     c.classList.toggle('active', Number(c.dataset.r) === ms);
   }
-  if (state.tab === 'timeline') renderTimeline();
   if (state.tab === 'stats') renderStats();
 }
 
 // ---------- timeline (vertical git-graph) ----------
 
-// Taller windows get more pixels, but sublinearly — a 7-day wall is scrollable,
-// not endless.
-function tlHeight(windowMs) {
-  const h = windowMs / 3600e3;
-  if (h <= 1.1) return 950;
-  if (h <= 6.5) return 1500;
-  if (h <= 13) return 1900;
-  if (h <= 26) return 2300;
-  if (h <= 80) return 3000;
-  return 3600;
-}
+// Tick density follows the *scale* (px per hour), not the window: at 640 px/h a
+// 6-hour window wants 10-minute ticks, at 6 px/h a 6-hour window wants none.
+// Both callers hand us height + window, so the scale is always derivable.
+const TICK_LADDER = [5 * 60e3, 10 * 60e3, 15 * 60e3, 30 * 60e3, 3600e3,
+  2 * 3600e3, 3 * 3600e3, 6 * 3600e3, 12 * 3600e3, 24 * 3600e3];
+const MIN_TICK_PX = 44; // below this the labels collide
 
-function tickEvery(windowMs) {
-  if (windowMs <= 2 * 3600e3) return 10 * 60e3;
-  if (windowMs <= 13 * 3600e3) return 3600e3;
-  if (windowMs <= 26 * 3600e3) return 2 * 3600e3;
-  if (windowMs <= 80 * 3600e3) return 6 * 3600e3;
-  return 24 * 3600e3;
+function tickEvery(windowMs, height) {
+  const pxPerHour = height / (windowMs / 3600e3);
+  for (const t of TICK_LADDER) {
+    if ((t / 3600e3) * pxPerHour >= MIN_TICK_PX) return t;
+  }
+  return TICK_LADDER[TICK_LADDER.length - 1];
 }
 
 function segTip(r, span, live) {
@@ -347,13 +342,14 @@ function segTip(r, span, live) {
   return `${r.role}${r.issue ? ' · #' + r.issue : ''}\n${clock(span.start)} → ${endTxt} · ${dur(span.end - span.start)} · ${r.status}`;
 }
 
-// Bars thin out as the window widens — a 7-day wall of 11px bars reads as
-// clutter; an hour of 6px bars reads as timid.
-function segWidth(windowMs) {
-  if (windowMs <= 2 * 3600e3) return 13;
-  if (windowMs <= 13 * 3600e3) return 12;
-  if (windowMs <= 26 * 3600e3) return 11;
-  if (windowMs <= 80 * 3600e3) return 8;
+// Bars thin out as you zoom out — a week of 11px bars reads as clutter; an hour
+// of 6px bars reads as timid. Keyed off px-per-hour so it tracks the zoom.
+function segWidth(windowMs, height) {
+  const pxPerHour = height / (windowMs / 3600e3);
+  if (pxPerHour >= 250) return 14;
+  if (pxPerHour >= 90) return 12;
+  if (pxPerHour >= 36) return 11;
+  if (pxPerHour >= 14) return 8;
   return 6;
 }
 
@@ -374,13 +370,19 @@ function segmentSvg(x, r, span, y, yMin, yMax, live, segW) {
 }
 
 // entries: [{r, span}] overlapping the window. live: winEnd ≈ now.
-function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
+// grow: let the canvas run wider than `width` rather than dropping lanes — the
+// scrolling viewport can reach them, the fixed-width issue-detail chart cannot.
+// Returns two SVGs: a `gutter` of tick labels (the viewport makes it sticky so
+// the clock stays readable when scrolled sideways) and a `canvas` holding every
+// mark. The trunk lives in the canvas, not the gutter: fork/merge curves are
+// anchored to it, and splitting them across a sticky seam would shear them.
+function timelineSVG({ entries, winStart, winEnd, width, height, live, grow,
+  padTop = TL_PAD_TOP, padBottom = TL_PAD_BOTTOM }) {
   const windowMs = winEnd - winStart;
-  const tick = tickEvery(windowMs);
-  const segW = segWidth(windowMs);
+  const tick = tickEvery(windowMs, height);
+  const segW = segWidth(windowMs, height);
   const wideLabels = tick >= 6 * 3600e3;
   const trunkX = wideLabels ? 92 : 52;
-  const padTop = 36, padBottom = 30;
   const y = (t) => padTop + ((winEnd - t) / windowMs) * height;
   const totalH = padTop + height + padBottom;
   const byNumber = new Map(state.issues.map((i) => [i.number, i]));
@@ -403,31 +405,44 @@ function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
     };
   }).sort((a, b) => a.first - b.first);
 
-  // Lane density: shrink the gap down to 16px, then drop the oldest lanes
-  // (noted below the chart — never silently).
+  // Lane density: shrink the gap down to a floor of segW+9. Past that, `grow`
+  // decides — widen the canvas and let the viewport scroll to them, or (fixed
+  // width) drop the oldest lanes, noted below the chart, never silently.
   const rightPad = 16;
   const laneArea = width - trunkX - 26 - rightPad;
-  const maxLanes = Math.max(1, Math.floor(laneArea / (segW + 9)) + 1);
+  const minGap = segW + 9;
   let droppedNote = '';
-  if (lanes.length > maxLanes) {
-    const dropped = lanes.length - maxLanes;
-    lanes = lanes.slice(lanes.length - maxLanes); // keep the most recent
-    droppedNote = `+${dropped} older issue${dropped > 1 ? 's' : ''} not shown — narrow the range`;
+  if (!grow) {
+    const maxLanes = Math.max(1, Math.floor(laneArea / minGap) + 1);
+    if (lanes.length > maxLanes) {
+      const dropped = lanes.length - maxLanes;
+      lanes = lanes.slice(lanes.length - maxLanes); // keep the most recent
+      droppedNote = `+${dropped} older issue${dropped > 1 ? 's' : ''} not shown`;
+    }
   }
-  const laneGap = lanes.length > 1 ? Math.min(40, laneArea / (lanes.length - 1 || 1)) : 0;
+  const laneSpan = Math.max(1, lanes.length - 1);
+  const laneGap = lanes.length > 1
+    ? (grow ? Math.max(minGap, Math.min(40, laneArea / laneSpan)) : Math.min(40, laneArea / laneSpan))
+    : 0;
   const laneX = (i) => trunkX + 26 + i * laneGap;
+  // right edge of the drawing; in grow mode the lanes decide, not the card
+  const contentRight = lanes.length
+    ? Math.max(width, laneX(lanes.length - 1) + segW / 2 + rightPad)
+    : width;
 
   // Strict paint layers so thin chrome never crosses over data or labels:
   // gridlines → connector lines/trunk → bars & dots → text on top.
-  const grid = [], lineLayer = [], marks = [], text = [];
+  // `gut` is the separate sticky layer; everything else lands in the canvas.
+  const grid = [], lineLayer = [], marks = [], text = [], gut = [];
+  const gutterW = trunkX - 6;
 
-  // hour/day gridlines + labels in the left gutter
+  // hour/day gridlines (canvas) + their labels (sticky gutter)
   for (let t = Math.ceil(winStart / tick) * tick; t <= winEnd; t += tick) {
     const yy = y(t);
     if (yy < padTop + 8) continue;
     const label = tick >= 24 * 3600e3 ? dayLabel(t) : wideLabels ? `${dayLabel(t)} ${clock(t)}` : clock(t);
-    grid.push(`<line x1="${trunkX - 6}" y1="${yy}" x2="${width - 4}" y2="${yy}" stroke="#1c2129" stroke-width="1"></line>`);
-    text.push(`<text x="${trunkX - 10}" y="${yy + 3.5}" text-anchor="end" class="tickl">${esc(label)}</text>`);
+    grid.push(`<line x1="${trunkX - 6}" y1="${yy}" x2="${contentRight - 4}" y2="${yy}" stroke="#1c2129" stroke-width="1"></line>`);
+    gut.push(`<text x="${gutterW - 4}" y="${yy + 3.5}" text-anchor="end" class="tickl">${esc(label)}</text>`);
   }
 
   // trunk (main branch)
@@ -435,7 +450,7 @@ function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
 
   // top edge: "now" (or the window end) marker
   const topLabel = live ? `now · ${clock(winEnd)}` : `${dayLabel(winEnd)} ${clock(winEnd)}`;
-  grid.push(`<line x1="${trunkX - 6}" y1="${padTop}" x2="${width - 4}" y2="${padTop}" stroke="#23582f" stroke-width="1"></line>`);
+  grid.push(`<line x1="${trunkX - 6}" y1="${padTop}" x2="${contentRight - 4}" y2="${padTop}" stroke="#23582f" stroke-width="1"></line>`);
   text.push(`<text x="${trunkX + 12}" y="${padTop - 8}" class="nowl">${esc(topLabel)}</text>`);
   text.push(`<text x="${trunkX + 12}" y="${padTop + height + 16}" class="tickl">${esc(`${dayLabel(winStart)} ${clock(winStart)}`)}</text>`);
   if (live && trunkRuns.some((e) => e.r.status === 'running')) {
@@ -517,16 +532,24 @@ function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
     if (lane.running) marks.push(L(`<circle cx="${lx}" cy="${padTop}" r="5" fill="#3fb950" class="pulse-svg"></circle>`));
 
     const title = iss ? `#${lane.issue} ${iss.title}` : `#${lane.issue}`;
-    text.push(L(`<text x="${lx}" y="${Math.max(yTop - 10, 12)}" text-anchor="middle" class="tl-issuenum"
+    // A "#123" label is wider than a tight lane gap, and lanes that fork at the
+    // same moment sit at the same height — so deal them across rows to keep
+    // every number readable instead of overprinting neighbours.
+    const stagger = laneGap < 34 ? (i % 3) * 13 : 0;
+    text.push(L(`<text x="${lx}" y="${Math.max(yTop - 10 - stagger, 12)}" text-anchor="middle" class="tl-issuenum"
       data-issuestats="${esc(lane.issue)}" data-tip="${esc(title)}">#${esc(lane.issue)}</text>`));
     if (yBottom - yTop > 240) {
-      text.push(L(`<text x="${lx}" y="${Math.min(yBottom + 36, totalH - 4)}" text-anchor="middle" class="tl-issuenum"
+      text.push(L(`<text x="${lx}" y="${Math.min(yBottom + 36 + stagger, totalH - 4)}" text-anchor="middle" class="tl-issuenum"
         data-issuestats="${esc(lane.issue)}" data-tip="${esc(title)}">#${esc(lane.issue)}</text>`));
     }
   });
 
+  // The canvas keeps the original coordinate system (trunk at trunkX); shifting
+  // the viewBox origin instead of every x means the gutter split costs no maths.
+  const canvasW = contentRight - gutterW;
   return {
-    svg: `<svg viewBox="0 0 ${width} ${totalH}" width="${width}" height="${totalH}" xmlns="http://www.w3.org/2000/svg">${grid.join('')}${lineLayer.join('')}${marks.join('')}${text.join('')}</svg>`,
+    gutter: `<svg class="tl-gutter" viewBox="0 0 ${gutterW} ${totalH}" width="${gutterW}" height="${totalH}" xmlns="http://www.w3.org/2000/svg">${gut.join('')}</svg>`,
+    canvas: `<svg class="tl-canvas" viewBox="${gutterW} 0 ${canvasW} ${totalH}" width="${canvasW}" height="${totalH}" xmlns="http://www.w3.org/2000/svg">${grid.join('')}${lineLayer.join('')}${marks.join('')}${text.join('')}</svg>`,
     droppedNote,
     roles: [...new Set(entries.map((e) => e.r.role))],
   };
@@ -544,22 +567,212 @@ function timelineLegendHtml(roles) {
   ].filter(Boolean).join('');
 }
 
-function renderTimeline() {
+// ---------- timeline viewport: a fixed-height window that scrolls and zooms ----------
+//
+// The card is one screen tall. Inside it a spacer sized to the whole dataset
+// supplies the scroll extent — so panning is native scrolling, with momentum,
+// clamping and a scrollbar all free — while a `position: sticky` layer rides the
+// scrollport and is redrawn for whatever window is actually on screen.
+//
+// Drawing only the visible slice is not a performance trick: lane columns are
+// allocated per render, so a whole-dataset canvas would hand all 75 issues a
+// column and strand the two you are zoomed into far off to the right.
+
+// px per hour, ~1.6x a step. The floor puts a week on one screen; the ceiling
+// resolves a 90-second run as a bar you can actually hit with a cursor.
+const TL_ZOOMS = [6, 10, 16, 25, 40, 65, 100, 160, 250, 400, 640];
+const TL_PAD_TOP = 36, TL_PAD_BOTTOM = 30;
+const tlPxPerHour = () => TL_ZOOMS[state.tl.zoom];
+
+// The window the last render drew, so scroll offsets can be read back as times
+// even after the data range has shifted underneath us.
+let tlRange = null;
+
+// Scrollable extent: every run we know about, up to now. Merge dots and issue
+// closes always land inside some run's shadow, so runs alone bound it.
+function tlDataRange() {
+  let start = Infinity;
+  for (const r of state.runs) {
+    const s = runSpan(r);
+    if (s) start = Math.min(start, s.start);
+  }
+  if (!isFinite(start)) return null;
+  return { start: start - 15 * 60e3, end: Date.now() };
+}
+
+const tlOffsetOfTime = (t, range) => TL_PAD_TOP + ((range.end - t) / 3600e3) * tlPxPerHour();
+const tlTimeAtOffset = (y, range) => range.end - ((y - TL_PAD_TOP) / tlPxPerHour()) * 3600e3;
+
+// Zoom label, Now button and the "what am I looking at" readout. Driven by the
+// live scrollTop, so it stays honest during a drag without a re-render.
+function tlSyncChrome() {
   const wrap = $('#tl-wrap');
-  const winEnd = Date.now();
-  const winStart = winEnd - state.range;
-  const entries = runsInWindow(winStart, winEnd);
-  if (!entries.length) {
+  $('#tl-scale').textContent = `${tlPxPerHour()} px/h`;
+  $('#tl-in').disabled = state.tl.zoom >= TL_ZOOMS.length - 1;
+  $('#tl-out').disabled = state.tl.zoom <= 0;
+  $('#tl-now').hidden = state.tl.pinned;
+  if (!tlRange) { $('#tl-window').textContent = ''; return; }
+  const top = tlTimeAtOffset(wrap.scrollTop, tlRange);
+  const span = (wrap.clientHeight / tlPxPerHour()) * 3600e3;
+  $('#tl-window').textContent = state.tl.pinned
+    ? `now · ${dur(span)} on screen`
+    : `${dayLabel(top)} ${clock(top)} · ${dur(span)} on screen`;
+}
+
+// lane scroll-x is owned by the sticky layer, which is replaced on every redraw
+let tlLaneLeft = 0;
+
+// Draw the slice currently under the scrollport. Layer-local y and content
+// coordinates differ only by scrollTop, so the window falls straight out of it.
+function tlRenderLayer() {
+  const wrap = $('#tl-wrap');
+  const layer = wrap.querySelector('.tl-layer');
+  if (!layer || !tlRange) return;
+  const viewH = wrap.clientHeight;
+  const height = Math.max(60, viewH - TL_PAD_TOP - TL_PAD_BOTTOM);
+  const winEnd = tlTimeAtOffset(wrap.scrollTop + TL_PAD_TOP, tlRange);
+  const winStart = tlTimeAtOffset(wrap.scrollTop + TL_PAD_TOP + height, tlRange);
+  const width = Math.max(340, wrap.clientWidth - 14);
+  const { gutter, canvas, roles } = timelineSVG({
+    entries: runsInWindow(winStart, winEnd),
+    winStart, winEnd, width, height, grow: true,
+    live: tlRange.end - winEnd < 60e3, // the top edge really is now
+  });
+  layer.style.height = viewH + 'px';
+  layer.innerHTML = `<div class="tl-row">${gutter}${canvas}</div>`;
+  layer.scrollLeft = tlLaneLeft;
+  $('#tl-legend').innerHTML = timelineLegendHtml(roles);
+}
+
+// restore: {t, y} — put absolute time t back at viewport offset y once the new
+// spacer is in place. Without it every 5s refresh would fling you back to now.
+function renderTimeline(restore) {
+  const wrap = $('#tl-wrap');
+  const range = tlDataRange();
+  if (!range) {
     $('#tl-legend').innerHTML = '';
-    wrap.innerHTML = '<div class="empty">No agent activity in this window</div>';
+    wrap.innerHTML = '<div class="empty">No agent activity yet</div>';
+    tlRange = null;
+    tlSyncChrome();
     return;
   }
-  const width = Math.max(340, (wrap.clientWidth || 700) - 14);
-  const { svg, droppedNote, roles } = timelineSVG({
-    entries, winStart, winEnd, width, height: tlHeight(state.range), live: true,
+  tlRange = range;
+  const contentH = TL_PAD_TOP + ((range.end - range.start) / 3600e3) * tlPxPerHour() + TL_PAD_BOTTOM;
+  // keep the spacer at least a screen tall so a short history still scrolls sanely
+  const spacerH = Math.max(contentH, wrap.clientHeight + 1);
+  if (!wrap.querySelector('.tl-layer')) {
+    wrap.innerHTML = '<div class="tl-spacer"><div class="tl-layer"></div></div>';
+  }
+  wrap.querySelector('.tl-spacer').style.height = spacerH + 'px';
+
+  if (state.tl.pinned) wrap.scrollTop = 0;
+  else if (restore) wrap.scrollTop = Math.max(0, tlOffsetOfTime(restore.t, range) - restore.y);
+  tlRenderLayer();
+  tlSyncChrome();
+}
+
+// Re-render holding the current top edge in place (the 5s data refresh path:
+// `now` has advanced, so the content grew above us).
+function tlRefresh() {
+  const wrap = $('#tl-wrap');
+  if (state.tl.pinned || !tlRange) return renderTimeline();
+  return renderTimeline({ t: tlTimeAtOffset(wrap.scrollTop, tlRange), y: 0 });
+}
+
+// Zoom one step, keeping the time under `anchorY` (viewport-relative) fixed.
+function tlZoom(dir, anchorY) {
+  const wrap = $('#tl-wrap');
+  const next = Math.min(TL_ZOOMS.length - 1, Math.max(0, state.tl.zoom + dir));
+  if (next === state.tl.zoom) return;
+  const y = anchorY == null ? wrap.clientHeight / 2 : anchorY;
+  const t = tlRange ? tlTimeAtOffset(wrap.scrollTop + y, tlRange) : null;
+  state.tl.zoom = next;
+  if (t == null) return renderTimeline();
+  // let the anchor decide where we land; the scroll listener re-derives `pinned`
+  state.tl.pinned = false;
+  renderTimeline({ t, y });
+  state.tl.pinned = wrap.scrollTop <= 2;
+  tlSyncChrome();
+}
+
+function initTimelineViewport() {
+  const wrap = $('#tl-wrap');
+
+  // one redraw per frame while scrolling — the layer shows a new window each time
+  let frame = 0;
+  wrap.addEventListener('scroll', () => {
+    const pinned = wrap.scrollTop <= 2;
+    if (pinned !== state.tl.pinned) state.tl.pinned = pinned;
+    if (!frame) {
+      frame = requestAnimationFrame(() => { frame = 0; tlRenderLayer(); tlSyncChrome(); });
+    }
+  }, { passive: true });
+
+  // remember lane scroll-x across the redraws
+  wrap.addEventListener('scroll', (e) => {
+    if (e.target.classList && e.target.classList.contains('tl-layer')) tlLaneLeft = e.target.scrollLeft;
+  }, { capture: true, passive: true });
+
+  // wheel zooms about the cursor. Trackpads emit a stream of small deltas, so
+  // accumulate to a threshold rather than stepping per event.
+  let wheelAcc = 0;
+  wrap.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    wheelAcc += e.deltaY;
+    if (Math.abs(wheelAcc) < 40) return;
+    const dir = wheelAcc < 0 ? 1 : -1; // wheel up = zoom in
+    wheelAcc = 0;
+    tlZoom(dir, e.clientY - wrap.getBoundingClientRect().top);
+  }, { passive: false });
+
+  // drag pans (mouse only — touch keeps native scrolling, which has momentum)
+  let drag = null, dragged = false;
+  wrap.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    drag = { x: e.clientX, y: e.clientY, sl: tlLaneLeft, st: wrap.scrollTop, moved: false };
   });
-  $('#tl-legend').innerHTML = timelineLegendHtml(roles);
-  wrap.innerHTML = svg + (droppedNote ? `<div class="tl-note">${esc(droppedNote)}</div>` : '');
+  wrap.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.moved) {
+      if (Math.hypot(dx, dy) < 4) return; // let small wobbles stay clicks
+      drag.moved = true;
+      wrap.classList.add('dragging');
+      wrap.setPointerCapture(e.pointerId);
+    }
+    wrap.scrollTop = drag.st - dy;
+    // lanes scroll inside the layer, which the vertical scroll keeps replacing
+    const layer = wrap.querySelector('.tl-layer');
+    if (layer) { layer.scrollLeft = drag.sl - dx; tlLaneLeft = layer.scrollLeft; }
+  });
+  const endDrag = () => {
+    if (!drag) return;
+    dragged = drag.moved;
+    drag = null;
+    wrap.classList.remove('dragging');
+  };
+  wrap.addEventListener('pointerup', endDrag);
+  wrap.addEventListener('pointercancel', endDrag);
+  // a drag that ends over a run must not also open its log (capture beats the
+  // document-level click router below)
+  wrap.addEventListener('click', (e) => {
+    if (!dragged) return;
+    dragged = false;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+
+  $('#tl-in').addEventListener('click', () => tlZoom(1));
+  $('#tl-out').addEventListener('click', () => tlZoom(-1));
+  $('#tl-now').addEventListener('click', () => { state.tl.pinned = true; renderTimeline(); });
+
+  // the layer is sized to the scrollport, so a resize or rotate has to redraw
+  let resizeT = 0;
+  window.addEventListener('resize', () => {
+    if (state.tab !== 'timeline') return;
+    clearTimeout(resizeT);
+    resizeT = setTimeout(() => tlRefresh(), 120);
+  });
 }
 
 // ---------- stats ----------
@@ -804,11 +1017,12 @@ function renderIssueDetail() {
   const winEnd = stillRunning ? Date.now() : last + pad;
   const spanH = Math.min(1200, Math.max(420, ((winEnd - winStart) / 3600e3) * 240));
   const width = Math.max(320, (body.clientWidth || 680) - 40);
-  const { svg, roles } = timelineSVG({
+  const { gutter, canvas, roles } = timelineSVG({
     entries: entries.filter((e) => e.span.end >= winStart && e.span.start <= winEnd),
     winStart, winEnd, width, height: spanH, live: stillRunning,
   });
-  const timeline = statSection('Timeline', `<div class="legend">${timelineLegendHtml(roles)}</div><div class="tl-inline">${svg}</div>`);
+  const timeline = statSection('Timeline',
+    `<div class="legend">${timelineLegendHtml(roles)}</div><div class="tl-inline"><div class="tl-row">${gutter}${canvas}</div></div>`);
 
   // chronological history — what ran, in what order, and how it went
   const history = statSection('History', `<div class="hist">${entries.map((e) => {
@@ -961,7 +1175,7 @@ async function refreshAgents() {
     state.runs = data.runs || [];
     if (state.tab === 'agents') renderAgents();
     if (state.tab === 'issues') renderIssues(); // agent chips inside issues
-    if (state.tab === 'timeline') renderTimeline();
+    if (state.tab === 'timeline') tlRefresh();
     if (state.tab === 'stats') renderStats();
     if (state.tab === 'issue') renderIssueDetail();
   } catch { /* transient */ }
@@ -1123,6 +1337,7 @@ $('#sc-btn').addEventListener('click', async () => {
 });
 
 initRangeChips();
+initTimelineViewport();
 refreshAgents();
 refreshGh();
 refreshDocs();

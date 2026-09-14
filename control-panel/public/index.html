@@ -55,8 +55,14 @@
   </section>
 
   <section id="view-timeline" class="view" hidden>
-    <div class="toolbar">
-      <div class="chips range-chips"></div>
+    <div class="toolbar tl-toolbar">
+      <div class="tl-zoom">
+        <button id="tl-out" title="Zoom out — more time, smaller events">−</button>
+        <span id="tl-scale" class="tl-scale"></span>
+        <button id="tl-in" title="Zoom in — less time, bigger events">+</button>
+      </div>
+      <span id="tl-window" class="tl-window"></span>
+      <button id="tl-now" class="tl-now" hidden>⏮ Now</button>
     </div>
     <div id="tl-legend" class="legend"></div>
     <div id="tl-wrap" class="card tl-card"><div class="empty">Loading…</div></div>
