@@ -25,7 +25,7 @@ import { createMemoryStorage } from './storage-contract';
 // in-process — `createServer` + the app's upgrade handler over the in-memory
 // storage seam, Node's global `WebSocket` as the tab, and raw JSON-RPC to
 // /api/mcp as the agent. The same behaviour runs against the real local
-// server in tests/e2e/hosted.spec.ts (E655+).
+// server in tests/e2e/hosted.spec.ts (E656+, E662).
 
 interface RpcBody {
   jsonrpc: '2.0';

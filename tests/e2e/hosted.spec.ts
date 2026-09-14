@@ -9326,7 +9326,8 @@ test('E652: PRD 027 Req 4 — a missing or unknown token is 401 with the stable 
 // PRD 027 Reqs 7, 9, 10, 11 (issue #367): the live control channel — the
 // hosted tab's agent-control toggle and indicator, the WebSocket the opt-in
 // opens, takeover by a second tab, and the MCP session tools dispatching to
-// the opted-in tab. E655 needs a user whose setting starts OFF (ada — no
+// the opted-in tab. E662 (E655 at issue #367; renumbered — editor.spec.ts's
+// older E655 kept its number) needs a user whose setting starts OFF (ada — no
 // other test seeds her agent bridge on); E656–E658 turn the experiment on
 // through the ordinary Save in the page itself, so a concurrent test
 // resetting that user's settings blob cannot switch an already-loaded tab
@@ -9370,13 +9371,13 @@ interface BridgeStatePayload {
   state: { path: string | null; content: string; dirty: boolean; revision: string; selection: { from: number; to: number; text: string } };
 }
 
-test('E655: PRD 027 Reqs 1+9+10 — with the agent bridge off there is no agent-control toggle, indicator or WebSocket; turned on through Save the toggle appears, opting in shows the persistent indicator in preview and edit mode with no toolbar reveal, and opting out hides it', async ({
+test('E662: PRD 027 Reqs 1+9+10 — with the agent bridge off there is no agent-control toggle, indicator or WebSocket; turned on through Save the toggle appears, opting in shows the persistent indicator in preview and edit mode with no toolbar reveal, and opting out hides it', async ({
   page,
   request,
 }) => {
   const ada = await signIn(request, 'ada');
   const cleanup = await seedAgentBridge(request, ada, false);
-  const id = await createWorkspace(request, ada, `E655 w${test.info().workerIndex}`);
+  const id = await createWorkspace(request, ada, `E662 w${test.info().workerIndex}`);
   const headers = { Authorization: `Bearer ${ada}` };
   try {
     expect((await request.put(`${HOSTED}/api/workspaces/${id}/files/notes.md`, { headers, data: BRIDGE_DOC })).status()).toBe(200);
