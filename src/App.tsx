@@ -4092,12 +4092,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     return true;
   }, [persistComments, saveDocAs, showNotice]);
 
-  // PRD 027 Req 13 (issue #366): the agent-bridge executor over the editor
-  // handle refs and the registry's own open/save paths — `dispatchRecent`
-  // for a path (the same channel Open Recent uses) and `saveDoc` behind the
-  // same edit-grant check the `save` command applies. No second open or
-  // save implementation; the platform seam decides whether any transport
-  // reaches it (the dev/e2e shim only, until issue #367).
   // PRD 027 Req 1+10 (issue #367): turning the experiment off while opted in
   // disables the channel — the gate reads the APPLIED setting, so this lands
   // through the ordinary settings save with no reload.
@@ -4105,6 +4099,13 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     if (!settings.agentBridge) platform?.agentControl?.disable();
   }, [platform, settings.agentBridge]);
 
+  // PRD 027 Req 13 (issue #366): the agent-bridge executor over the editor
+  // handle refs and the registry's own open/save paths — `dispatchRecent`
+  // for a path (the same channel Open Recent uses) and `saveDoc` behind the
+  // same edit-grant check the `save` command applies. No second open or
+  // save implementation; the platform seam decides whether any transport
+  // reaches it (the dev/e2e shim, or the hosted control channel of issue
+  // #367 once the user opts in).
   agentBridgeRef.current = useAgentBridge(platform, {
     smartEditRef,
     editorSyncRef,

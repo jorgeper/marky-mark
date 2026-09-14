@@ -30,10 +30,10 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Buffer } from 'node:buffer';
+import { randomUUID } from 'node:crypto';
 // The version the server reports in `initialize` — the package's own, so a
 // release bump never leaves serverInfo stale.
 import pkg from '../package.json' with { type: 'json' };
-import { randomUUID } from 'node:crypto';
 import {
   BRIDGE_TOOL_NAMES,
   decodeToolRequest,

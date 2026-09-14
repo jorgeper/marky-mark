@@ -113,6 +113,16 @@ export interface WorkspaceRouteRequirement {
 }
 
 /**
+ * PRD 027 Req 9 (issue #367): the last segment of the agent-session upgrade
+ * route, `GET /api/workspaces/<id>/agent-session` (`Upgrade: websocket`).
+ * Declared here, beside the permission table that names it, and imported by
+ * `server/agentBridgeSocket.ts` for path matching. The hosted client
+ * (src/platform/hosted.ts) spells the same segment itself — src/ never
+ * imports from server/.
+ */
+export const AGENT_SESSION_ROUTE = 'agent-session';
+
+/**
  * PRD 007 Req 13+17: every workspace-scoped route and the ONE verb it
  * requires, declared in one readable place — the same table server/README.md
  * documents. The handlers below pass exactly these verbs to
@@ -122,14 +132,6 @@ export interface WorkspaceRouteRequirement {
  * fails, and a catalog verb no route requires fails too — a new verb cannot
  * be added to `PERMISSIONS` and left dead.
  */
-/**
- * PRD 027 Req 9 (issue #367): the last segment of the agent-session upgrade
- * route, `GET /api/workspaces/<id>/agent-session` (`Upgrade: websocket`).
- * Declared here, beside the permission table that names it, and imported by
- * `server/agentBridgeSocket.ts` and the hosted client's route builder.
- */
-export const AGENT_SESSION_ROUTE = 'agent-session';
-
 export const WORKSPACE_ROUTE_PERMISSIONS: readonly WorkspaceRouteRequirement[] = [
   { method: 'DELETE', path: '', required: 'workspace.delete', why: 'destroys the workspace and every blob under it' },
   { method: 'GET', path: 'manifest', required: 'doc.read', why: 'the manifest is what opening the workspace reads' },

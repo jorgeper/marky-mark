@@ -91,7 +91,7 @@ export function createAgentBridgeUpgrade(
       return;
     }
 
-    let handle: SessionHandle | null = null;
+    let session: SessionHandle | null = null;
     const connection = acceptWebSocket(req, socket, head, {
       onMessage(text) {
         // A malformed frame is ignored — never a crash, never a log line.
@@ -101,19 +101,19 @@ export function createAgentBridgeUpgrade(
         // Only the tab→server kinds are deliverable; a tab echoing a
         // server→tab envelope is dropped like any other noise.
         if (message.kind !== 'tool_result' && message.kind !== 'state') return;
-        handle?.deliver(message);
+        session?.deliver(message);
       },
       onClose() {
         // PRD 027 Req 10: the tab is gone — the workspace has no controlled
         // session from here (pending dispatches settle as `no_controlled_session`).
-        handle?.close();
+        session?.close();
       },
     });
     if (!connection) return;
     // PRD 027 Req 10: registering REPLACES any earlier tab — the broker
     // sends it `session_replaced` and calls its transport's `close`, which
     // ends that socket with a normal close frame.
-    handle = broker.register(workspaceId, {
+    session = broker.register(workspaceId, {
       send: (message) => connection.send(encodeBridgeMessage(message)),
       close: () => connection.close(1000),
     });
