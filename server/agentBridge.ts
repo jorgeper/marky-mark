@@ -12,7 +12,6 @@ import { randomUUID } from 'node:crypto';
 import {
   BRIDGE_PROTOCOL_VERSION,
   noControlledSessionError,
-  type BridgeToolName,
   type BridgeToolRequest,
   type BridgeToolResult,
   type EditorStateSnapshot,
@@ -41,10 +40,10 @@ export interface SessionHandle {
   readonly active: boolean;
 }
 
+type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
+
 /** A dispatchable request: everything but the correlation id, which the broker mints. */
 export type BridgeToolCall = DistributiveOmit<BridgeToolRequest, 'id'>;
-
-type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 
 export interface SessionBroker {
   /**
@@ -75,7 +74,6 @@ export interface SessionBrokerOptions {
 export const DEFAULT_DISPATCH_TIMEOUT_MS = 5_000;
 
 interface Pending {
-  tool: BridgeToolName;
   resolve(result: BridgeToolResult): void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -156,13 +154,13 @@ export function createSessionBroker(options: SessionBrokerOptions = {}): Session
       const session = sessions.get(workspaceId);
       const id = randomUUID();
       if (!session) return Promise.resolve({ ok: false, id, error: noControlledSessionError() });
-      const request = { ...call, id } as BridgeToolRequest;
+      const request: BridgeToolRequest = { ...call, id };
       return new Promise<BridgeToolResult>((resolve) => {
         const timer = setTimeout(() => {
           if (!session.pending.delete(id)) return;
           resolve({ ok: false, id, error: { code: 'timeout', message: `${call.tool} did not answer within ${timeoutMs}ms` } });
         }, timeoutMs);
-        session.pending.set(id, { tool: call.tool, resolve, timer });
+        session.pending.set(id, { resolve, timer });
         session.transport.send({ v: BRIDGE_PROTOCOL_VERSION, kind: 'tool_request', request });
       });
     },

@@ -211,11 +211,22 @@ export function decodeToolRequest(raw: unknown): BridgeToolRequest | string {
   const { id, tool } = raw;
   if (typeof id !== 'string' || !id) return 'request id is not a string';
   if (!isToolName(tool)) return `unknown tool ${String(tool)}`;
-  if (isMutatingTool(tool) && typeof raw.revision !== 'string') return `${tool} requires a string revision`;
   return REQUEST_DECODERS[tool](id, raw);
 }
 
 type RequestDecoder<T extends BridgeToolName> = (id: string, raw: Record<string, unknown>) => BridgeToolRequestFor<T> | string;
+
+/**
+ * PRD 027 Req 8 (issue #363): a mutating tool's decoder runs only once the
+ * request carries a string `revision`; any other request is refused here, so
+ * the four decoders below receive the revision already checked.
+ */
+function withRevision<T extends MutatingToolName>(
+  tool: T,
+  decode: (id: string, raw: Record<string, unknown>, revision: string) => BridgeToolRequestFor<T> | string,
+): RequestDecoder<T> {
+  return (id, raw) => (typeof raw.revision === 'string' ? decode(id, raw, raw.revision) : `${tool} requires a string revision`);
+}
 
 // PRD 027 Req 7 (issue #363): one decoder per tool, keyed by the union — a
 // tool added to `BRIDGE_TOOL_NAMES` without a decoder here fails the
@@ -232,22 +243,22 @@ const REQUEST_DECODERS: { [T in BridgeToolName]: RequestDecoder<T> } = {
     isOffset(raw.from) && isOffset(raw.to)
       ? { id, tool: 'set_selection', from: raw.from, to: raw.to }
       : 'set_selection from/to are not offsets',
-  replace_selection: (id, raw) =>
+  replace_selection: withRevision('replace_selection', (id, raw, revision) =>
     typeof raw.text === 'string'
-      ? { id, tool: 'replace_selection', revision: raw.revision as string, text: raw.text }
-      : 'replace_selection text is not a string',
-  insert_text: (id, raw) =>
+      ? { id, tool: 'replace_selection', revision, text: raw.text }
+      : 'replace_selection text is not a string'),
+  insert_text: withRevision('insert_text', (id, raw, revision) =>
     typeof raw.text === 'string'
-      ? { id, tool: 'insert_text', revision: raw.revision as string, text: raw.text }
-      : 'insert_text text is not a string',
-  replace_range: (id, raw) =>
+      ? { id, tool: 'insert_text', revision, text: raw.text }
+      : 'insert_text text is not a string'),
+  replace_range: withRevision('replace_range', (id, raw, revision) =>
     isOffset(raw.from) && isOffset(raw.to) && typeof raw.text === 'string'
-      ? { id, tool: 'replace_range', revision: raw.revision as string, from: raw.from, to: raw.to, text: raw.text }
-      : 'replace_range from/to/text are malformed',
-  apply_format: (id, raw) =>
+      ? { id, tool: 'replace_range', revision, from: raw.from, to: raw.to, text: raw.text }
+      : 'replace_range from/to/text are malformed'),
+  apply_format: withRevision('apply_format', (id, raw, revision) =>
     isFormatOp(raw.op)
-      ? { id, tool: 'apply_format', revision: raw.revision as string, op: raw.op }
-      : `apply_format op ${String(raw.op)} is not a SmartFormatOp`,
+      ? { id, tool: 'apply_format', revision, op: raw.op }
+      : `apply_format op ${String(raw.op)} is not a SmartFormatOp`),
   save: (id) => ({ id, tool: 'save' }),
 };
 

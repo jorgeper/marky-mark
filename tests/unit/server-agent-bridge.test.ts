@@ -173,8 +173,8 @@ describe('PRD 027 Req 14 (issue #363) session broker', () => {
     handleB.deliver({ v: 1, kind: 'tool_result', result: { ok: true, id: reqA.id, state: snapshot('wrong') } });
     handleA.deliver({ v: 1, kind: 'tool_result', result: { ok: true, id: reqA.id, state: snapshot('a') } });
     handleB.deliver({ v: 1, kind: 'tool_result', result: { ok: true, id: reqB.id, state: snapshot('b') } });
-    expect((await callA)).toEqual({ ok: true, id: reqA.id, state: snapshot('a') });
-    expect((await callB)).toEqual({ ok: true, id: reqB.id, state: snapshot('b') });
+    expect(await callA).toEqual({ ok: true, id: reqA.id, state: snapshot('a') });
+    expect(await callB).toEqual({ ok: true, id: reqB.id, state: snapshot('b') });
 
     handleA.close();
     expect(broker.has('ws-a')).toBe(false);
