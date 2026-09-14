@@ -15,6 +15,7 @@ import { DEPLOYMENT_PREFIX } from '../src/lib/deploymentSettings.ts';
 import { createDeploymentPolicy, type DeploymentPolicy } from './deployment.ts';
 import { cleanRelativePath, readBody, sendJson, tryDecode } from './http.ts';
 import { createLlmApi, LLM_PREFIX, type LlmApi } from './llm.ts';
+import { handleMcp, MCP_PATH } from './mcp.ts';
 import type { Providers, RequestAuth } from './providers/types.ts';
 import { invitationTestHooks } from './providers/mock/directory.ts';
 import { handleUserFilesApi, USERS_PREFIX } from './userFiles.ts';
@@ -104,6 +105,19 @@ async function handleApi(
       return;
     }
     sendJson(res, 200, result);
+    return;
+  }
+
+  // PRD 027 Req 2+5: the MCP endpoint (server/mcp.ts) sits BEFORE the session
+  // guard because it authenticates with an agent token, not a user session
+  // (Req 4: one auth path, in agentTokens.ts). With the flag off it answers
+  // the ordinary 404 here — no token lookup, no body read, no bridge code.
+  if (pathname === MCP_PATH) {
+    if (!agentBridge) {
+      sendJson(res, 404, { error: 'no such endpoint' });
+      return;
+    }
+    await handleMcp(req, res, providers.storage);
     return;
   }
 

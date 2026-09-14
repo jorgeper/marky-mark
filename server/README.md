@@ -68,7 +68,7 @@ the environment reference is below.
 | `ENTRA_CLIENT_ID` | azure (required) | Entra ID application (client) id — also the expected token audience. |
 | `ENTRA_CLIENT_SECRET` | azure (required) | Client secret of the same registration — authenticates the on-behalf-of Graph token exchange (`providers/azure/obo.ts`). Secret: never logged, never sent to the browser. |
 | `MM_ADMINS` | both (optional) | PRD 017 Req 1: comma-separated user ids of the deployment admins (Entra object ids in azure mode, mock ids in local mode). Entries are trimmed, empty entries dropped; an entry with interior whitespace refuses to start. Unset: no admins in azure mode; local mode defaults to `mock-katherine` (set it — even to empty — to override). Startup logs the admin *count*, never the ids. |
-| `MM_AGENT_BRIDGE` | both (optional) | PRD 027 Req 2: `1` turns the **experimental** agent bridge on — the workspace agent-token routes below (and, in later work, the MCP endpoint). Unset, empty or `0` (the default) leaves it off: those routes answer the ordinary 404 and no bridge code runs. Any other value refuses to start, naming the variable. Startup logs `agent-bridge=on|off`; tokens are never logged. |
+| `MM_AGENT_BRIDGE` | both (optional) | PRD 027 Req 2: `1` turns the **experimental** agent bridge on — the workspace agent-token routes below and the `POST /api/mcp` MCP endpoint (`server/mcp.ts`). Unset, empty or `0` (the default) leaves it off: those routes answer the ordinary 404 and no bridge code runs. Any other value refuses to start, naming the variable. Startup logs `agent-bridge=on|off`; tokens are never logged. |
 
 `MM_MODE=azure` refuses to start with any of its required variables missing,
 naming them all at once.
@@ -215,6 +215,7 @@ on the doc/file verbs.
 | `POST /api/workspaces/<id>/agent-tokens` | `workspace.settings` (only with `MM_AGENT_BRIDGE=1`; otherwise 404) | PRD 027 Req 3: `{label}` → `201 {id, label, createdAt, token}` — the **only** response that ever carries the plaintext. The server stores a SHA-256 hash and the row under `workspaces/<id>/agent-tokens/`, so deleting the workspace deletes its tokens. 400 for an empty or non-string label. |
 | `GET /api/workspaces/<id>/agent-tokens` | `workspace.settings` (flag-gated as above) | PRD 027 Req 3: `[{id, label, createdAt}]` — never the plaintext or the hash. |
 | `DELETE /api/workspaces/<id>/agent-tokens/<tokenId>` | `workspace.settings` (flag-gated as above) | PRD 027 Req 3: revoke → 204; 404 for an unknown id. PRD 027 Req 4: takes effect on the next request that presents the token (`server/agentTokens.ts` resolves with one storage read and no cache). |
+| `POST /api/mcp` | — (an **agent token** via `Authorization: Bearer <token>`, resolved by `server/agentTokens.ts`; only with `MM_AGENT_BRIDGE=1`, otherwise the ordinary 404 for every method) | PRD 027 Reqs 5+6: the stateless streamable-HTTP MCP endpoint (`server/mcp.ts`) — one JSON-RPC 2.0 message per request, a JSON answer (never a required SSE stream; no session id; `GET`/`DELETE` are 405 `Allow: POST`). A missing, malformed, unknown or revoked token is **401** `WWW-Authenticate: Bearer` with `{error: {code: 'agent_token_unauthorized', message}}`. The token names the workspace, so no tool takes one. Exactly five tools: `get_workspace`, `list_files`, `read_file`, `create_file` (fails on an existing path; `contentBase64` follows the upload route's allowlist/size/409 rule) and `write_file` (existing files only; `etag` from the read, PRD 016 merge on a stale one with `base`) — over the same functions the `/files*` and `upload` routes call (`server/workspaceFiles.ts`). Tool failures are `tools/call` results with `isError: true` and a stable `{error: {code, message, path?}}` (`not_found`, `already_exists`, `conflict`, `invalid_path`, `invalid_params`, `unsupported_type`, `too_large`, `agent_token_out_of_scope`), never 500s. |
 | `POST /api/me/scratchpad` | — (signed-in; scoped to the token's user) | PRD 019 Reqs 5–7: resolve-or-create the caller's personal scratchpad → `{id}`, the same workspace id on every call. The first call creates a real workspace (opaque UUID, normal manifest, caller as sole Owner, named `My scratchpad` per PRD 020 Req 10 as amended by issue #244) and records its id at `users/<id>/scratchpad.json`; concurrent first calls still yield exactly one. Deliberately NOT gated by the deployment creation policy — every signed-in user, guests included, gets one. |
 | `GET /api/scratchpad/<username>` | — (signed-in; access resolved per workspace) | PRD 020 Req 13 (issue #244 renamed the route from `/api/scratch/<username>`, which is gone — it was app-internal, never bookmarked): username → that user's scratchpad workspace → `{id, owner}`, answered only when the workspace's access model admits the caller (`doc.read`, admin union included). Unknown username, unprovisioned scratchpad, and existing-but-inaccessible all answer the same 404 — no probe distinguishes them. |
 | `GET /api/me/files` | — (signed-in; scoped to the token's user) | List the caller's own blobs, user-relative paths (PRD 007 Req 9: the roaming User settings layer). |
@@ -261,8 +262,8 @@ audience, `access_as_user` in scp).
 
 ## Agent bridge (PRD 027)
 
-The server half of the agent bridge (PRD 027 Req 14) is two modules with no
-transport, route or vendor code in them:
+The server half of the agent bridge (PRD 027 Req 14) is transport-agnostic
+modules plus one mounted endpoint:
 
 - `src/lib/agentBridgeProtocol.ts` — the typed server↔controlled-tab message
   contract (the nine session-tool requests, results, errors, the editor
@@ -270,11 +271,30 @@ transport, route or vendor code in them:
 - `server/agentBridge.ts` — `createSessionBroker()`: at most one controlled
   session per workspace, typed dispatch over an injected `SessionTransport`,
   replace-and-notify on a second registration (`session_replaced`).
+- `server/agentTokens.ts` — the ONE auth path: `mintAgentToken`,
+  `resolveAgentToken` (one storage read, no cache) and
+  `checkAgentTokenScope` (Reqs 3+4).
+- `server/mcp.ts` — the remote MCP endpoint, `POST /api/mcp` (Reqs 5+6):
+  stateless streamable HTTP, a small in-repo JSON-RPC handler (no SDK
+  dependency) mounted by `createApp` only under `MM_AGENT_BRIDGE=1`. It
+  authenticates every request with an agent token and registers exactly the
+  five **file tools** — `get_workspace`, `list_files`, `read_file`,
+  `create_file`, `write_file` — over `server/workspaceFiles.ts`, the same
+  functions the `/api/workspaces/<id>/files*` and `upload` routes call.
 
-The broker is transport-agnostic and **no route or WebSocket is mounted
-yet** — the MCP endpoint and the WebSocket channel land in issues #365 and
-#367. Unit tests: `tests/unit/agent-bridge-protocol.test.ts`,
-`tests/unit/server-agent-bridge.test.ts`.
+Connect Claude Code to a workspace with a token minted from the workspace
+settings (Agent tokens section) — no local server install:
+
+```sh
+claude mcp add --transport http marky-mark https://<origin>/api/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+The **session tools** (`get_editor_state`, `open_file`, …) and the WebSocket
+channel are not mounted yet — they land with issue #367. Unit tests:
+`tests/unit/agent-tokens.test.ts`, `tests/unit/server-mcp.test.ts`,
+`tests/unit/agent-bridge-protocol.test.ts`,
+`tests/unit/server-agent-bridge.test.ts`; hosted e2e: E650+.
 
 ## Tests
 

@@ -9091,3 +9091,231 @@ test('E649: PRD 027 Req 3 — a member whose role lacks workspace.settings sees 
     await cleanup();
   }
 });
+
+// PRD 027 Reqs 5+6 (issue #365): the MCP endpoint against the REAL local
+// server (the lane runs it with MM_AGENT_BRIDGE=1 — playwright.config.ts) —
+// raw streamable-HTTP JSON-RPC over Playwright's request context, exactly
+// what `claude mcp add --transport http` sends, with Azurite as storage.
+// Each test creates its own workspace, mints its own token through the
+// route, and deletes the workspace in `finally`.
+
+interface McpRpcBody {
+  jsonrpc: '2.0';
+  id: number | string | null;
+  result?: Record<string, unknown>;
+  error?: { code: number; message: string };
+}
+
+interface McpToolResult {
+  content: [{ type: 'text'; text: string }];
+  structuredContent: Record<string, unknown>;
+  isError?: boolean;
+}
+
+let mcpRpcId = 0;
+
+/** One raw JSON-RPC request to /api/mcp with an agent token. */
+async function mcpRpc(request: APIRequestContext, token: string, method: string, params?: unknown): Promise<APIResponse> {
+  mcpRpcId += 1;
+  return request.post(`${HOSTED}/api/mcp`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json, text/event-stream' },
+    data: { jsonrpc: '2.0', id: mcpRpcId, method, ...(params === undefined ? {} : { params }) },
+  });
+}
+
+/** A tools/call over the wire: 200 + JSON, the result's structured content, and whether it was an error. */
+async function mcpTool(
+  request: APIRequestContext,
+  token: string,
+  name: string,
+  args?: unknown,
+): Promise<{ isError: boolean; payload: Record<string, unknown> }> {
+  const res = await mcpRpc(request, token, 'tools/call', { name, ...(args === undefined ? {} : { arguments: args }) });
+  expect(res.status(), name).toBe(200);
+  expect(res.headers()['content-type'], name).toMatch(/^application\/json/);
+  const body = (await res.json()) as McpRpcBody;
+  expect(body.error, name).toBeUndefined();
+  const result = body.result as unknown as McpToolResult;
+  expect(JSON.parse(result.content[0].text), name).toEqual(result.structuredContent);
+  return { isError: result.isError === true, payload: result.structuredContent };
+}
+
+/** Mint an agent token for a workspace through the route; answers the plaintext and the row id. */
+async function mintToken(request: APIRequestContext, session: string, id: string): Promise<{ token: string; rowId: string }> {
+  const res = await request.post(`${HOSTED}/api/workspaces/${id}/agent-tokens`, {
+    headers: { Authorization: `Bearer ${session}` },
+    data: { label: 'e2e' },
+  });
+  expect(res.status()).toBe(201);
+  const body = (await res.json()) as { id: string; token: string };
+  return { token: body.token, rowId: body.id };
+}
+
+test('E650: PRD 027 Reqs 5+6 — over raw streamable HTTP, an agent token initializes, lists the five tools, and creates, lists, reads and writes a file that the user\'s session then reads through the files route', async ({
+  request,
+}) => {
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E650 w${test.info().workerIndex}`);
+  try {
+    const { token } = await mintToken(request, ada, id);
+    const headers = { Authorization: `Bearer ${ada}` };
+
+    // initialize → the JSON answer, no session id demanded; initialized → 202.
+    const init = await mcpRpc(request, token, 'initialize', {
+      protocolVersion: '2025-06-18',
+      capabilities: {},
+      clientInfo: { name: 'e2e', version: '0' },
+    });
+    expect(init.status()).toBe(200);
+    expect(init.headers()['content-type']).toMatch(/^application\/json/);
+    expect(init.headers()['mcp-session-id']).toBeUndefined();
+    const initBody = (await init.json()) as McpRpcBody;
+    expect(initBody.result).toMatchObject({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'marky-mark' } });
+    const notified = await request.post(`${HOSTED}/api/mcp`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { jsonrpc: '2.0', method: 'notifications/initialized' },
+    });
+    expect(notified.status()).toBe(202);
+
+    // Exactly the five file tools, none taking a workspace.
+    const list = (await (await mcpRpc(request, token, 'tools/list')).json()) as McpRpcBody;
+    const tools = (list.result as { tools: { name: string; inputSchema: unknown }[] }).tools;
+    expect(tools.map((t) => t.name)).toEqual(['get_workspace', 'list_files', 'read_file', 'create_file', 'write_file']);
+    for (const tool of tools) expect(JSON.stringify(tool.inputSchema).toLowerCase(), tool.name).not.toContain('workspace');
+
+    // get_workspace: the token's workspace, no parameter.
+    const meta = await mcpTool(request, token, 'get_workspace');
+    expect(meta.isError).toBe(false);
+    expect(meta.payload).toMatchObject({ id, name: `E650 w${test.info().workerIndex}` });
+
+    // create → list → read → write.
+    const created = await mcpTool(request, token, 'create_file', { path: 'agent/hello.md', content: '# Hello\n' });
+    expect(created.isError).toBe(false);
+    expect(created.payload).toEqual({ path: 'agent/hello.md', etag: expect.any(String), size: 8 });
+
+    const listed = await mcpTool(request, token, 'list_files');
+    expect(listed.isError).toBe(false);
+    const viaRoute = await (await request.get(`${HOSTED}/api/workspaces/${id}/files`, { headers })).json();
+    expect(listed.payload.files).toEqual(viaRoute);
+    expect((listed.payload.files as { path: string }[]).map((f) => f.path)).toEqual(['agent/hello.md']);
+
+    const read = await mcpTool(request, token, 'read_file', { path: 'agent/hello.md' });
+    expect(read.isError).toBe(false);
+    expect(read.payload).toEqual({ path: 'agent/hello.md', content: '# Hello\n', etag: created.payload.etag });
+
+    const written = await mcpTool(request, token, 'write_file', {
+      path: 'agent/hello.md',
+      content: '# Hello\n\nfrom an agent\n',
+      etag: read.payload.etag,
+    });
+    expect(written.isError).toBe(false);
+    expect(written.payload).toEqual({ path: 'agent/hello.md', etag: expect.any(String) });
+
+    // One storage path: the user's session reads exactly what the agent wrote, at the agent's etag.
+    const viaSession = await request.get(`${HOSTED}/api/workspaces/${id}/files/agent/hello.md`, { headers });
+    expect(viaSession.status()).toBe(200);
+    expect(await viaSession.json()).toEqual({ path: 'agent/hello.md', content: '# Hello\n\nfrom an agent\n', etag: written.payload.etag });
+
+    // create_file on the existing path fails and stores nothing.
+    const clash = await mcpTool(request, token, 'create_file', { path: 'agent/hello.md', content: 'overwrite?' });
+    expect(clash.isError).toBe(true);
+    expect(clash.payload).toEqual({ error: { code: 'already_exists', message: expect.any(String), path: 'agent/hello.md' } });
+    expect(await (await request.get(`${HOSTED}/api/workspaces/${id}/files/agent/hello.md`, { headers })).json()).toMatchObject({
+      content: '# Hello\n\nfrom an agent\n',
+    });
+
+    // GET is 405 Allow: POST — a client probing for an SSE stream is told there is none.
+    const get = await request.get(`${HOSTED}/api/mcp`, { headers: { Authorization: `Bearer ${token}` } });
+    expect(get.status()).toBe(405);
+    expect(get.headers().allow).toBe('POST');
+  } finally {
+    await request.delete(`${HOSTED}/api/workspaces/${id}`, { headers: { Authorization: `Bearer ${ada}` } });
+  }
+});
+
+test('E651: PRD 027 Req 6 + PRD 016 — write_file with a stale etag and no base answers conflict with the file unchanged; with the base it three-way merges', async ({
+  request,
+}) => {
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E651 w${test.info().workerIndex}`);
+  try {
+    const { token } = await mintToken(request, ada, id);
+    const headers = { Authorization: `Bearer ${ada}` };
+    const created = await mcpTool(request, token, 'create_file', { path: 'notes.md', content: 'alpha\nbeta\ngamma\n' });
+    expect(created.isError).toBe(false);
+    const agentEtag = created.payload.etag as string;
+
+    // The user saves first, on a different line, through the ordinary route.
+    const theirs = await request.put(`${HOSTED}/api/workspaces/${id}/files/notes.md`, {
+      headers: { ...headers, 'If-Match': agentEtag, 'Content-Type': 'text/plain' },
+      data: 'alpha\nbeta\nGAMMA\n',
+    });
+    expect(theirs.status()).toBe(200);
+    const theirEtag = ((await theirs.json()) as { etag: string }).etag;
+
+    const conflict = await mcpTool(request, token, 'write_file', { path: 'notes.md', content: 'ALPHA\nbeta\ngamma\n', etag: agentEtag });
+    expect(conflict.isError).toBe(true);
+    expect(conflict.payload).toEqual({
+      error: {
+        code: 'conflict',
+        message: 'the file changed on the server since it was loaded',
+        path: 'notes.md',
+        etag: theirEtag,
+        content: 'alpha\nbeta\nGAMMA\n',
+      },
+    });
+    expect(await (await request.get(`${HOSTED}/api/workspaces/${id}/files/notes.md`, { headers })).json()).toEqual({
+      path: 'notes.md',
+      content: 'alpha\nbeta\nGAMMA\n',
+      etag: theirEtag,
+    });
+
+    const merged = await mcpTool(request, token, 'write_file', {
+      path: 'notes.md',
+      content: 'ALPHA\nbeta\ngamma\n',
+      etag: agentEtag,
+      base: 'alpha\nbeta\ngamma\n',
+    });
+    expect(merged.isError).toBe(false);
+    expect(merged.payload).toEqual({ path: 'notes.md', etag: expect.any(String), merged: true, content: 'ALPHA\nbeta\nGAMMA\n' });
+    expect(await (await request.get(`${HOSTED}/api/workspaces/${id}/files/notes.md`, { headers })).json()).toEqual({
+      path: 'notes.md',
+      content: 'ALPHA\nbeta\nGAMMA\n',
+      etag: merged.payload.etag,
+    });
+  } finally {
+    await request.delete(`${HOSTED}/api/workspaces/${id}`, { headers: { Authorization: `Bearer ${ada}` } });
+  }
+});
+
+test('E652: PRD 027 Req 4 — a missing or unknown token is 401 with the stable code, and revoking the token through the route makes the very next tools/call 401', async ({
+  request,
+}) => {
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E652 w${test.info().workerIndex}`);
+  try {
+    const { token, rowId } = await mintToken(request, ada, id);
+    const headers = { Authorization: `Bearer ${ada}` };
+    const expect401 = async (res: APIResponse, label: string): Promise<void> => {
+      expect(res.status(), label).toBe(401);
+      expect(res.headers()['www-authenticate'], label).toBe('Bearer');
+      expect(await res.json(), label).toEqual({
+        error: { code: 'agent_token_unauthorized', message: expect.any(String) },
+      });
+    };
+    await expect401(
+      await request.post(`${HOSTED}/api/mcp`, { data: { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} } }),
+      'no header',
+    );
+    await expect401(await mcpRpc(request, `mmat_${id}_${'0'.repeat(64)}`, 'tools/list'), 'unknown token');
+    // A user session is not an agent token: one auth path.
+    await expect401(await mcpRpc(request, ada, 'tools/list'), 'session token');
+
+    const before = await mcpTool(request, token, 'list_files');
+    expect(before.isError).toBe(false);
+    expect((await request.delete(`${HOSTED}/api/workspaces/${id}/agent-tokens/${rowId}`, { headers })).status()).toBe(204);
+    await expect401(await mcpRpc(request, token, 'tools/call', { name: 'list_files' }), 'revoked token');
+  } finally {
+    await request.delete(`${HOSTED}/api/workspaces/${id}`, { headers: { Authorization: `Bearer ${ada}` } });
+  }
+});

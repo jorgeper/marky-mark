@@ -40,6 +40,17 @@ export const AGENT_TOKEN_SCOPE_ERROR = {
   message: 'agent token not authorized for this workspace',
 } as const;
 
+/**
+ * PRD 027 Req 4: the authentication refusal — what a request presenting no
+ * token, a malformed one, an unknown one or a revoked one is answered with
+ * (HTTP 401 from the MCP endpoint). Sibling of the scope error above: same
+ * shape, one constant, so every consumer answers the same thing.
+ */
+export const AGENT_TOKEN_UNAUTHORIZED_ERROR = {
+  code: 'agent_token_unauthorized',
+  message: 'a valid agent token is required (Authorization: Bearer <token>)',
+} as const;
+
 export type AgentTokenScopeCheck =
   | { ok: true }
   | { ok: false; error: typeof AGENT_TOKEN_SCOPE_ERROR };

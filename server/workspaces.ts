@@ -43,8 +43,7 @@ import {
   uniqueNameProblem,
 } from '../src/lib/workspaceNames.ts';
 import { isSidecarPath } from '../src/lib/sidecar.ts';
-import { UPLOAD_MAX_LABEL, uploadRejection, uploadTypeRejection } from '../src/lib/fileTransfer.ts';
-import { contentTypeFor } from './contentTypes.ts';
+import { UPLOAD_MAX_LABEL } from '../src/lib/fileTransfer.ts';
 import {
   clearSummaryCache,
   readCachedSummary,
@@ -56,23 +55,32 @@ import {
 import { filterListedWorkspaces } from '../src/lib/deploymentSettings.ts';
 import type { DeploymentPolicy } from './deployment.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
-import { mergeThreeWay } from './merge.ts';
 import type { DirectoryProvider, RequestAuth, StorageProvider } from './providers/types.ts';
 import { userPrefix } from './userFiles.ts';
 import { resolveUsernameOwner } from './usernames.ts';
+// PRD 027 Req 6: the file semantics live in server/workspaceFiles.ts so the
+// routes below and the MCP file tools (server/mcp.ts) call the SAME
+// functions — never two storage paths for one rule.
+import {
+  basenameOf,
+  blobExists,
+  filesPrefix,
+  listWorkspaceFiles,
+  readWorkspaceFile,
+  saveWorkspaceFile,
+  uploadWorkspaceFile,
+  WORKSPACES_PREFIX,
+  writeWorkspaceBytes,
+} from './workspaceFiles.ts';
 
-/** PRD 007 Req 7: the root prefix all workspace data lives under. */
-export const WORKSPACES_PREFIX = 'workspaces/';
+// PRD 007 Req 7: the root prefix is defined once (workspaceFiles.ts) and
+// re-exported here for the modules that always imported it from this one.
+export { WORKSPACES_PREFIX };
 
-const manifestBlob = (id: string): string => `${WORKSPACES_PREFIX}${id}/manifest.json`;
-const filesPrefix = (id: string): string => `${WORKSPACES_PREFIX}${id}/files/`;
+/** PRD 007 Req 7: where one workspace's manifest lives. */
+export const manifestBlob = (id: string): string => `${WORKSPACES_PREFIX}${id}/manifest.json`;
 
 const MANIFEST_BLOB_RE = /^workspaces\/([^/]+)\/manifest\.json$/;
-
-/** The last segment of a workspace-relative path — the file's own name. */
-function basenameOf(filePath: string): string {
-  return filePath.split('/').pop() ?? filePath;
-}
 
 /**
  * PRD 007 Req 18: blob storage has no directories — a prefix exists only for
@@ -192,81 +200,6 @@ function parseMove(raw: string): { from: string; to: string } | null {
   return cleanFrom && cleanTo ? { from: cleanFrom, to: cleanTo } : null;
 }
 
-/**
- * Does this exact blob exist? A metadata listing rather than a read: the
- * create-vs-save decision must not pay for downloading the bytes it is about
- * to replace. Prefix listings can return neighbours (`a.md` matches `a.md2`),
- * so the exact path is what counts.
- */
-async function blobExists(storage: StorageProvider, path: string): Promise<boolean> {
-  return (await storage.list(path)).some((b) => b.path === path);
-}
-
-/**
- * PRD 016 Req 8: the structured-file guard. A LINE merge knows nothing about
- * syntax, so two clean edits to different lines of a JSON document can produce
- * a file that no longer parses — and the comment sidecars (`src/lib/sidecar.ts`)
- * are exactly such documents. A merged `.json` that does not `JSON.parse` is
- * refused, so the 412 and its dialog are what the user gets rather than a
- * committed file the app can no longer read.
- */
-function mergeKeepsFileWellFormed(filePath: string, text: string): boolean {
-  if (!/\.json$/i.test(filePath)) return true;
-  try {
-    JSON.parse(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * PRD 016 Req 8: how many times the read-merge-write is re-run when the
- * merged write itself loses a race. Small on purpose: each attempt is a
- * fresh head read and a fresh merge, so a blob busy enough to beat this
- * many times over is one the user should be told about rather than one to
- * keep hammering. Running out answers 412 — never an unconditional write.
- */
-const MERGE_ATTEMPTS = 3;
-
-/**
- * PRD 016 Req 8: the merge attempt that sits between "the conditional write
- * lost" and "answer 412". Answers the landed merge, or null for every
- * reason the caller must turn back into today's 412:
- *
- *  - the save carried no base (the client's base is the ONLY possible merge
- *    base — a blob store has no version history to resolve one from);
- *  - the file is gone from the head;
- *  - the two sides conflict;
- *  - the merged text fails the structured-file guard;
- *  - the merged write kept losing further races.
- *
- * The write below is CONDITIONAL ON THE ETAG THE HEAD READ RETURNED — the
- * same rule the plain conditional write follows — so a head that moves again
- * is refused and the next iteration merges against the real head. The client's
- * base is trusted unverified: a lying client could at most produce a write it
- * could already produce with an unconditional save.
- */
-async function mergeStaleSave(
-  storage: StorageProvider,
-  blobPath: string,
-  filePath: string,
-  ours: string,
-  clientBase?: string,
-): Promise<{ etag: string; content: string } | null> {
-  if (clientBase === undefined) return null;
-  for (let attempt = 0; attempt < MERGE_ATTEMPTS; attempt += 1) {
-    const head = await storage.read(blobPath);
-    if (!head) return null;
-    const merged = mergeThreeWay(clientBase, ours, head.content);
-    if (!merged.clean) return null;
-    if (!mergeKeepsFileWellFormed(filePath, merged.text)) return null;
-    const written = await storage.writeIfMatch(blobPath, merged.text, head.etag);
-    if (written) return { etag: written.etag, content: merged.text };
-  }
-  return null;
-}
-
 /** Copy one blob's bytes (and media type) to a new path, then drop the old. */
 async function moveBlob(storage: StorageProvider, from: string, to: string): Promise<boolean> {
   const bytes = await storage.readBytes(from);
@@ -279,9 +212,10 @@ async function moveBlob(storage: StorageProvider, from: string, to: string): Pro
 /**
  * Load and parse a workspace's manifest. `null` means no such workspace; a
  * string is a parse/validation error (a corrupt manifest is a server-side
- * data problem, surfaced as 500 — never silently coerced).
+ * data problem, surfaced as 500 — never silently coerced). Exported for the
+ * MCP `get_workspace` tool (PRD 027 Req 6), which reads the same manifest.
  */
-async function loadManifest(
+export async function loadManifest(
   storage: StorageProvider,
   id: string,
 ): Promise<WorkspaceManifest | string | null> {
@@ -1198,17 +1132,6 @@ export async function handleWorkspaceApi(
       sendJson(res, 400, { error: 'invalid file path' });
       return;
     }
-    const blobPath = filesPrefix(id) + filePath;
-    // PRD 007 Req 17+19: the SAME pure rule the client rejects with, applied
-    // again here — the client's check is a courtesy, this one is the control.
-    // Type first (it needs no body at all), then the size, split into the two
-    // status codes HTTP already has words for.
-    const name = basenameOf(filePath);
-    const typeRejection = uploadTypeRejection(name);
-    if (typeRejection) {
-      sendJson(res, 415, { error: typeRejection });
-      return;
-    }
     let bytes: Uint8Array;
     try {
       // A body past the transport's own guard never finishes arriving — that
@@ -1218,19 +1141,20 @@ export async function handleWorkspaceApi(
       sendJson(res, 413, { error: `upload exceeds the ${UPLOAD_MAX_LABEL} upload limit` });
       return;
     }
-    const sizeRejection = uploadRejection(name, bytes.length);
-    if (sizeRejection) {
-      sendJson(res, 413, { error: sizeRejection });
+    // PRD 007 Req 17+19: the type/size/409 rule lives in workspaceFiles.ts;
+    // this route only spells its refusals in the status codes HTTP already
+    // has words for. (The type rule needs no body, but the transport has
+    // already buffered it — bounded by MAX_BODY_BYTES — before this point.)
+    const outcome = await uploadWorkspaceFile(storage, id, filePath, bytes);
+    if (!outcome.ok) {
+      if (outcome.reason === 'unsupported_type') sendJson(res, 415, { error: outcome.error });
+      else if (outcome.reason === 'too_large') sendJson(res, 413, { error: outcome.error });
+      // An upload never silently replaces an existing blob: the client picks a
+      // free name from the listing, and a race that loses is told so.
+      else sendJson(res, 409, { error: outcome.error, path: filePath });
       return;
     }
-    // An upload never silently replaces an existing blob: the client picks a
-    // free name from the listing, and a race that loses is told so.
-    if (await storage.readBytes(blobPath)) {
-      sendJson(res, 409, { error: 'a file already exists there', path: filePath });
-      return;
-    }
-    const { etag } = await storage.writeBytes(blobPath, bytes, contentTypeFor(filePath));
-    sendJson(res, 201, { path: filePath, etag, size: bytes.length });
+    sendJson(res, 201, { path: filePath, etag: outcome.etag, size: outcome.size });
     return;
   }
 
@@ -1405,11 +1329,9 @@ export async function handleWorkspaceApi(
   if (segments.length === 2 && segments[1] === 'files' && req.method === 'GET') {
     const manifest = await requirePermission(res, storage, id, auth, 'doc.read');
     if (!manifest) return;
-    const prefix = filesPrefix(id);
-    const listed = await storage.list(prefix);
     // Paths come back workspace-relative; the manifest never appears because
     // it lives outside the files/ prefix (PRD 007 Req 7).
-    sendJson(res, 200, listed.map((f) => ({ ...f, path: f.path.slice(prefix.length) })));
+    sendJson(res, 200, await listWorkspaceFiles(storage, id));
     return;
   }
 
@@ -1443,18 +1365,14 @@ export async function handleWorkspaceApi(
         res.end(Buffer.from(bytes.data));
         return;
       }
-      const file = await storage.read(blobPath);
+      const file = await readWorkspaceFile(storage, id, filePath);
       if (!file) sendJson(res, 404, { error: 'not found' });
-      else sendJson(res, 200, { path: filePath, ...file });
+      else sendJson(res, 200, file);
       return;
     }
     if (method === 'PUT') {
       if (raw) {
-        const { etag } = await storage.writeBytes(
-          blobPath,
-          await readBodyBytes(req),
-          contentTypeFor(filePath),
-        );
+        const { etag } = await writeWorkspaceBytes(storage, id, filePath, await readBodyBytes(req));
         sendJson(res, 200, { path: filePath, etag });
         return;
       }
@@ -1485,28 +1403,28 @@ export async function handleWorkspaceApi(
       // the client read; the write lands only while the blob still has it.
       // When it does not, the answer is 412 and the STORED CONTENT IS
       // UNTOUCHED — the other member's save survives, and the client prompts
-      // to reload or overwrite. A request with no If-Match is a deliberate
-      // unconditional write (a first save, or the user's Overwrite choice).
+      // to reload or overwrite — unless (PRD 016 Req 8) the base merges. A
+      // request with no If-Match is a deliberate unconditional write (a
+      // first save, or the user's Overwrite choice). The rule itself lives
+      // in workspaceFiles.ts, shared with the MCP write_file tool.
       const ifMatch = req.headers['if-match'];
-      if (typeof ifMatch === 'string' && ifMatch !== '' && ifMatch !== '*') {
-        const written = await storage.writeIfMatch(blobPath, content, ifMatch);
-        if (!written) {
-          // PRD 016 Req 8: the stale save gets one chance to become a merge
-          // before it becomes a 412 — a save that carried its base merges;
-          // one that did not takes the 412 below verbatim.
-          const merged = await mergeStaleSave(storage, blobPath, filePath, content, base);
-          if (merged) {
-            sendJson(res, 200, { path: filePath, etag: merged.etag, merged: true, content: merged.content });
-            return;
-          }
-          sendJson(res, 412, { error: 'the file changed on the server since it was loaded', path: filePath });
-          return;
-        }
-        sendJson(res, 200, { path: filePath, etag: written.etag });
+      const saved = await saveWorkspaceFile(
+        storage,
+        id,
+        filePath,
+        content,
+        typeof ifMatch === 'string' ? ifMatch : undefined,
+        base,
+      );
+      if (!saved.ok) {
+        sendJson(res, 412, { error: saved.error, path: filePath });
         return;
       }
-      const { etag } = await storage.write(blobPath, content);
-      sendJson(res, 200, { path: filePath, etag });
+      if (saved.merged) {
+        sendJson(res, 200, { path: filePath, etag: saved.etag, merged: true, content: saved.content });
+        return;
+      }
+      sendJson(res, 200, { path: filePath, etag: saved.etag });
       return;
     }
     if (method === 'DELETE') {
