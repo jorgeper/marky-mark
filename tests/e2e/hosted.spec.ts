@@ -9368,7 +9368,14 @@ const BRIDGE_DOC = '# Bridge\n\nalpha beta gamma\n\n## Second\n\ndelta\n';
 
 /** A bridge tool's `{state}` payload, typed loosely for the assertions. */
 interface BridgeStatePayload {
-  state: { path: string | null; content: string; dirty: boolean; revision: string; selection: { from: number; to: number; text: string } };
+  state: {
+    path: string | null;
+    content: string;
+    dirty: boolean;
+    revision: string;
+    selection: { from: number; to: number; text: string };
+    scroll: { topLine: number; totalLines: number };
+  };
 }
 
 test('E662: PRD 027 Reqs 1+9+10 — with the agent bridge off there is no agent-control toggle, indicator or WebSocket; turned on through Save the toggle appears, opting in shows the persistent indicator in preview and edit mode with no toolbar reveal, and opting out hides it', async ({
@@ -9701,7 +9708,7 @@ test('E660: PRD 027 Req 15b — with a long document open in edit mode, get_edit
 
     const before = await mcpTool(request, token, 'get_editor_state');
     expect(before.isError).toBe(false);
-    const start = (before.payload as BridgeScrollPayload).state.scroll;
+    const start = (before.payload as BridgeStatePayload).state.scroll;
     expect(start.topLine).toBe(1);
     expect(start.totalLines).toBe(LONG_DOC.split('\n').length);
 
@@ -9712,18 +9719,13 @@ test('E660: PRD 027 Req 15b — with a long document open in edit mode, get_edit
     // the top visible line the next snapshot reports is later than before.
     await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(scrollTopBefore);
     await expect
-      .poll(async () => ((await mcpTool(request, token, 'get_editor_state')).payload as BridgeScrollPayload).state.scroll.topLine)
+      .poll(async () => ((await mcpTool(request, token, 'get_editor_state')).payload as BridgeStatePayload).state.scroll.topLine)
       .toBeGreaterThan(start.topLine);
     await expect(page.getByTestId('editor').locator('.cm-line').filter({ hasText: /^# Long$/ })).not.toBeInViewport();
   } finally {
     await dropControlledTab(request, session, id);
   }
 });
-
-/** A bridge tool's `{state}` payload with the scroll block, for E660. */
-interface BridgeScrollPayload {
-  state: { scroll: { topLine: number; totalLines: number } };
-}
 
 const DEMO_C_DOC = '# Transform\n\nalpha beta gamma\n\nThe closing line.\n';
 const DEMO_C_NEW = 'ALPHA BETA GAMMA';

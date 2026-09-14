@@ -3,7 +3,9 @@
 // server over HTTP — the pair the e2e paste test exercises through a browser,
 // at unit cost. The point of the file is the AUTH half: the `?raw=1` write
 // must authenticate, refuse and expire exactly like the ordinary JSON
-// document save that shares its `api()` seam (PRD 007 Req 5+17).
+// document save that shares its `api()` seam (PRD 007 Req 5+17). The same
+// real-platform-over-real-server harness also carries the hosted listing
+// refresh on a miss (PRD 027 Req 15a, issue #368) at the end of the file.
 
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
