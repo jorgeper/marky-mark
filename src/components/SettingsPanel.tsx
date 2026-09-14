@@ -345,8 +345,11 @@ const EXPERIMENTAL_FEATURES: Array<{
  * page rather than a tab — read off the registry above, so a third page is
  * one more `page` descriptor and never another literal here.
  */
+// PRD 027 Req 1: an entry with no `page` compares `undefined === undefined`
+// against an absent route, so the absent route is answered first — otherwise
+// a page-less experiment would open the panel on Experimental by default.
 const isPageRoute = (route: SettingsRoute | undefined): route is SettingsPageId =>
-  EXPERIMENTAL_FEATURES.some((f) => f.page?.id === route);
+  route !== undefined && EXPERIMENTAL_FEATURES.some((f) => f.page?.id === route);
 
 /** PRD 011 Req 1: said once, for the whole section. */
 const EXPERIMENTAL_WARNING =
