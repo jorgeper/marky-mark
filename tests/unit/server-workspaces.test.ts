@@ -25,7 +25,17 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
 
   beforeAll(async () => {
     server = createServer(
-      createApp('/nonexistent-static', { auth, storage: provider, directory: createMockDirectoryProvider() }, 'local'),
+      // PRD 027 Req 2: this app runs with MM_AGENT_BRIDGE on, so the route
+      // table sweep (U326) covers the agent-token routes too; the flag-off
+      // 404 is proven against its own app below (U1402).
+      createApp(
+        '/nonexistent-static',
+        { auth, storage: provider, directory: createMockDirectoryProvider() },
+        'local',
+        undefined,
+        undefined,
+        true,
+      ),
     );
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -620,6 +630,61 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     blobs.clear();
   });
 
+  // PRD 027 Reqs 3+4: the agent-token routes under the flag — mint, list,
+  // revoke, and the plaintext appearing in exactly one response.
+  it('U1403: with the flag on, an Owner mints (201, plaintext once), lists (rows without it) and revokes (204; 404 for an unknown id)', async () => {
+    const id = await createWorkspace('ada', 'Bridge');
+    const mint = await call('ada', 'POST', `/api/workspaces/${id}/agent-tokens`, JSON.stringify({ label: ' Claude Code ' }));
+    expect(mint.status).toBe(201);
+    const minted = (await mint.json()) as { id: string; label: string; createdAt: string; token: string };
+    expect(Object.keys(minted).sort()).toEqual(['createdAt', 'id', 'label', 'token']);
+    expect(minted.label).toBe('Claude Code');
+    expect(minted.token).toMatch(/^mmat_/);
+    // Hash-only storage under the workspace's own prefix.
+    const tokenBlobs = [...blobs.keys()].filter((p) => p.startsWith(`workspaces/${id}/agent-tokens/`));
+    expect(tokenBlobs).toHaveLength(1);
+    expect(tokenBlobs[0]).not.toContain(minted.token.slice(-64));
+    expect(blobs.get(tokenBlobs[0])).not.toContain(minted.token.slice(-64));
+
+    // The list carries the row and never the plaintext.
+    const list = await call('ada', 'GET', `/api/workspaces/${id}/agent-tokens`);
+    expect(list.status).toBe(200);
+    const rows = (await list.json()) as Array<Record<string, unknown>>;
+    expect(rows).toEqual([{ id: minted.id, label: 'Claude Code', createdAt: minted.createdAt }]);
+
+    // A bad label is a 400 and mints nothing.
+    for (const body of ['{}', '{"label":""}', '{"label":"   "}', '{"label":7}']) {
+      expect((await call('ada', 'POST', `/api/workspaces/${id}/agent-tokens`, body)).status, body).toBe(400);
+    }
+    expect((await (await call('ada', 'GET', `/api/workspaces/${id}/agent-tokens`)).json() as unknown[]).length).toBe(1);
+
+    // Revoke: 204, the row is gone, and again is 404.
+    expect((await call('ada', 'DELETE', `/api/workspaces/${id}/agent-tokens/${minted.id}`)).status).toBe(204);
+    expect(await (await call('ada', 'GET', `/api/workspaces/${id}/agent-tokens`)).json()).toEqual([]);
+    expect((await call('ada', 'DELETE', `/api/workspaces/${id}/agent-tokens/${minted.id}`)).status).toBe(404);
+    expect((await call('ada', 'DELETE', `/api/workspaces/${id}/agent-tokens/never`)).status).toBe(404);
+    blobs.clear();
+  });
+
+  it('U1404: every agent-token route needs workspace.settings — a member without it gets 403 naming the verb, and no session gets 401', async () => {
+    const id = await createWorkspace('ada', 'Bridge perms');
+    // An Editor holds doc verbs but not workspace.settings.
+    await grant(id, 'grace', 'Editor');
+    for (const [method, path, body] of [
+      ['POST', `/api/workspaces/${id}/agent-tokens`, '{"label":"x"}'],
+      ['GET', `/api/workspaces/${id}/agent-tokens`, undefined],
+      ['DELETE', `/api/workspaces/${id}/agent-tokens/some-id`, undefined],
+    ] as const) {
+      const res = await call('grace', method, path, body);
+      expect(res.status, `${method} ${path}`).toBe(403);
+      expect(((await res.json()) as { required: string }).required).toBe('workspace.settings');
+      const anonymous = await fetch(`${base}${path}`, { method, body });
+      expect(anonymous.status, `anonymous ${method} ${path}`).toBe(401);
+    }
+    expect([...blobs.keys()].filter((p) => p.includes('/agent-tokens/'))).toEqual([]);
+    blobs.clear();
+  });
+
   /**
    * PRD 007 Req 13+17: the enforcement sweep. The route→verb table in
    * server/workspaces.ts is the documented mapping; these tests drive it
@@ -644,7 +709,10 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
         .replace('<new>', 'brand-new.md')
         .replace('<folder>', 'folder')
         .replace('<member>', 'mock-grace')
-        .replace('<role>', 'Some');
+        .replace('<role>', 'Some')
+        // PRD 027 Req 3: the permission gate answers before the row lookup,
+        // so an id that names no token still 403s for a caller with no verb.
+        .replace('<token>', 'no-such-token');
 
     // Alan is a signed-in non-member of a workspace with everyone-access off:
     // he resolves to no verbs at all, so every route answers 403 and names
@@ -1417,5 +1485,51 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     );
     expect(renamed.suggestion).toHaveLength(UNIQUE_NAME_MAX_LENGTH);
     blobs.clear();
+  });
+});
+
+// PRD 027 Req 2: with MM_AGENT_BRIDGE off (createApp's default), the
+// agent-token routes do not exist — the API's ordinary 404, for an Owner too.
+describe('PRD 027 Req 2 agent-token routes with the flag off', () => {
+  const { provider, blobs } = createMemoryStorage();
+  const auth = createMockAuthProvider();
+  let server: Server;
+  let base = '';
+  let ada = '';
+
+  beforeAll(async () => {
+    server = createServer(
+      createApp('/nonexistent-static', { auth, storage: provider, directory: createMockDirectoryProvider() }, 'local'),
+    );
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const result = await auth.signIn({ username: 'ada' });
+    if (result?.kind !== 'token') throw new Error('mock sign-in failed');
+    ada = result.token;
+  });
+
+  afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  it('U1402: mint, list and revoke all answer the ordinary 404 and write nothing', async () => {
+    const created = await fetch(`${base}/api/workspaces`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${ada}` },
+      body: JSON.stringify({ name: 'No bridge' }),
+    });
+    expect(created.status).toBe(201);
+    const { id } = (await created.json()) as { id: string };
+    const before = [...blobs.keys()].sort();
+    for (const [method, path, body] of [
+      ['POST', `/api/workspaces/${id}/agent-tokens`, '{"label":"x"}'],
+      ['GET', `/api/workspaces/${id}/agent-tokens`, undefined],
+      ['DELETE', `/api/workspaces/${id}/agent-tokens/some-id`, undefined],
+    ] as const) {
+      const res = await fetch(`${base}${path}`, { method, headers: { Authorization: `Bearer ${ada}` }, body });
+      expect(res.status, `${method} ${path}`).toBe(404);
+      expect(await res.json()).toEqual({ error: 'no such endpoint' });
+    }
+    expect([...blobs.keys()].sort()).toEqual(before);
+    // The rest of the API is untouched by the flag being off.
+    expect((await fetch(`${base}/api/workspaces/${id}/manifest`, { headers: { Authorization: `Bearer ${ada}` } })).status).toBe(200);
   });
 });

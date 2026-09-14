@@ -8930,3 +8930,164 @@ test('E621: issue #343 — hosted preview-only: after a round trip through edit 
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
 });
+
+// --- PRD 027 Reqs 1+3: the agent-bridge experiment and workspace agent tokens (issue #364)
+// The lane runs the hosted server with MM_AGENT_BRIDGE=1 (playwright.config.ts);
+// the flag-off 404 is proven at the unit level (U1402), since one lane runs
+// exactly one server configuration.
+
+/**
+ * PRD 027 Req 1: seed or drop a user's roaming settings layer so the
+ * experiment is applied (or not) from the first paint, exactly as a Save on
+ * the Experimental tab would leave it. Each test drops the blob again in
+ * `finally` so later hosted tests start from the default (off).
+ */
+async function seedAgentBridge(request: APIRequestContext, token: string, on: boolean): Promise<() => Promise<void>> {
+  const headers = { Authorization: `Bearer ${token}` };
+  const settingsBlob = `${HOSTED}/api/me/files/settings.json`;
+  await request.delete(settingsBlob, { headers });
+  if (on) {
+    expect((await request.put(settingsBlob, { headers, data: JSON.stringify({ agentBridge: true }) })).status()).toBe(200);
+  }
+  return async () => {
+    await request.delete(settingsBlob, { headers });
+  };
+}
+
+test('E647: PRD 027 Req 1 — the agent bridge ships off (no Agent tokens section, no request), the hosted Experimental row is live, and Save turns the section on with no reload', async ({
+  page,
+  request,
+}) => {
+  const alan = await signIn(request, 'alan');
+  const cleanup = await seedAgentBridge(request, alan, false);
+  try {
+    const id = await createWorkspace(request, alan, `E647 w${test.info().workerIndex}`);
+    // With the setting off the client makes no agent-token request at all.
+    const agentRequests: string[] = [];
+    page.on('request', (req) => {
+      if (req.url().includes('/agent-tokens')) agentRequests.push(`${req.method()} ${req.url()}`);
+    });
+    await signInTo(page, 'alan', id);
+    await openWorkspaceSettings(page);
+    await expect(page.getByTestId('workspace-names-section')).toBeVisible();
+    await expect(page.getByTestId('agent-tokens-section')).toHaveCount(0);
+    await cancelSettings(page);
+    expect(agentRequests).toEqual([]);
+
+    // The Experimental row: one more data entry, live on hosted (the flavor
+    // with a server), unchecked and described.
+    await revealToolbar(page);
+    await openSettings(page, 'experimental');
+    const box = page.getByTestId('experimental-agent-bridge');
+    await expect(box).toBeEnabled();
+    await expect(box).not.toBeChecked();
+    await expect(page.getByTestId('experimental-agent-bridge-description')).toContainText('agent tokens');
+    await expect(page.getByTestId('experimental-agent-bridge-unavailable')).toHaveCount(0);
+    await box.check();
+    await saveSettings(page);
+
+    // Applied through the ordinary Save: the section exists now, no reload.
+    await openWorkspaceSettings(page);
+    await expect(page.getByTestId('agent-tokens-section')).toBeVisible();
+    await expect(page.getByTestId('agent-token-mint')).toBeVisible();
+    await expect(page.getByTestId('agent-tokens-unavailable')).toHaveCount(0);
+    expect(agentRequests.length).toBeGreaterThan(0);
+    await cancelSettings(page);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('E648: PRD 027 Req 3 — an Owner mints a token whose plaintext shows exactly once, the list shows label and created date without it, and Revoke removes the row and the API no longer lists it', async ({
+  page,
+  request,
+}) => {
+  // Each of E647–E649 signs in as its OWN user: the experiment lives in the
+  // user's roaming settings blob, and the three run in parallel.
+  const katherine = await signIn(request, 'katherine');
+  const headers = { Authorization: `Bearer ${katherine}` };
+  const cleanup = await seedAgentBridge(request, katherine, true);
+  try {
+    const id = await createWorkspace(request, katherine, `E648 w${test.info().workerIndex}`);
+    const listRoute = `${HOSTED}/api/workspaces/${id}/agent-tokens`;
+    await signInTo(page, 'katherine', id);
+    await openWorkspaceSettings(page);
+    await expect(page.getByTestId('agent-tokens-section')).toBeVisible();
+    await expect(page.getByTestId('agent-tokens-empty')).toBeVisible();
+    await expect(page.getByTestId('agent-token-row')).toHaveCount(0);
+
+    await page.getByTestId('agent-token-label').fill('Claude Code');
+    await page.getByTestId('agent-token-mint').click();
+    const plaintext = page.getByTestId('agent-token-plaintext');
+    await expect(plaintext).toBeVisible();
+    const token = await plaintext.inputValue();
+    expect(token).toMatch(/^mmat_/);
+    const secret = token.slice(-64);
+
+    // The row carries the label and a created date, not the plaintext.
+    const row = page.getByTestId('agent-token-row');
+    await expect(row).toHaveCount(1);
+    await expect(row.getByTestId('agent-token-row-label')).toHaveText('Claude Code');
+    await expect(row.getByTestId('agent-token-created')).not.toBeEmpty();
+    await expect(row).not.toContainText(secret);
+    await expect(page.getByTestId('agent-tokens-empty')).toHaveCount(0);
+
+    // The server lists the row without the plaintext (Req 4).
+    const listed = await request.get(listRoute, { headers });
+    expect(listed.status()).toBe(200);
+    const rows = (await listed.json()) as Array<{ id: string; label: string; createdAt: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].label).toBe('Claude Code');
+    expect(Object.keys(rows[0]).sort()).toEqual(['createdAt', 'id', 'label']);
+    expect(JSON.stringify(rows)).not.toContain(secret);
+
+    // Exactly once: close and reopen — the list is back, the plaintext is not.
+    await cancelSettings(page);
+    await openWorkspaceSettings(page);
+    await expect(page.getByTestId('agent-token-row')).toHaveCount(1);
+    await expect(page.getByTestId('agent-token-plaintext')).toHaveCount(0);
+
+    // Revoke: the row goes after the server confirms, and GET no longer lists it.
+    await page.getByTestId('agent-token-row').getByTestId('agent-token-revoke').click();
+    await expect(page.getByTestId('agent-token-row')).toHaveCount(0);
+    await expect(page.getByTestId('agent-tokens-empty')).toBeVisible();
+    expect(await (await request.get(listRoute, { headers })).json()).toEqual([]);
+    await cancelSettings(page);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('E649: PRD 027 Req 3 — a member whose role lacks workspace.settings sees no Agent tokens section, and the routes refuse them by verb', async ({
+  page,
+  request,
+}) => {
+  const alan = await signIn(request, 'alan');
+  const mary = await signIn(request, 'mary');
+  const cleanup = await seedAgentBridge(request, mary, true);
+  try {
+    // Mary holds workspace.members (so the Manage tab exists for her) but
+    // not workspace.settings — the one verb the agent-token routes take.
+    // (Her own user, like E647's alan and E648's katherine: the experiment
+    // lives in the roaming settings blob and the three run in parallel.)
+    const id = await workspaceWithRole(request, alan, `E649 w${test.info().workerIndex}`, 'mary', [
+      'doc.read',
+      'workspace.members',
+    ]);
+    await signInTo(page, 'mary', id);
+    await openWorkspaceSettings(page);
+    await expect(page.getByTestId('workspace-members-section')).toBeVisible();
+    await expect(page.getByTestId('agent-tokens-section')).toHaveCount(0);
+    await cancelSettings(page);
+
+    const headers = { Authorization: `Bearer ${mary}` };
+    const route = `${HOSTED}/api/workspaces/${id}/agent-tokens`;
+    expect(await requiredVerb(await request.get(route, { headers }))).toBe('workspace.settings');
+    expect(await requiredVerb(await request.post(route, { headers, data: { label: 'nope' } }))).toBe(
+      'workspace.settings',
+    );
+    expect(await requiredVerb(await request.delete(`${route}/some-id`, { headers }))).toBe('workspace.settings');
+  } finally {
+    await cleanup();
+  }
+});

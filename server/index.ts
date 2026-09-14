@@ -44,7 +44,8 @@ const llm = createLlmApi({ ...(config.llm ? { config: config.llm } : {}) });
 // PRD 017 Req 4: admin ids ride into the app so per-request auth can carry
 // admin status into the shared permission-resolution path.
 const server = http.createServer(
-  createApp(config.staticDir, providers, config.mode, llm, new Set(config.admins)),
+  // PRD 027 Req 2: the agent bridge exists only where MM_AGENT_BRIDGE=1.
+  createApp(config.staticDir, providers, config.mode, llm, new Set(config.admins), config.agentBridge),
 );
 server.listen(config.port, () => {
   console.log(
@@ -54,6 +55,8 @@ server.listen(config.port, () => {
       // the key is not, and no log line here or anywhere in server/ carries it.
       `llm=${config.llm ? `${config.llm.kind}:${config.llm.model}` : 'none'}, ` +
       // PRD 017 Req 1: the admin *count* only — no admin id in any log line.
-      `${config.admins.length} deployment admins)`,
+      `${config.admins.length} deployment admins, ` +
+      // PRD 027 Req 2: on/off is an operator-visible fact; tokens never are.
+      `agent-bridge=${config.agentBridge ? 'on' : 'off'})`,
   );
 });

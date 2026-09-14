@@ -3462,6 +3462,42 @@ input.folder-rename-input.invalid {
    .btn-danger.btn-primary primitive now — no per-site danger rule, no hard
    white on the fill. */
 
+/* PRD 027 Req 3: the Agent tokens section of the Manage tab — a label +
+   Mint row, the one-time plaintext field, and one row per token (label,
+   created date, Revoke). Tokens and primitives only, like its neighbours. */
+.agent-token-mint-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.agent-token-mint-row .field {
+  flex: 1;
+  min-width: 0;
+}
+.agent-token-minted {
+  margin-bottom: 12px;
+}
+.agent-token-plaintext {
+  font-family: var(--mm-font-mono, monospace);
+}
+.agent-token-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.agent-token-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-token-row-date {
+  font-size: var(--mm-text-small);
+  color: var(--mm-muted);
+}
+
 /* PRD 011 Req 1: the Experimental settings section. */
 .experimental-warning {
   margin: 0 0 12px;

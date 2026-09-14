@@ -59,6 +59,14 @@ export interface ServerConfig {
    * startup output reports only the count.
    */
   admins: readonly string[];
+  /**
+   * PRD 027 Req 2: whether this deployment serves the agent bridge — the
+   * agent-token routes today, the MCP endpoint in later sub-issues. Parsed
+   * from `MM_AGENT_BRIDGE` in both modes and off unless it is `1`, so a
+   * deployment that never heard of the feature is byte-identical to before:
+   * the routes answer the API's ordinary 404 and no bridge code runs.
+   */
+  agentBridge: boolean;
 }
 
 /** Env vars azure mode cannot start without (PRD 007 Req 1). */
@@ -190,6 +198,21 @@ function loadAdmins(env: Record<string, string | undefined>, mode: ServerMode): 
 }
 
 /**
+ * PRD 027 Req 2: the `MM_AGENT_BRIDGE` switch. Unset, empty or `0` is off —
+ * the default, and the state every existing deployment is already in; `1` is
+ * on. Anything else is refused by name rather than read as either, so a typo
+ * (`true`, `yes`) can never silently leave the feature off — or on. Parsed in
+ * both modes: local mode (mock auth + Azurite) is where the feature is
+ * developed and e2e-tested.
+ */
+function loadAgentBridge(env: Record<string, string | undefined>): boolean {
+  const raw = env.MM_AGENT_BRIDGE?.trim() ?? '';
+  if (raw === '' || raw === '0') return false;
+  if (raw === '1') return true;
+  throw new Error(`MM_AGENT_BRIDGE must be '1' (on) or '0'/unset (off), got '${raw}'`);
+}
+
+/**
  * Parse a config from an environment. Throws with an actionable message —
  * naming the offending variable and every missing one at once — rather than
  * failing later with a vendor error.
@@ -212,9 +235,11 @@ export function loadConfig(env: Record<string, string | undefined>): ServerConfi
   const storage = loadStorage(env, mode);
   // PRD 017 Req 1: parsed in both modes; only local mode has a default.
   const admins = loadAdmins(env, mode);
+  // PRD 027 Req 2: parsed in both modes, on in neither unless asked.
+  const agentBridge = loadAgentBridge(env);
 
   if (mode === 'local') {
-    return { mode, port, staticDir, storage, admins, ...(llm ? { llm } : {}) };
+    return { mode, port, staticDir, storage, admins, agentBridge, ...(llm ? { llm } : {}) };
   }
 
   const missing = AZURE_REQUIRED.filter((name) => !env[name]);
@@ -232,6 +257,7 @@ export function loadConfig(env: Record<string, string | undefined>): ServerConfi
       clientSecret: env.ENTRA_CLIENT_SECRET!,
     },
     admins,
+    agentBridge,
     ...(llm ? { llm } : {}),
   };
 }

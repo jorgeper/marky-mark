@@ -423,7 +423,7 @@ arrived.
 
 ### Environment variables
 
-The complete contract, straight from `server/config.ts`. Nine variables; the
+The complete contract, straight from `server/config.ts`. Ten variables; the
 only others are the optional LLM section in
 [the next subsection](#the-deployments-llm-provider-optional).
 
@@ -438,6 +438,7 @@ only others are the optional LLM section in
 | `ENTRA_CLIENT_ID` | — | **required** | Application (client) id. Pins the accepted token audience. |
 | `ENTRA_CLIENT_SECRET` | — | **required** | The registration's client secret (step 1.6). Authenticates the on-behalf-of Graph token exchange. Secret — never logged, never sent to the browser. |
 | `MM_ADMINS` | — | optional | Comma-separated Entra **object ids** of the deployment admins. Unset means the deployment has no admins and no admin surface exists. Find a user's object id with `az ad user show --id <upn> --query id -o tsv`. |
+| `MM_AGENT_BRIDGE` | — (off) | optional | **Experimental.** `1` turns on the agent bridge: workspace administrators can mint, list and revoke workspace-scoped agent tokens from the app's Manage tab (and later work adds an MCP endpoint behind the same flag). Unset, empty or `0` leaves it off — the routes do not exist and nothing about the deployment changes. Any other value refuses to start, naming the variable. Tokens are stored hashed and never logged. |
 
 `MM_MODE=azure` **refuses to start** when any required variable is missing, and
 names every missing one at once:

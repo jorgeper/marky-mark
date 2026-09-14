@@ -209,3 +209,40 @@ describe('PRD 017 Req 1+25 MM_ADMINS deployment admins', () => {
     expect(loadConfig({ ...azure, MM_ADMINS: ' , ' }).admins).toEqual([]);
   });
 });
+
+// PRD 027 Req 2: the MM_AGENT_BRIDGE switch — off unless `1`, refused by
+// name for anything else, parsed in both modes.
+describe('PRD 027 Req 2 MM_AGENT_BRIDGE', () => {
+  const azure = {
+    MM_MODE: 'azure',
+    ENTRA_TENANT_ID: 't',
+    ENTRA_CLIENT_ID: 'c',
+    ENTRA_CLIENT_SECRET: 's',
+    AZURE_STORAGE_CONNECTION_STRING: 'conn',
+  };
+
+  it('U1395: unset, empty and 0 are off in both modes — the default every existing deployment is in', () => {
+    expect(loadConfig({}).agentBridge).toBe(false);
+    expect(loadConfig({ MM_AGENT_BRIDGE: '' }).agentBridge).toBe(false);
+    expect(loadConfig({ MM_AGENT_BRIDGE: '0' }).agentBridge).toBe(false);
+    expect(loadConfig(azure).agentBridge).toBe(false);
+    expect(loadConfig({ ...azure, MM_AGENT_BRIDGE: '0' }).agentBridge).toBe(false);
+  });
+
+  it('U1396: 1 is on in both modes — local mode included, so the feature is developable against mock auth + Azurite', () => {
+    expect(loadConfig({ MM_AGENT_BRIDGE: '1' }).agentBridge).toBe(true);
+    expect(loadConfig({ MM_MODE: 'local', MM_AGENT_BRIDGE: ' 1 ' }).agentBridge).toBe(true);
+    expect(loadConfig({ ...azure, MM_AGENT_BRIDGE: '1' }).agentBridge).toBe(true);
+    // Nothing else about the deployment changes with the flag.
+    const { agentBridge: _on, ...withFlag } = loadConfig({ MM_AGENT_BRIDGE: '1' });
+    const { agentBridge: _off, ...without } = loadConfig({});
+    expect(withFlag).toEqual(without);
+  });
+
+  it('U1397: any other value refuses to start naming the variable, rather than reading as on or off', () => {
+    for (const bad of ['true', 'yes', 'on', '2']) {
+      expect(() => loadConfig({ MM_AGENT_BRIDGE: bad })).toThrowError(/MM_AGENT_BRIDGE/);
+      expect(() => loadConfig({ ...azure, MM_AGENT_BRIDGE: bad })).toThrowError(/MM_AGENT_BRIDGE/);
+    }
+  });
+});

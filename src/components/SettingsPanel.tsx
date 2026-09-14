@@ -151,6 +151,13 @@ interface Props {
    * that has no platform to ask (the desktop aux window) unchanged.
    */
   semanticZoomAvailable?: boolean;
+  /**
+   * PRD 027 Req 1: whether this host can run the agent-bridge experiment —
+   * the hosted flavor's capability, forwarded like `semanticZoomAvailable`.
+   * Absent means UNAVAILABLE (the desktop aux window and the static build
+   * have no server to bridge to), so the row is dead everywhere but hosted.
+   */
+  agentBridgeAvailable?: boolean;
 }
 
 const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
@@ -320,15 +327,30 @@ const EXPERIMENTAL_FEATURES: Array<{
     // PRD 025 Req 4: the action → effect mapping, one level down.
     page: { id: 'fluid', buttonLabel: 'Settings…' },
   },
+  // PRD 027 Req 1: the agent bridge — a data entry, no bespoke row. Hosted
+  // only: the capability is declared by the flavor with a server behind it.
+  {
+    key: 'agentBridge',
+    testId: 'experimental-agent-bridge',
+    label: 'Agent bridge',
+    description:
+      'Lets an agent such as Claude Code act on a cloud workspace: adds an Agent tokens section to the workspace Manage tab where you mint and revoke workspace-scoped agent tokens.',
+    capability: 'agentBridge',
+    unavailableNote: 'Not available here — this feature needs a cloud workspace deployment.',
+  },
 ];
 
 /**
  * PRD 025 Req 4 (generalizing issue #247): whether a route names a nested
  * page rather than a tab — read off the registry above, so a third page is
  * one more `page` descriptor and never another literal here.
+ *
+ * PRD 027 Req 1: an entry with no `page` compares `undefined === undefined`
+ * against an absent route, so the absent route is answered first — otherwise
+ * a page-less experiment would open the panel on Experimental by default.
  */
 const isPageRoute = (route: SettingsRoute | undefined): route is SettingsPageId =>
-  EXPERIMENTAL_FEATURES.some((f) => f.page?.id === route);
+  route !== undefined && EXPERIMENTAL_FEATURES.some((f) => f.page?.id === route);
 
 /** PRD 011 Req 1: said once, for the whole section. */
 const EXPERIMENTAL_WARNING =
@@ -340,6 +362,8 @@ const USER_ONLY_TABS: ReadonlyArray<SettingsTab> = ['hotkeys', 'experimental'];
 /** Issue #247: the per-experiment capabilities the panel is handed. */
 interface ExperimentalCapabilities {
   semanticZoom: boolean;
+  /** PRD 027 Req 1: hosted only. */
+  agentBridge: boolean;
 }
 
 // Issue #21: General leads, and Hotkeys is a User-scope-only tab.
@@ -399,6 +423,7 @@ export function SettingsPanel({
   onSummaryCacheClear,
   initialTab,
   semanticZoomAvailable,
+  agentBridgeAvailable,
 }: Props) {
   // Issue #246: edits are PENDING, not live — every row's edit lands here and
   // nothing reaches `onEdit` (settings.json, the workspace layer, the aux
@@ -429,6 +454,8 @@ export function SettingsPanel({
   const capabilities: ExperimentalCapabilities = {
     // Absent ⇒ available: see the prop's note.
     semanticZoom: semanticZoomAvailable !== false,
+    // PRD 027 Req 1: absent ⇒ unavailable — only hosted declares it.
+    agentBridge: agentBridgeAvailable === true,
   };
   // §E18: which layer this window writes. Without the selector (web) it is
   // permanently 'user'; closing the workspace kicks the view back to User.
@@ -1501,6 +1528,10 @@ export function SettingsPanel({
             access={wsAccess}
             admin={deploymentAdmin}
             me={sessionMe}
+            // PRD 027 Req 1: the APPLIED setting (not a pending edit), so the
+            // section appears through the ordinary Save with no reload — and
+            // never where the host cannot run the bridge.
+            agentBridge={agentBridgeAvailable === true && incomingSettings.agentBridge === true}
           />
         )}
         {tab === 'hotkeys' && scope === 'user' && hotkeysTab}

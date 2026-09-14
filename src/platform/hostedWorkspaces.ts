@@ -22,7 +22,17 @@ import {
   type WorkspaceManifest,
   type WorkspaceMember,
 } from '../lib/hostedWorkspace';
-import { suggestionFrom, type WorkspaceListing } from '../lib/workspaceLifecycle';
+import {
+  suggestionFrom,
+  type AgentTokenRow,
+  type MintedAgentToken,
+  type WorkspaceListing,
+} from '../lib/workspaceLifecycle';
+
+// PRD 027 Req 3: the agent-token wire shapes — one definition, shared with
+// server/agentTokens.ts through src/lib, and re-exported beside the seam
+// that answers them.
+export type { AgentTokenRow, MintedAgentToken };
 
 /** The lifecycle seam the workspace UI is written against. */
 export interface WorkspaceLifecycle {
@@ -63,6 +73,17 @@ export interface WorkspaceLifecycle {
   createRole(id: string, role: CustomRoleInput): Promise<ManifestResult>;
   updateRole(id: string, name: string, role: CustomRoleInput): Promise<ManifestResult>;
   deleteRole(id: string, name: string): Promise<ManifestResult>;
+  /**
+   * PRD 027 Req 3: the workspace's agent tokens — all behind
+   * `workspace.settings`. `listAgentTokens` answers null when the deployment
+   * has the bridge off (PRD 027 Req 2: the routes 404), so the section can
+   * say "not enabled here" instead of showing an error; `mintAgentToken`
+   * carries the plaintext exactly once; `revokeAgentToken` answers whether
+   * the server confirmed the removal.
+   */
+  listAgentTokens(id: string): Promise<AgentTokenRow[] | null>;
+  mintAgentToken(id: string, label: string): Promise<{ ok: true; minted: MintedAgentToken } | { ok: false; error: string }>;
+  revokeAgentToken(id: string, tokenId: string): Promise<boolean>;
   /**
    * Directory search for the membership picker. Rejects on a failed answer
    * (issue #183 §3) so the picker can tell an error from an empty match.
@@ -303,6 +324,36 @@ export function createHostedWorkspaceLifecycle(
 
     deleteRole(id, name) {
       return mutate(workspacePath(id, `/roles/${encodeURIComponent(name)}`), 'DELETE');
+    },
+
+    // PRD 027 Req 3: the three agent-token calls ride the same `api` wrapper
+    // as every other call here — no new network call site.
+    async listAgentTokens(id) {
+      const res = await api(workspacePath(id, '/agent-tokens'));
+      // PRD 027 Req 2: a deployment with the bridge off has no such route.
+      if (res.status === 404) return null;
+      return (await json<AgentTokenRow[]>(res)) ?? [];
+    },
+
+    async mintAgentToken(id, label) {
+      const res = await api(workspacePath(id, '/agent-tokens'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label }),
+      });
+      const body = (await res.json().catch(() => null)) as (Partial<MintedAgentToken> & { error?: string; required?: string }) | null;
+      if (res.ok && body && typeof body.token === 'string' && typeof body.id === 'string') {
+        return {
+          ok: true,
+          minted: { id: body.id, label: body.label ?? label, createdAt: body.createdAt ?? '', token: body.token },
+        };
+      }
+      if (body?.required) return { ok: false, error: `You need the ${body.required} permission to do that.` };
+      return { ok: false, error: body?.error ?? `The token could not be created (${res.status}).` };
+    },
+
+    async revokeAgentToken(id, tokenId) {
+      return (await api(workspacePath(id, `/agent-tokens/${encodeURIComponent(tokenId)}`), { method: 'DELETE' })).ok;
     },
 
     async searchUsers(query) {

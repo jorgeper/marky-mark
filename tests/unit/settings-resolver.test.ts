@@ -38,6 +38,8 @@ describe('PRD 002 §B5 scope inventory', () => {
       // PRD 025 Req 2: Fluid mode's switch and mapping, user-personal.
       fluidMode: 'U',
       fluidEffects: 'U',
+      // PRD 027 Req 1: the Agent bridge switch, user-personal like the rest.
+      agentBridge: 'U',
       tableGridView: 'U',
       inlineImages: 'U',
       // Issue #157: the fenced-code card view sits beside its two view
