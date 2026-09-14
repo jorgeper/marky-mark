@@ -255,6 +255,23 @@ exchange refuses an id_token as its assertion): issuer, audience and scp
 match what `providers/azure/entra.ts` pins (tenant v2.0 issuer, client-id
 audience, `access_as_user` in scp).
 
+## Agent bridge (PRD 027)
+
+The server half of the agent bridge (PRD 027 Req 14) is two modules with no
+transport, route or vendor code in them:
+
+- `src/lib/agentBridgeProtocol.ts` — the typed server↔controlled-tab message
+  contract (the nine session-tool requests, results, errors, the editor
+  state snapshot and the `encode`/`decode` helpers), shared with the client.
+- `server/agentBridge.ts` — `createSessionBroker()`: at most one controlled
+  session per workspace, typed dispatch over an injected `SessionTransport`,
+  replace-and-notify on a second registration (`session_replaced`).
+
+The broker is transport-agnostic and **no route or WebSocket is mounted
+yet** — the MCP endpoint and the WebSocket channel land in issues #365 and
+#367. Unit tests: `tests/unit/agent-bridge-protocol.test.ts`,
+`tests/unit/server-agent-bridge.test.ts`.
+
 ## Tests
 
 - Unit (`npm run test:unit`): config parsing, provider selection, mock
