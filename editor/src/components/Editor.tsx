@@ -153,6 +153,7 @@ import {
   gridSeamOf,
 } from './tableMode';
 import { diffLineMarks, diffRemovedBlocks, type DiffLineMark } from './diffMarks';
+import { bridgeReplaceRange, viewportLineCount } from './bridgeEdits';
 
 /** SPEC43 §5.2: the ops the App's format commands drive (menu ids, same set). */
 export type SmartFormatOp =
@@ -182,6 +183,24 @@ export interface SmartEditHandle {
    * App's annotation hotkeys feed the same context model the menu uses.
    */
   annotationSelection(): AnnotationSelection;
+  /**
+   * PRD 027 Req 12/13 (issue #366): the agent bridge's edit primitive —
+   * replace CANONICAL `[from, to)` with `text` as ONE transaction annotated
+   * `isolateHistory.of('full')` (the `applySplice` precedent), so a single
+   * undo reverts the whole call. Offsets clamp into the document; the caret
+   * lands at the end of the inserted text (typing semantics); the view is
+   * never focused. The one seam the bridge's four mutating tools land
+   * through — `insertRef` (raw offsets, focuses, merges history) is not it.
+   */
+  replaceRange(from: number, to: number, text: string): void;
+  /**
+   * PRD 027 Req 13 (issue #366): the live document, CANONICAL, read
+   * synchronously off the view. The host's React buffer lags a dispatch
+   * until it commits, so a bridge result built right after an edit reads
+   * the text (and the revision it derives) from here, never from a stale
+   * render.
+   */
+  documentText(): string;
 }
 
 /**
@@ -281,6 +300,12 @@ export interface EditorSyncHandle {
    * so the caret, the viewport and the cue never disagree.
    */
   landSearchHit(from: number, to: number): void;
+  /**
+   * PRD 027 Req 13 (issue #366): how many whole lines the viewport shows —
+   * the agent bridge's page unit for `scroll` by pages (`viewportLineCount`
+   * in `bridgeEdits.ts`). Always ≥ 1, even for an unmeasured view.
+   */
+  viewportLines(): number;
 }
 
 /**
@@ -2492,6 +2517,12 @@ export default function Editor({
     // SPEC43 §5.2: the App's format commands land here; the ref is null
     // outside edit mode, so every command is a silent no-op there.
     if (smartRef) {
+      // SPEC38/40 §3.5: the canonical view for everything leaving the
+      // editor — every tracked grid collapsed (originals when untouched).
+      const canonicalText = (t: string): string => {
+        const set = view.state.field(tableModeField, false);
+        return set && set.spans.length ? canonicalizeAll(t, set) : t;
+      };
       smartRef.current = {
         applyFormat: (op) => runFormat(view, op),
         // SPEC43 §11 (issue #270): the openLink hotkey's path to the ONE
@@ -2501,16 +2532,18 @@ export default function Editor({
           const c = view.coordsAtPos(view.state.selection.main.head);
           openMenuAt(c ? c.left : 80, c ? c.bottom + 4 : 80);
         },
-        // SPEC38/40 §3.5: the canonical view for everything leaving the
-        // editor — every tracked grid collapsed (originals when untouched).
-        canonicalText: (t) => {
-          const set = view.state.field(tableModeField, false);
-          return set && set.spans.length ? canonicalizeAll(t, set) : t;
-        },
+        canonicalText,
         // PRD 023 §12 (issue #286): the App's annotation hotkeys read the
         // live selection through the same raw+canonical mapping the menu
         // seam uses — one context model for both entry paths.
         annotationSelection: () => annotationSelection(view),
+        // PRD 027 Req 12/13 (issue #366): the agent bridge's edit and its
+        // synchronous canonical read — adapters over bridgeEdits.ts and the
+        // canonical view above; no focus, one undo step.
+        replaceRange: (from, to, text) => {
+          bridgeReplaceRange(view, from, to, text);
+        },
+        documentText: () => canonicalText(view.state.doc.toString()),
       };
     }
 
@@ -2645,6 +2678,10 @@ export default function Editor({
         },
         scrollInfo() {
           return { top: dom.scrollTop, max: dom.scrollHeight - dom.clientHeight };
+        },
+        // PRD 027 Req 13 (issue #366): the bridge's page unit.
+        viewportLines() {
+          return viewportLineCount(view);
         },
         setScrollTop(top) {
           dom.scrollTop = top;

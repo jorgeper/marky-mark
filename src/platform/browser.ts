@@ -6,6 +6,8 @@ import { FIXTURES } from '../bundled';
 import { dispatchRecent, dispatchCommand, type CommandId } from '../lib/commands';
 import type { CommandItemSpec, MenuSpec, RecentItemSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
+import type { BridgeExecutor } from '../lib/agentBridgeClient';
+import { BRIDGE_PROTOCOL_VERSION, decodeBridgeMessage, encodeBridgeMessage } from '../lib/agentBridgeProtocol';
 
 /**
  * Browser shim platform: a virtual filesystem persisted to localStorage so
@@ -255,6 +257,28 @@ export function createBrowserPlatform(): Platform {
     return () => channel.removeEventListener('message', handler);
   };
 
+  /**
+   * PRD 027 Req 13 (issue #366): the shim's agent-bridge transport — typed
+   * envelopes over the page's own `message` events, so the e2e drives the
+   * executor exactly as the server will (issue #367): it posts an encoded
+   * `ServerToTabMessage` to the window and reads the encoded
+   * `TabToServerMessage` posted back. No `__mm*` global: the codec is the
+   * whole contract. Anything that does not decode as a tool request (the
+   * results this posts, devtools chatter) is ignored.
+   */
+  const attachAgentBridge = (executor: BridgeExecutor): (() => void) => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== window || typeof e.data !== 'string') return;
+      const decoded = decodeBridgeMessage(e.data);
+      if (!decoded.ok || decoded.message.kind !== 'tool_request') return;
+      void executor.execute(decoded.message.request).then((result) => {
+        window.postMessage(encodeBridgeMessage({ v: BRIDGE_PROTOCOL_VERSION, kind: 'tool_result', result }), '*');
+      });
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  };
+
   /** SPEC13 §5.2: aux windows are same-origin popups; singleton by handle. */
   const auxHandles: Partial<Record<AuxKind, Window | null>> = {};
   const openAuxWindow = async (kind: AuxKind) => {
@@ -291,6 +315,7 @@ export function createBrowserPlatform(): Platform {
     ...(nativeMenu ? { setAppMenu, openAuxWindow, closeFocusedAuxWindow } : {}),
     busEmit,
     busListen,
+    attachAgentBridge,
     // The shim never opens print UI — it records the invocation for e2e (E67,
     // whose exact string is untouched) and, per issue #124, the print root's
     // body alongside it.

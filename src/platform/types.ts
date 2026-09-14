@@ -7,6 +7,7 @@ import type { DeploymentAdmin } from './hostedAdmin';
 import type { LlmClient } from './hostedLlm';
 import type { SummaryCacheStore } from '../lib/summaryCacheStore';
 import type { FileGrants } from '../lib/fileGrants';
+import type { BridgeExecutor } from '../lib/agentBridgeClient';
 
 /**
  * PRD 016 Req 9: what a write reports back. `void` is the whole story for
@@ -398,6 +399,18 @@ export interface Platform {
    * app code mounts on this being present, never on which flavor is running.
    */
   agentBridge?: boolean;
+
+  /**
+   * PRD 027 Req 13 (issue #366): the host's channel onto the agent-bridge
+   * executor the app builds from its editor handles and command registry.
+   * The app calls this once the executor exists and keeps the returned
+   * detach for unmount. Implemented today ONLY by the dev/e2e shim
+   * (`browser.ts`, a typed in-page `postMessage` transport the e2e drives);
+   * issue #367 adds the hosted WebSocket transport behind the `agentBridge`
+   * setting. Hosts that omit it get no channel, no UI and no network call
+   * site — the executor simply idles.
+   */
+  attachAgentBridge?(executor: BridgeExecutor): () => void;
 
   updates?: {
     /** null ⇒ already up to date. Throws on network/manifest/signature errors. */
