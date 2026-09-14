@@ -1672,6 +1672,37 @@ mark.hl.ghost {
   pointer-events: none;
 }
 
+/* PRD 027 Req 9+10 (issue #367): the agent-control row of the corner stack —
+   a pill like the word chip, but interactive (the stack itself is
+   pointer-events: none). The indicator is plain text in the same pill, so
+   "on" is legible without hover in either mode. */
+.agent-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--mm-text-caption);
+  padding: 4px 10px;
+  border-radius: var(--mm-radius-pill);
+  background: var(--mm-bg-elevated, #f6f8fa);
+  color: var(--mm-fg-muted, #59636e);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  box-shadow: var(--mm-panel-shadow);
+  pointer-events: auto;
+}
+.agent-control-switch {
+  margin: 0;
+  accent-color: var(--mm-accent);
+}
+.agent-control-label {
+  margin: 0;
+  font-weight: 400;
+  cursor: pointer;
+}
+.agent-control-indicator {
+  color: var(--mm-accent);
+  font-weight: 600;
+}
+
 /* --- SPEC14: fixed comment navigator pill — never moves while stepping.
    The top row of the .corner-stack (issue #305): its position is the
    stack's, which nothing in a step changes, and it fades in/out via

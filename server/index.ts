@@ -6,7 +6,7 @@
 
 import http from 'node:http';
 import process from 'node:process';
-import { createApp } from './app.ts';
+import { createAppHandlers } from './app.ts';
 import { loadConfig } from './config.ts';
 import { createLlmApi } from './llm.ts';
 import { createProviders } from './providers/index.ts';
@@ -43,10 +43,13 @@ if (renamed > 0) console.log(`marky-mark server: renamed ${renamed} scratchpad w
 const llm = createLlmApi({ ...(config.llm ? { config: config.llm } : {}) });
 // PRD 017 Req 4: admin ids ride into the app so per-request auth can carry
 // admin status into the shared permission-resolution path.
-const server = http.createServer(
-  // PRD 027 Req 2: the agent bridge exists only where MM_AGENT_BRIDGE=1.
-  createApp(config.staticDir, providers, config.mode, llm, new Set(config.admins), config.agentBridge),
-);
+// PRD 027 Req 2: the agent bridge exists only where MM_AGENT_BRIDGE=1.
+const app = createAppHandlers(config.staticDir, providers, config.mode, llm, new Set(config.admins), config.agentBridge);
+const server = http.createServer(app.request);
+// PRD 027 Req 9 (issue #367): the agent-session WebSocket rides the server's
+// `'upgrade'` event — attached only when the bridge is on, so a flag-off
+// deployment has no upgrade listener and the handshake is simply refused.
+if (app.upgrade) server.on('upgrade', app.upgrade);
 server.listen(config.port, () => {
   console.log(
     `marky-mark server: mode=${config.mode} port=${config.port} static=${config.staticDir} ` +

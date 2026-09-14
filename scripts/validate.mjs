@@ -509,7 +509,20 @@ console.log('\n=== validate: static bundle scan (network call sites) ===');
 // bare fetch( call and none of the FORBIDDEN tokens below; katex's `fetch`
 // parser method is excluded by the counting rule, not by widening this number.
 const FETCH_ALLOWLIST = 6;
-const FORBIDDEN = ['XMLHttpRequest(', 'new WebSocket', 'sendBeacon', 'new EventSource'];
+// PRD 027 Req 9 (issue #367): `new WebSocket` moves out of FORBIDDEN into its
+// own counted allowlist, mirroring FETCH_ALLOWLIST. ONE call site ships —
+// the agent-bridge control channel in src/platform/hosted.ts — counted once
+// per bundle (dist/ and dist-web/), 1 × 2 = 2, because the hosted platform
+// rides inside both builds. It is reachable only when the served HTML
+// carries the hosted marker, only with the experimental `agentBridge`
+// setting on, and only after the user opts in through the agent-control
+// toggle; the static web build resolves to src/platform/web.ts and never
+// reaches it. Same-origin, authenticated with the session token, and it
+// adds no `fetch(` — FETCH_ALLOWLIST is unchanged. Re-pinned from fresh
+// `npm run build` + `npm run build:web` outputs (dist/assets/hosted-*.js 1,
+// dist-web/index.html 1).
+const WEBSOCKET_ALLOWLIST = 2;
+const FORBIDDEN = ['XMLHttpRequest(', 'sendBeacon', 'new EventSource'];
 const bundleTargets = [
   path.join(distWeb, 'index.html'),
   ...readdirSync(path.join(root, 'dist', 'assets'))
@@ -517,6 +530,7 @@ const bundleTargets = [
     .map((f) => path.join(root, 'dist', 'assets', f)),
 ];
 let fetchCount = 0;
+let webSocketCount = 0;
 const scanViolations = [];
 for (const t of bundleTargets) {
   const text = readFileSync(t, 'utf8');
@@ -524,16 +538,19 @@ for (const t of bundleTargets) {
     if (text.includes(token)) scanViolations.push(`${path.relative(root, t)}: ${token}`);
   }
   fetchCount += countFetchCallSites(text);
+  webSocketCount += text.split('new WebSocket').length - 1;
 }
-if (scanViolations.length || fetchCount !== FETCH_ALLOWLIST) {
+if (scanViolations.length || fetchCount !== FETCH_ALLOWLIST || webSocketCount !== WEBSOCKET_ALLOWLIST) {
   for (const v of scanViolations) console.error(`  forbidden network call site: ${v}`);
   if (fetchCount !== FETCH_ALLOWLIST)
     console.error(`  fetch( call sites: ${fetchCount}, allowlist expects ${FETCH_ALLOWLIST}`);
+  if (webSocketCount !== WEBSOCKET_ALLOWLIST)
+    console.error(`  new WebSocket call sites: ${webSocketCount}, allowlist expects ${WEBSOCKET_ALLOWLIST}`);
   console.error('\nVALIDATION FAILED at step: static bundle scan');
   process.exit(1);
 }
 console.log(
-  `static bundle scan: ${bundleTargets.length} bundle files — no XMLHttpRequest/WebSocket/sendBeacon/EventSource call sites; fetch( count ${fetchCount} matches allowlist (${FETCH_ALLOWLIST})`,
+  `static bundle scan: ${bundleTargets.length} bundle files — no XMLHttpRequest/sendBeacon/EventSource call sites; fetch( count ${fetchCount} matches allowlist (${FETCH_ALLOWLIST}); new WebSocket count ${webSocketCount} matches allowlist (${WEBSOCKET_ALLOWLIST})`,
 );
 
 printTimeline('VALIDATION timeline:');

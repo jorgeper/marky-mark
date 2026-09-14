@@ -68,6 +68,7 @@ import { HIGHLIGHT_LINK_CLASS, updateHighlightLink } from './lib/highlightLink';
 import { marginLinkLabel, marginLinkPick, recordAtOffset } from './lib/marginLink';
 import { previewButtonPos, type PreviewButtonAnchor } from './lib/previewButton';
 import { CopyLinkButton } from './components/CopyLinkButton';
+import { AgentControl } from './components/AgentControl';
 import { rewriteFenceWidthAt } from './lib/diagramResize';
 import { DiagramResizer } from './components/DiagramResizer';
 import { getDocText, highlightRange, offsetsToRange, rangeToOffsets, rectForOffsets, unwrapMarks } from './lib/domtext';
@@ -4097,6 +4098,13 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // same edit-grant check the `save` command applies. No second open or
   // save implementation; the platform seam decides whether any transport
   // reaches it (the dev/e2e shim only, until issue #367).
+  // PRD 027 Req 1+10 (issue #367): turning the experiment off while opted in
+  // disables the channel — the gate reads the APPLIED setting, so this lands
+  // through the ordinary settings save with no reload.
+  useEffect(() => {
+    if (!settings.agentBridge) platform?.agentControl?.disable();
+  }, [platform, settings.agentBridge]);
+
   agentBridgeRef.current = useAgentBridge(platform, {
     smartEditRef,
     editorSyncRef,
@@ -9049,6 +9057,14 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         {semanticZoomOn && docOpen && (
           <SemanticZoomControl level={zoomLevel} onLevel={setZoomLevel} />
         )}
+
+        {/* PRD 027 Req 9+10 (issue #367): the agent-control toggle and its
+            persistent indicator — only where the platform offers the seam
+            (the hosted flavor bound to a workspace) AND the applied
+            experimental setting is on; off (the default) renders nothing and
+            opens nothing. A corner-stack row so it is visible in preview and
+            edit mode alike, with no toolbar reveal. */}
+        {platform.agentControl && settings.agentBridge && <AgentControl control={platform.agentControl} />}
 
         {/* SPEC16 §5: quiet word-count chip, bottom-right (toggleable). */}
         {chip && settings.showWordCount && (

@@ -122,6 +122,14 @@ export interface WorkspaceRouteRequirement {
  * fails, and a catalog verb no route requires fails too — a new verb cannot
  * be added to `PERMISSIONS` and left dead.
  */
+/**
+ * PRD 027 Req 9 (issue #367): the last segment of the agent-session upgrade
+ * route, `GET /api/workspaces/<id>/agent-session` (`Upgrade: websocket`).
+ * Declared here, beside the permission table that names it, and imported by
+ * `server/agentBridgeSocket.ts` and the hosted client's route builder.
+ */
+export const AGENT_SESSION_ROUTE = 'agent-session';
+
 export const WORKSPACE_ROUTE_PERMISSIONS: readonly WorkspaceRouteRequirement[] = [
   { method: 'DELETE', path: '', required: 'workspace.delete', why: 'destroys the workspace and every blob under it' },
   { method: 'GET', path: 'manifest', required: 'doc.read', why: 'the manifest is what opening the workspace reads' },
@@ -149,6 +157,12 @@ export const WORKSPACE_ROUTE_PERMISSIONS: readonly WorkspaceRouteRequirement[] =
   { method: 'POST', path: 'agent-tokens', required: 'workspace.settings', why: 'PRD 027 Req 3: minting a credential that acts on the workspace' },
   { method: 'GET', path: 'agent-tokens', required: 'workspace.settings', why: 'PRD 027 Req 3: which credentials exist is administration, not content' },
   { method: 'DELETE', path: 'agent-tokens/<token>', required: 'workspace.settings', why: 'PRD 027 Req 3: revoking one' },
+  // PRD 027 Req 9 (issue #367): the control channel's upgrade route. Opening
+  // it is opening the workspace in a tab — the same verb the manifest read
+  // takes; the WebSocket handler (server/agentBridgeSocket.ts) applies it
+  // through `checkWorkspacePermission`, and the plain-GET form here answers
+  // 426 behind the same gate so this table's drift test covers the route.
+  { method: 'GET', path: AGENT_SESSION_ROUTE, required: 'doc.read', why: 'PRD 027 Req 9: a controlled tab is a member\'s open tab' },
   { method: 'GET', path: 'files', required: 'doc.read', why: 'the file listing is workspace content' },
   { method: 'GET', path: 'files/<existing>', required: 'doc.read', why: 'reading a document or a pasted image' },
   { method: 'PUT', path: 'files/<existing>', required: 'doc.edit', why: 'a PUT over an existing blob is a save' },
@@ -381,22 +395,42 @@ async function requirePermission(
   auth: RequestAuth,
   required: Permission,
 ): Promise<WorkspaceManifest | null> {
-  const manifest = await loadManifest(storage, id);
-  if (manifest === null) {
-    sendJson(res, 404, { error: 'no such workspace' });
+  const check = await checkWorkspacePermission(storage, id, auth, required);
+  if (!check.ok) {
+    sendJson(res, check.status, check.body);
     return null;
   }
+  return check.manifest;
+}
+
+/** What `checkWorkspacePermission` decided: the manifest to act on, or the refusal to send. */
+export type WorkspacePermissionCheck =
+  | { ok: true; manifest: WorkspaceManifest }
+  | { ok: false; status: 403 | 404 | 500; body: { error: string; required?: Permission } };
+
+/**
+ * PRD 007 Req 13+17: the decision `requirePermission` sends — factored out
+ * (PRD 027 Req 9, issue #367) so the agent-session WebSocket upgrade, which
+ * has a raw socket and no `ServerResponse`, passes the SAME gate with the
+ * same 404/500/403 outcomes rather than a second membership rule.
+ */
+export async function checkWorkspacePermission(
+  storage: StorageProvider,
+  id: string,
+  auth: RequestAuth,
+  required: Permission,
+): Promise<WorkspacePermissionCheck> {
+  const manifest = await loadManifest(storage, id);
+  if (manifest === null) return { ok: false, status: 404, body: { error: 'no such workspace' } };
   if (typeof manifest === 'string') {
-    sendJson(res, 500, { error: `corrupt workspace manifest: ${manifest}` });
-    return null;
+    return { ok: false, status: 500, body: { error: `corrupt workspace manifest: ${manifest}` } };
   }
   // PRD 017 Req 4: admin status rides in on the request auth, so the implicit
   // admin union applies to every route through this one gate.
   if (!resolvePermissions(manifest, auth.user.id, auth.isAdmin).has(required)) {
-    sendJson(res, 403, { error: 'forbidden', required });
-    return null;
+    return { ok: false, status: 403, body: { error: 'forbidden', required } };
   }
-  return manifest;
+  return { ok: true, manifest };
 }
 
 /**
@@ -1323,6 +1357,17 @@ export async function handleWorkspaceApi(
       }
       return;
     }
+  }
+
+  // PRD 027 Req 9 (issue #367): GET /api/workspaces/<id>/agent-session
+  // WITHOUT an upgrade — the WebSocket handshake never reaches this handler
+  // (server/index.ts routes `'upgrade'` events to server/agentBridgeSocket.ts),
+  // so a plain request is told the route is an upgrade, behind the same
+  // doc.read gate the handshake applies. Flag-gated like agent-tokens.
+  if (agentBridge && segments.length === 2 && segments[1] === AGENT_SESSION_ROUTE && req.method === 'GET') {
+    if (!(await requirePermission(res, storage, id, auth, 'doc.read'))) return;
+    sendJson(res, 426, { error: 'upgrade required: this route is the agent-session WebSocket' });
+    return;
   }
 
   // GET /api/workspaces/<id>/files — list; required permission: doc.read.

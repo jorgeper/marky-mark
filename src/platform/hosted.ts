@@ -1,4 +1,6 @@
-import type { Platform } from './types';
+import type { AgentControl, AgentControlState, Platform } from './types';
+import type { BridgeExecutor } from '../lib/agentBridgeClient';
+import { BRIDGE_PROTOCOL_VERSION, decodeBridgeMessage, encodeBridgeMessage } from '../lib/agentBridgeProtocol';
 import { createLocalDocs, pickViaInput } from './localDocs';
 import {
   clearToken,
@@ -331,12 +333,111 @@ export function createHostedPlatform(): Platform {
     return body.manifest;
   };
 
+  /**
+   * PRD 027 Req 9+10+13 (issue #367): the agent-bridge channel — the ONE
+   * `new WebSocket` call site in src/ (SPEC11 §6.6 bundle-scan allowlist),
+   * reachable only under the hosted marker, only with the experimental
+   * setting on, and only after the user opts in through the toggle.
+   *
+   * `attachAgentBridge` only keeps the executor: attaching opens nothing.
+   * `enable()` opens exactly one same-origin socket to the workspace's
+   * agent-session route with the stored session token in the
+   * `?access_token=` form (a browser WebSocket cannot set headers), runs
+   * `executor.execute` for every decoded `tool_request` and sends the
+   * encoded `tool_result` back. `session_replaced` (another tab took
+   * over), a close or an error all land on `'off'`; `disable()` closes the
+   * socket. Closing the tab lets the browser close the socket, so the
+   * server tears the session down. No `window.*` global, no CodeMirror
+   * access: the executor is the whole editor contract.
+   */
+  let bridgeExecutor: BridgeExecutor | null = null;
+  let channel: WebSocket | null = null;
+  let controlState: AgentControlState = 'off';
+  const controlListeners = new Set<(state: AgentControlState) => void>();
+  const setControlState = (state: AgentControlState) => {
+    if (controlState === state) return;
+    controlState = state;
+    for (const cb of controlListeners) cb(state);
+  };
+  const closeChannel = () => {
+    const socket = channel;
+    channel = null;
+    if (socket) {
+      socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
+      if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) socket.close();
+    }
+    setControlState('off');
+  };
+  const attachAgentBridge = (executor: BridgeExecutor): (() => void) => {
+    bridgeExecutor = executor;
+    return () => {
+      if (bridgeExecutor !== executor) return;
+      bridgeExecutor = null;
+      closeChannel();
+    };
+  };
+  const openChannel = (id: string) => {
+    if (channel) return;
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const route = workspaceRoute(id, 'agent-session');
+    const socket = new WebSocket(`${scheme}://${window.location.host}${route}?access_token=${encodeURIComponent(token())}`);
+    channel = socket;
+    setControlState('connecting');
+    socket.onopen = () => {
+      if (channel === socket) setControlState('on');
+    };
+    socket.onmessage = (event: MessageEvent) => {
+      if (channel !== socket || typeof event.data !== 'string') return;
+      const decoded = decodeBridgeMessage(event.data);
+      if (!decoded.ok) return;
+      const { message } = decoded;
+      if (message.kind === 'session_replaced') {
+        // PRD 027 Req 10: another tab took control — this one's toggle turns off.
+        closeChannel();
+        return;
+      }
+      if (message.kind !== 'tool_request') return;
+      const { request } = message;
+      const executor = bridgeExecutor;
+      const reply = executor
+        ? executor.execute(request)
+        : Promise.resolve({ ok: false as const, id: request.id, error: { code: 'tool_failed' as const, message: 'no editor attached' } });
+      void reply.then((result) => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(encodeBridgeMessage({ v: BRIDGE_PROTOCOL_VERSION, kind: 'tool_result', result }));
+        }
+      });
+    };
+    const ended = () => {
+      if (channel !== socket) return;
+      channel = null;
+      setControlState('off');
+    };
+    socket.onclose = ended;
+    socket.onerror = ended;
+  };
+  const agentControl = (id: string): AgentControl => ({
+    enable: () => openChannel(id),
+    disable: closeChannel,
+    subscribe(cb) {
+      controlListeners.add(cb);
+      cb(controlState);
+      return () => {
+        controlListeners.delete(cb);
+      };
+    },
+  });
+
   return {
     kind: 'hosted',
     isMac: navigator.platform.toLowerCase().includes('mac'),
     // PRD 027 Req 1: this host has the server the agent bridge needs, so the
     // Experimental row's checkbox is live here and nowhere else.
     agentBridge: true,
+    // PRD 027 Req 9+13 (issue #367): the channel onto the app's executor, and
+    // — only for a page bound to a workspace — the user's control over it.
+    attachAgentBridge,
+    ...(workspaceId ? { agentControl: agentControl(workspaceId) } : {}),
 
     async readTextFile(path) {
       if (local.owns(path)) {

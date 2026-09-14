@@ -6,6 +6,8 @@
 // seam handed in here.
 
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
+import { createSessionBroker, type SessionBroker } from './agentBridge.ts';
+import { createAgentBridgeUpgrade, type UpgradeListener } from './agentBridgeSocket.ts';
 import { Buffer } from 'node:buffer';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -85,9 +87,12 @@ async function handleApi(
   llm: LlmApi,
   admins: ReadonlySet<string>,
   deployment: DeploymentPolicy,
-  agentBridge: boolean,
+  // PRD 027 Req 2: the agent bridge's one broker — present exactly when the
+  // flag is on (`createAppHandlers` builds it then and only then).
+  broker: SessionBroker | null,
 ): Promise<void> {
   const { pathname } = url;
+  const agentBridge = broker !== null;
 
   // Sign-in is the one unauthenticated endpoint — everything else under /api/
   // rejects requests without a valid bearer token (PRD 007 Req 3 auth seam).
@@ -113,11 +118,13 @@ async function handleApi(
   // (Req 4: one auth path, in agentTokens.ts). With the flag off it answers
   // the ordinary 404 here — no token lookup, no body read, no bridge code.
   if (pathname === MCP_PATH) {
-    if (!agentBridge) {
+    if (!broker) {
       sendJson(res, 404, { error: 'no such endpoint' });
       return;
     }
-    await handleMcp(req, res, providers.storage);
+    // PRD 027 Req 7 (issue #367): the session tools dispatch through the
+    // same broker the agent-session upgrade route registers tabs with.
+    await handleMcp(req, res, providers.storage, broker);
     return;
   }
 
@@ -415,7 +422,19 @@ function handleStatic(
   createReadStream(target).pipe(res);
 }
 
-export function createApp(
+/**
+ * PRD 027 Req 9 (issue #367): what one app exposes to its `http.Server` —
+ * the request listener every caller already had, and the `'upgrade'`
+ * listener for the agent-session WebSocket, `null` unless the agent bridge
+ * is on (so a flag-off server attaches nothing and the handshake is refused
+ * before any bridge code runs).
+ */
+export interface AppHandlers {
+  request: RequestListener;
+  upgrade: UpgradeListener | null;
+}
+
+export function createAppHandlers(
   staticDir: string,
   providers: Providers,
   mode: ServerMode,
@@ -430,15 +449,19 @@ export function createApp(
   // wires byte-identically and the agent-token routes answer the ordinary
   // 404 unless a deployment asks for them.
   agentBridge = false,
-): RequestListener {
+): AppHandlers {
   const staticRoot = path.resolve(staticDir);
   // PRD 017 Reqs 8+9+15: one policy per app — its settings read is per
   // REQUEST (no cache), only the caller-guest lookup holds state.
   const deployment = createDeploymentPolicy(providers.storage, providers.directory);
-  return (req, res) => {
+  // PRD 027 Req 7+9 (issue #367): ONE session broker per app, shared by the
+  // MCP endpoint (dispatch) and the upgrade route (register) — built only
+  // when the bridge is on, so a flag-off app holds no bridge state at all.
+  const broker = agentBridge ? createSessionBroker() : null;
+  const request: RequestListener = (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
-      handleApi(req, res, url, providers, llm, admins, deployment, agentBridge).catch((err: unknown) => {
+      handleApi(req, res, url, providers, llm, admins, deployment, broker).catch((err: unknown) => {
         console.error('API error:', err);
         if (!res.headersSent) sendJson(res, 500, { error: 'internal server error' });
         else res.end();
@@ -447,4 +470,17 @@ export function createApp(
     }
     handleStatic(req, res, url, staticRoot, mode);
   };
+  return { request, upgrade: broker ? createAgentBridgeUpgrade(providers, broker, admins) : null };
+}
+
+/** The request listener alone — every existing caller's shape, unchanged. */
+export function createApp(
+  staticDir: string,
+  providers: Providers,
+  mode: ServerMode,
+  llm?: LlmApi,
+  admins?: ReadonlySet<string>,
+  agentBridge?: boolean,
+): RequestListener {
+  return createAppHandlers(staticDir, providers, mode, llm, admins, agentBridge).request;
 }

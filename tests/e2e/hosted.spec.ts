@@ -9177,10 +9177,12 @@ test('E650: PRD 027 Reqs 5+6 — over raw streamable HTTP, an agent token initia
     });
     expect(notified.status()).toBe(202);
 
-    // Exactly the five file tools, none taking a workspace.
+    // The five file tools first (issue #367 mounted the nine session tools
+    // after them — E657 covers those), none taking a workspace.
     const list = (await (await mcpRpc(request, token, 'tools/list')).json()) as McpRpcBody;
     const tools = (list.result as { tools: { name: string; inputSchema: unknown }[] }).tools;
-    expect(tools.map((t) => t.name)).toEqual(['get_workspace', 'list_files', 'read_file', 'create_file', 'write_file']);
+    expect(tools.slice(0, 5).map((t) => t.name)).toEqual(['get_workspace', 'list_files', 'read_file', 'create_file', 'write_file']);
+    expect(tools).toHaveLength(14);
     for (const tool of tools) expect(JSON.stringify(tool.inputSchema).toLowerCase(), tool.name).not.toContain('workspace');
 
     // get_workspace: the token's workspace, no parameter.
@@ -9317,5 +9319,281 @@ test('E652: PRD 027 Req 4 — a missing or unknown token is 401 with the stable 
     await expect401(await mcpRpc(request, token, 'tools/call', { name: 'list_files' }), 'revoked token');
   } finally {
     await request.delete(`${HOSTED}/api/workspaces/${id}`, { headers: { Authorization: `Bearer ${ada}` } });
+  }
+});
+
+
+// PRD 027 Reqs 7, 9, 10, 11 (issue #367): the live control channel — the
+// hosted tab's agent-control toggle and indicator, the WebSocket the opt-in
+// opens, takeover by a second tab, and the MCP session tools dispatching to
+// the opted-in tab. E655 needs a user whose setting starts OFF (ada — no
+// other test seeds her agent bridge on); E656–E658 turn the experiment on
+// through the ordinary Save in the page itself, so a concurrent test
+// resetting that user's settings blob cannot switch an already-loaded tab
+// back off.
+
+/** Issue #367: turn the agent-bridge experiment on through Save — the applied setting, no reload. */
+async function turnAgentBridgeOn(page: Page): Promise<void> {
+  await openSettings(page, 'experimental');
+  const box = page.getByTestId('experimental-agent-bridge');
+  if (!(await box.isChecked())) await box.check();
+  await saveSettings(page);
+  await expect(page.getByTestId('agent-control-toggle')).toBeVisible();
+}
+
+/**
+ * Issue #367: opt the tab in — a click, then the switch checks once the
+ * channel is open (it is checked exactly while the state is 'on', so a
+ * `check()` that demands an instant flip would race the handshake).
+ */
+async function optIn(page: Page): Promise<void> {
+  const toggle = page.getByTestId('agent-control-toggle');
+  await expect(toggle).not.toBeChecked();
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await expect(page.getByTestId('agent-control-indicator')).toBeVisible();
+}
+
+/** Issue #367: the tab in edit mode with the mouse parked off the toolbar hotzone. */
+async function intoEditMode(page: Page): Promise<Locator> {
+  await page.mouse.move(420, 320);
+  await page.keyboard.press('Control+e');
+  const content = page.getByTestId('editor').locator('.cm-content');
+  await expect(content).toBeVisible();
+  return content;
+}
+
+const BRIDGE_DOC = '# Bridge\n\nalpha beta gamma\n\n## Second\n\ndelta\n';
+
+/** A bridge tool's `{state}` payload, typed loosely for the assertions. */
+interface BridgeStatePayload {
+  state: { path: string | null; content: string; dirty: boolean; revision: string; selection: { from: number; to: number; text: string } };
+}
+
+test('E655: PRD 027 Reqs 1+9+10 — with the agent bridge off there is no agent-control toggle, indicator or WebSocket; turned on through Save the toggle appears, opting in shows the persistent indicator in preview and edit mode with no toolbar reveal, and opting out hides it', async ({
+  page,
+  request,
+}) => {
+  const ada = await signIn(request, 'ada');
+  const cleanup = await seedAgentBridge(request, ada, false);
+  const id = await createWorkspace(request, ada, `E655 w${test.info().workerIndex}`);
+  const headers = { Authorization: `Bearer ${ada}` };
+  try {
+    expect((await request.put(`${HOSTED}/api/workspaces/${id}/files/notes.md`, { headers, data: BRIDGE_DOC })).status()).toBe(200);
+    const sockets: string[] = [];
+    page.on('websocket', (ws) => sockets.push(ws.url()));
+    await signInTo(page, 'ada', id);
+    await openFromSidebar(page, 'notes.md');
+    // Off (the default): no toggle, no indicator, no WebSocket.
+    await expect(page.getByTestId('agent-control-toggle')).toHaveCount(0);
+    await expect(page.getByTestId('agent-control-indicator')).toHaveCount(0);
+    expect(sockets).toEqual([]);
+
+    // On, through Save: the toggle renders unchecked; rendering it opens nothing.
+    await turnAgentBridgeOn(page);
+    const toggle = page.getByTestId('agent-control-toggle');
+    await expect(toggle).not.toBeChecked();
+    await expect(page.getByTestId('agent-control-indicator')).toHaveCount(0);
+    expect(sockets).toEqual([]);
+
+    // Opt in: exactly one same-origin socket to the workspace's route, the
+    // switch checked, the indicator visible and explicit.
+    await optIn(page);
+    const indicator = page.getByTestId('agent-control-indicator');
+    await expect(indicator).toContainText(/agent can read and edit/i);
+    expect(sockets).toHaveLength(1);
+    expect(sockets[0]).toContain(`/api/workspaces/${id}/agent-session`);
+    expect(sockets[0].startsWith('ws://localhost:4924/')).toBe(true);
+
+    // Edit mode, mouse away from the toolbar: still visible, still checked —
+    // and not inside the auto-hiding toolbar shell at all.
+    await intoEditMode(page);
+    await expect(indicator).toBeVisible();
+    await expect(toggle).toBeChecked();
+    await expect(page.getByTestId('toolbar-shell').getByTestId('agent-control-indicator')).toHaveCount(0);
+
+    // Opt out: the indicator goes at once; nothing reconnects on its own.
+    await toggle.click();
+    await expect(toggle).not.toBeChecked();
+    await expect(indicator).toHaveCount(0);
+    expect(sockets).toHaveLength(1);
+
+    // Turning the experiment off removes the control entirely.
+    await openSettings(page, 'experimental');
+    await page.getByTestId('experimental-agent-bridge').uncheck();
+    await saveSettings(page);
+    await expect(page.getByTestId('agent-control-toggle')).toHaveCount(0);
+    await expect(page.getByTestId('agent-control-indicator')).toHaveCount(0);
+  } finally {
+    await cleanup();
+    await request.delete(`${HOSTED}/api/workspaces/${id}`, { headers });
+  }
+});
+
+test('E656: PRD 027 Req 10 — a second tab opting in takes over: the first tab\'s toggle turns off and its indicator disappears with no user action, the second answers the session tools, and closing it leaves no controlled session', async ({
+  page,
+  context,
+  request,
+}) => {
+  const grace = await signIn(request, 'grace');
+  const id = await createWorkspace(request, grace, `E656 w${test.info().workerIndex}`);
+  const headers = { Authorization: `Bearer ${grace}` };
+  try {
+    await signInTo(page, 'grace', id);
+    await expect(page.getByTestId('folder-panel')).toBeVisible();
+    await turnAgentBridgeOn(page);
+    await optIn(page);
+
+    // The same signed-in user in a second tab of the same workspace.
+    const second = await context.newPage();
+    await second.goto(`${HOSTED}/${encodeURIComponent(await uniqueNameOf(request, grace, id))}`);
+    await expect(second.getByTestId('folder-panel')).toBeVisible();
+    if ((await second.getByTestId('agent-control-toggle').count()) === 0) await turnAgentBridgeOn(second);
+    await optIn(second);
+
+    // The first tab learns it was replaced: unchecked, no indicator, no click.
+    await expect(page.getByTestId('agent-control-toggle')).not.toBeChecked();
+    await expect(page.getByTestId('agent-control-indicator')).toHaveCount(0);
+    await expect(second.getByTestId('agent-control-toggle')).toBeChecked();
+    await expect(second.getByTestId('agent-control-indicator')).toBeVisible();
+
+    // The second tab is the live session.
+    const { token } = await mintToken(request, grace, id);
+    const live = await mcpTool(request, token, 'get_editor_state');
+    expect(live.isError).toBe(false);
+    expect(typeof (live.payload as BridgeStatePayload).state.revision).toBe('string');
+
+    // Closing that tab lets the browser close the socket: torn down server-side.
+    await second.close();
+    await expect
+      .poll(async () => (await mcpTool(request, token, 'get_editor_state')).payload, { timeout: 5_000 })
+      .toEqual({ error: { code: 'no_controlled_session', message: 'no controlled session' } });
+  } finally {
+    await request.delete(`${HOSTED}/api/me/files/settings.json`, { headers });
+    await request.delete(`${HOSTED}/api/workspaces/${id}`, { headers });
+  }
+});
+
+test('E657: PRD 027 Reqs 4+7+8 — with no opted-in tab every session tool answers no_controlled_session while file tools work; with an opted-in tab showing a document, get_editor_state returns its content and a revision, scroll and replace_selection succeed and the edit shows in the tab, a stale revision is refused with the fresh state, and list_files/read_file answer exactly as before', async ({
+  page,
+  request,
+}) => {
+  const grace = await signIn(request, 'grace');
+  const id = await createWorkspace(request, grace, `E657 w${test.info().workerIndex}`);
+  const headers = { Authorization: `Bearer ${grace}` };
+  try {
+    expect((await request.put(`${HOSTED}/api/workspaces/${id}/files/bridge.md`, { headers, data: BRIDGE_DOC })).status()).toBe(200);
+    const { token } = await mintToken(request, grace, id);
+    const noSession = { error: { code: 'no_controlled_session', message: 'no controlled session' } };
+    for (const [name, args] of [
+      ['get_editor_state', undefined],
+      ['open_file', { path: 'bridge.md' }],
+      ['scroll', { target: { by: 'lines', amount: 1 } }],
+      ['set_selection', { from: 0, to: 1 }],
+      ['replace_selection', { revision: 'r', text: 'x' }],
+      ['insert_text', { revision: 'r', text: 'x' }],
+      ['replace_range', { revision: 'r', from: 0, to: 1, text: 'x' }],
+      ['apply_format', { revision: 'r', op: 'bold' }],
+      ['save', undefined],
+    ] as const) {
+      const result = await mcpTool(request, token, name, args);
+      expect(result.isError, name).toBe(true);
+      expect(result.payload, name).toEqual(noSession);
+    }
+    const listBefore = await mcpTool(request, token, 'list_files');
+    const readBefore = await mcpTool(request, token, 'read_file', { path: 'bridge.md' });
+    expect(listBefore.isError).toBe(false);
+    expect(readBefore.isError).toBe(false);
+    expect(readBefore.payload).toMatchObject({ path: 'bridge.md', content: BRIDGE_DOC });
+
+    await signInTo(page, 'grace', id);
+    await openFromSidebar(page, 'bridge.md');
+    await turnAgentBridgeOn(page);
+    await optIn(page);
+    const content = await intoEditMode(page);
+
+    const first = await mcpTool(request, token, 'get_editor_state');
+    expect(first.isError).toBe(false);
+    const state = (first.payload as BridgeStatePayload).state;
+    expect(state.content).toBe(BRIDGE_DOC);
+    expect(state.dirty).toBe(false);
+    expect(state.path).toMatch(/bridge\.md$/);
+    expect(state.revision.length).toBeGreaterThan(0);
+
+    const scrolled = await mcpTool(request, token, 'scroll', { target: { to: 'heading', heading: 'Second' } });
+    expect(scrolled.isError).toBe(false);
+
+    const from = BRIDGE_DOC.indexOf('beta');
+    const selected = await mcpTool(request, token, 'set_selection', { from, to: from + 4 });
+    expect(selected.isError).toBe(false);
+    expect((selected.payload as BridgeStatePayload).state.selection).toEqual({ from, to: from + 4, text: 'beta' });
+    const replaced = await mcpTool(request, token, 'replace_selection', { revision: state.revision, text: 'BETA' });
+    expect(replaced.isError).toBe(false);
+    const after = (replaced.payload as BridgeStatePayload).state;
+    expect(after.content).toBe(BRIDGE_DOC.replace('beta', 'BETA'));
+    expect(after.revision).not.toBe(state.revision);
+    expect(after.dirty).toBe(true);
+    await expect(content).toContainText('alpha BETA gamma');
+
+    // PRD 027 Req 8: the old revision is stale now — refused, with the fresh state riding along.
+    const stale = await mcpTool(request, token, 'insert_text', { revision: state.revision, text: 'NOPE' });
+    expect(stale.isError).toBe(true);
+    expect(stale.payload).toMatchObject({ error: { code: 'stale_revision', state: { revision: after.revision } } });
+    await expect(content).not.toContainText('NOPE');
+
+    // File tools are untouched by the tab (nothing was saved).
+    const listAfter = await mcpTool(request, token, 'list_files');
+    const readAfter = await mcpTool(request, token, 'read_file', { path: 'bridge.md' });
+    expect(listAfter.payload).toEqual(listBefore.payload);
+    expect(readAfter.payload).toEqual(readBefore.payload);
+  } finally {
+    await request.delete(`${HOSTED}/api/me/files/settings.json`, { headers });
+    await request.delete(`${HOSTED}/api/workspaces/${id}`, { headers });
+  }
+});
+
+test('E658: PRD 027 Req 11 — against an idle opted-in tab, a scroll and a replace_selection each complete in under a second measured around the HTTP call (best of three)', async ({
+  page,
+  request,
+}) => {
+  const grace = await signIn(request, 'grace');
+  const id = await createWorkspace(request, grace, `E658 w${test.info().workerIndex}`);
+  const headers = { Authorization: `Bearer ${grace}` };
+  try {
+    expect((await request.put(`${HOSTED}/api/workspaces/${id}/files/timing.md`, { headers, data: BRIDGE_DOC })).status()).toBe(200);
+    const { token } = await mintToken(request, grace, id);
+    await signInTo(page, 'grace', id);
+    await openFromSidebar(page, 'timing.md');
+    await turnAgentBridgeOn(page);
+    await optIn(page);
+    await intoEditMode(page);
+
+    /** Best of three: `prepare` runs untimed, only `call` is measured. */
+    const best = async (prepare: () => Promise<unknown>, call: (prepared: unknown) => Promise<{ isError: boolean }>): Promise<number> => {
+      let fastest = Number.POSITIVE_INFINITY;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const prepared = await prepare();
+        const started = Date.now();
+        const result = await call(prepared);
+        const elapsed = Date.now() - started;
+        expect(result.isError).toBe(false);
+        fastest = Math.min(fastest, elapsed);
+      }
+      return fastest;
+    };
+    const scrollMs = await best(
+      () => Promise.resolve(null),
+      () => mcpTool(request, token, 'scroll', { target: { by: 'lines', amount: 1 } }),
+    );
+    const replaceMs = await best(
+      async () => ((await mcpTool(request, token, 'get_editor_state')).payload as BridgeStatePayload).state.revision,
+      (revision) => mcpTool(request, token, 'replace_selection', { revision: revision as string, text: '.' }),
+    );
+    test.info().annotations.push({ type: 'round-trip', description: `scroll ${scrollMs}ms, replace_selection ${replaceMs}ms` });
+    expect(scrollMs).toBeLessThan(1_000);
+    expect(replaceMs).toBeLessThan(1_000);
+  } finally {
+    await request.delete(`${HOSTED}/api/me/files/settings.json`, { headers });
+    await request.delete(`${HOSTED}/api/workspaces/${id}`, { headers });
   }
 });

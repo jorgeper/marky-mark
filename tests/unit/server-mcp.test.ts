@@ -234,11 +234,13 @@ describe('PRD 027 Reqs 5+6 (issue #365) MCP endpoint', () => {
     expect(withSession.status).toBe(200);
   });
 
-  it('U1411: tools/list is exactly the five file tools, each a closed object schema with a required list, and no schema mentions a workspace', async () => {
+  it('U1411: tools/list is the five file tools first, each a closed object schema with a required list, and no schema mentions a workspace', async () => {
     const { token } = await bridgeWorkspace('Tools');
     const body = (await (await rpc(token, 'tools/list')).json()) as RpcBody;
     const tools = (body.result as { tools: { name: string; description: string; inputSchema: Record<string, unknown> }[] }).tools;
-    expect(tools.map((t) => t.name)).toEqual(['get_workspace', 'list_files', 'read_file', 'create_file', 'write_file']);
+    // Issue #367 mounted the nine session tools after the five (U1427 pins
+    // the full fourteen); the file tools' order and shape are unchanged.
+    expect(tools.slice(0, 5).map((t) => t.name)).toEqual(['get_workspace', 'list_files', 'read_file', 'create_file', 'write_file']);
     expect(tools).toEqual(MCP_TOOLS);
     for (const tool of tools) {
       expect(tool.description.length, tool.name).toBeGreaterThan(0);
@@ -247,10 +249,6 @@ describe('PRD 027 Reqs 5+6 (issue #365) MCP endpoint', () => {
       expect(Array.isArray(tool.inputSchema.required), tool.name).toBe(true);
       // PRD 027 Req 5: the token identifies the workspace — no tool takes one.
       expect(JSON.stringify(tool.inputSchema).toLowerCase(), tool.name).not.toContain('workspace');
-    }
-    // No session tools (issue #367): none of the nine names is registered.
-    for (const name of ['get_editor_state', 'open_file', 'scroll', 'set_selection', 'replace_selection', 'insert_text', 'replace_range', 'apply_format', 'save']) {
-      expect(tools.some((t) => t.name === name), name).toBe(false);
     }
   });
 

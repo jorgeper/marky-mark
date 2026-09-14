@@ -446,7 +446,7 @@ end. Saving restarts the app.
 | `MM_STORAGE_CONTAINER` | `marky-mark` | only needed if you named the container something else, but setting it explicitly is harmless |
 | `SCM_DO_BUILD_DURING_DEPLOYMENT` | `false` | tells App Service to deploy your payload as-is rather than running its own build, which would fail here |
 | `MM_ADMINS` | comma-separated object IDs | **optional** — the deployment admins. For each admin: **Entra ID → Users →** open the user **→ Object ID** (copy button next to it). Leave unset for no admins. |
-| `MM_AGENT_BRIDGE` | `1` | **optional, experimental** — turns on the agent bridge (workspace-scoped agent tokens minted from the app's Manage tab). Leave unset, or set `0`, to keep it off — the default. Any other value refuses to start. |
+| `MM_AGENT_BRIDGE` | `1` | **optional, experimental** — turns on the agent bridge (workspace-scoped agent tokens minted from the app's Manage tab, the MCP endpoint, and the agent-control channel). Leave unset, or set `0`, to keep it off — the default. Any other value refuses to start. If you set it, also turn on **Settings → Configuration → General settings → Web sockets: On** — the agent-control channel is a WebSocket, and App Service refuses upgrades until that switch is on. |
 
 > **Do not add a `PORT` setting.** App Service injects one, and the server listens
 > on whatever it's given. Pin it to your own number and the platform's health

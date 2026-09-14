@@ -19,6 +19,16 @@ import type { BridgeExecutor } from '../lib/agentBridgeClient';
  */
 export type WriteResult = void | { merged: true; content: string };
 
+/** PRD 027 Req 9 (issue #367): where the agent-control channel stands. */
+export type AgentControlState = 'off' | 'connecting' | 'on';
+
+/** PRD 027 Req 9+10 (issue #367): the agent-control seam (see `Platform.agentControl`). */
+export interface AgentControl {
+  enable(): void;
+  disable(): void;
+  subscribe(cb: (state: AgentControlState) => void): () => void;
+}
+
 /**
  * The single seam between the app and the host (SPEC FR-6). Everything that
  * touches the filesystem, dialogs, paths, or the window goes through this
@@ -411,6 +421,21 @@ export interface Platform {
    * site — the executor simply idles.
    */
   attachAgentBridge?(executor: BridgeExecutor): () => void;
+
+  /**
+   * PRD 027 Req 9+10 (issue #367): the user's control over the agent-bridge
+   * channel — the seam behind the agent-control toggle and indicator.
+   * Implemented ONLY by the hosted flavor, and only when the page is bound
+   * to a workspace: `enable()` opens the one same-origin WebSocket to the
+   * workspace's agent-session route (authenticated with the stored session
+   * token) and drives the attached executor over it; `disable()` closes it.
+   * The state goes `'off'` → `'connecting'` → `'on'`, and back to `'off'`
+   * when the user disables, when another tab takes over
+   * (`session_replaced`), or when the socket closes or errors. `subscribe`
+   * calls back with the current state at once, then on every change. Hosts
+   * without the seam render no toggle and open no channel.
+   */
+  agentControl?: AgentControl;
 
   updates?: {
     /** null ⇒ already up to date. Throws on network/manifest/signature errors. */
