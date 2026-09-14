@@ -1,0 +1,283 @@
+// PRD 027 Req 13 (issue #366): the client half of the agent bridge — the
+// ONE pure module that executes a `BridgeToolRequest` against the editor.
+// Every capability arrives injected: the `@marky-mark/editor` public handles
+// (through getters, because the handles are null outside edit mode), the
+// host's document (path, canonical buffer, dirty flag), the `EditStateReport`
+// feed, and the two registry commands (open a path, save). Nothing here knows
+// a transport (issue #367 adds the WebSocket), the DOM, React or CodeMirror:
+// the executor is unit-tested with plain fake handles.
+
+import type { EditStateReport, EditorSyncHandle, SelectSourceRange, SmartEditHandle } from '@marky-mark/editor';
+import {
+  isMutatingTool,
+  type BridgeError,
+  type BridgeToolName,
+  type BridgeToolRequest,
+  type BridgeToolRequestFor,
+  type BridgeToolResult,
+  type EditorStateSnapshot,
+  type MutatingToolName,
+} from './agentBridgeProtocol';
+import { parseSections } from './sectionModel';
+
+/**
+ * PRD 027 Req 13 (issue #366): the host's view of the open document.
+ * `content` is the CANONICAL buffer (as `SmartEditHandle.canonicalText`
+ * defines it — the compact tables, never the grid display); `path` is
+ * `null` for no document or an untitled one.
+ */
+export interface BridgeDocument {
+  path: string | null;
+  content: string;
+  dirty: boolean;
+}
+
+/** PRD 027 Req 13 (issue #366): everything the executor reaches the app through. */
+export interface BridgeExecutorDeps {
+  /** The Smart Edit handle — `null` outside edit mode. */
+  smartEdit(): SmartEditHandle | null;
+  /** The scroll-sync handle — `null` outside edit mode. */
+  editorSync(): EditorSyncHandle | null;
+  /** The canonical select seam — `null` outside edit mode. */
+  selectRange(): SelectSourceRange | null;
+  /** The host's document state (a live read — never cached here). */
+  document(): BridgeDocument;
+  /** Open a workspace path through the command registry (`dispatchRecent`). */
+  openFile(path: string): Promise<void>;
+  /** Save through the registry's own save handler; `false` when refused. */
+  save(): Promise<boolean>;
+  /**
+   * How long `open_file` / `save` wait for the host's document state to
+   * reflect the command (the registry handlers are fire-and-forget and the
+   * host's React state lands on a later commit). Default 3000 ms.
+   */
+  settleMs?: number;
+}
+
+/** PRD 027 Req 13 (issue #366): the executor a transport (issue #367) drives. */
+export interface BridgeExecutor {
+  /** Run one tool request; never throws — every failure is a typed result. */
+  execute(request: BridgeToolRequest): Promise<BridgeToolResult>;
+  /** The current editor state, revision included (recomputed on every call). */
+  snapshot(): EditorStateSnapshot;
+  /** The `EditStateReport` feed: the app hands over every `onEditState` report. */
+  onEditState(report: EditStateReport): void;
+}
+
+/**
+ * PRD 027 Req 8 (issue #366): the buffer revision — a deterministic hash of
+ * the buffer identity (`path` + canonical `content`), so it changes exactly
+ * when either does and is stable while neither does, with no counter to
+ * keep in step with the host. FNV-1a over the UTF-16 code units, prefixed
+ * with the content length so two buffers that collide on the hash still
+ * differ unless they are also the same size. Opaque to the agent.
+ */
+export function bufferRevision(path: string | null, content: string): string {
+  const input = `${path ?? ''}\0${content}`;
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `${content.length.toString(36)}-${hash.toString(16).padStart(8, '0')}`;
+}
+
+/**
+ * PRD 027 Req 13 (issue #366): resolve a heading's text to its 1-based
+ * canonical line through `parseSections` — an exact match after trimming
+ * first, then case-insensitive; `null` when no heading carries the text.
+ */
+export function headingLineOf(content: string, heading: string): number | null {
+  const wanted = heading.trim();
+  const headings = parseSections(content).headings;
+  const exact = headings.find((h) => h.title.trim() === wanted);
+  if (exact) return exact.line;
+  const folded = wanted.toLowerCase();
+  const loose = headings.find((h) => h.title.trim().toLowerCase() === folded);
+  return loose ? loose.line : null;
+}
+
+const NOT_EDITING = 'editor is not in edit mode';
+const DEFAULT_SETTLE_MS = 3000;
+const SETTLE_POLL_MS = 15;
+
+/** What a handler answers: success (the executor appends the fresh snapshot) or one error. */
+type Outcome = 'ok' | BridgeError;
+
+interface HandlerContext {
+  deps: BridgeExecutorDeps;
+  /** The last edit-state report, or a zero report before any arrived. */
+  report(): EditStateReport;
+  /** The live canonical content (the handle first, the host's buffer otherwise). */
+  content(): string;
+  /** Wait until `ready` holds or the settle window elapses; the final answer. */
+  settle(ready: () => boolean): Promise<boolean>;
+}
+
+type Handler<T extends BridgeToolName> = (
+  request: BridgeToolRequestFor<T>,
+  ctx: HandlerContext
+) => Outcome | Promise<Outcome>;
+
+const fail = (message: string): BridgeError => ({ code: 'tool_failed', message });
+
+/** PRD 027 Req 12 (issue #366): the one edit path the three text tools share — a canonical replace on the handle. */
+function replaceCanonical(ctx: HandlerContext, from: number, to: number, text: string): Outcome {
+  const smart = ctx.deps.smartEdit();
+  if (!smart) return fail(NOT_EDITING);
+  smart.replaceRange(from, to, text);
+  return 'ok';
+}
+
+// PRD 027 Req 13 (issue #366): one handler per tool, keyed by the protocol's
+// union — a tool added to `BRIDGE_TOOL_NAMES` without a handler here fails
+// `npm run typecheck` (the `REQUEST_DECODERS` precedent).
+const HANDLERS: { [T in BridgeToolName]: Handler<T> } = {
+  get_editor_state: () => 'ok',
+  open_file: async (request, ctx) => {
+    await ctx.deps.openFile(request.path);
+    const landed = await ctx.settle(() => ctx.deps.document().path === request.path);
+    return landed ? 'ok' : fail(`could not open ${request.path}`);
+  },
+  scroll: (request, ctx) => {
+    const sync = ctx.deps.editorSync();
+    if (!sync) return fail(NOT_EDITING);
+    const target = request.target;
+    // Scroll-only: `scrollToLine` moves the viewport, never the caret.
+    if ('by' in target) {
+      const unit = target.by === 'pages' ? sync.viewportLines() : 1;
+      sync.scrollToLine(Math.max(1, sync.topLine() + target.amount * unit));
+      return 'ok';
+    }
+    if (target.to === 'line') {
+      sync.scrollToLine(Math.max(1, target.line));
+      return 'ok';
+    }
+    const line = headingLineOf(ctx.content(), target.heading);
+    if (line === null) return fail(`heading not found: ${target.heading}`);
+    sync.scrollToLine(line);
+    return 'ok';
+  },
+  set_selection: (request, ctx) => {
+    const select = ctx.deps.selectRange();
+    if (!select) return fail(NOT_EDITING);
+    select(request.from, request.to, { reveal: true });
+    return 'ok';
+  },
+  replace_selection: (request, ctx) => {
+    const { selFrom, selTo } = ctx.report();
+    return replaceCanonical(ctx, selFrom, selTo, request.text);
+  },
+  insert_text: (request, ctx) => {
+    // At the caret, or over the current range — typing semantics.
+    const { selFrom, selTo } = ctx.report();
+    return replaceCanonical(ctx, selFrom, selTo, request.text);
+  },
+  replace_range: (request, ctx) => replaceCanonical(ctx, request.from, request.to, request.text),
+  apply_format: (request, ctx) => {
+    const smart = ctx.deps.smartEdit();
+    if (!smart) return fail(NOT_EDITING);
+    smart.applyFormat(request.op);
+    return 'ok';
+  },
+  save: async (_request, ctx) => {
+    const saved = await ctx.deps.save();
+    // A refused save (no document, no edit grant, a 412 the user declined)
+    // is a typed failure; the hosted save path and its dialog are untouched.
+    if (!saved) return fail('save was refused');
+    // The host's dirty flag lands on a later commit; give it the settle window.
+    await ctx.settle(() => !ctx.deps.document().dirty);
+    return 'ok';
+  },
+};
+
+const ZERO_REPORT: EditStateReport = {
+  canonHead: 0,
+  head: 0,
+  headLine: 1,
+  selFrom: 0,
+  selTo: 0,
+  selAnchor: 0,
+  selHead: 0,
+  selText: '',
+  focused: false,
+  selectionSet: false,
+  origin: 'host',
+};
+
+function isMutatingRequest(request: BridgeToolRequest): request is BridgeToolRequestFor<MutatingToolName> {
+  return isMutatingTool(request.tool);
+}
+
+/** PRD 027 Req 13 (issue #366): build the executor over the injected deps. */
+export function createBridgeExecutor(deps: BridgeExecutorDeps): BridgeExecutor {
+  let last: EditStateReport = ZERO_REPORT;
+  const settleMs = deps.settleMs ?? DEFAULT_SETTLE_MS;
+
+  const content = (): string => deps.smartEdit()?.documentText() ?? deps.document().content;
+
+  const snapshot = (): EditorStateSnapshot => {
+    const doc = deps.document();
+    const text = content();
+    const clamp = (n: number) => Math.max(0, Math.min(n, text.length));
+    const totalLines = text.split('\n').length;
+    const from = clamp(last.selFrom);
+    const to = Math.max(from, clamp(last.selTo));
+    return {
+      path: doc.path,
+      // The live text: after a dispatch the host's buffer lags until React
+      // commits, so the text — and the dirty flag it implies — come from the
+      // handle, not from a stale render.
+      content: text,
+      dirty: doc.dirty || text !== doc.content,
+      cursor: { offset: clamp(last.canonHead), line: Math.max(1, Math.min(last.headLine, totalLines)) },
+      selection: { from, to, text: text.slice(from, to) },
+      scroll: { topLine: deps.editorSync()?.topLine() ?? 1, totalLines },
+      // PRD 027 Req 8: recomputed on every call, never cached.
+      revision: bufferRevision(doc.path, text),
+    };
+  };
+
+  const settle = (ready: () => boolean): Promise<boolean> =>
+    new Promise((resolve) => {
+      const deadline = Date.now() + settleMs;
+      const poll = () => {
+        if (ready()) return resolve(true);
+        if (Date.now() >= deadline) return resolve(false);
+        setTimeout(poll, SETTLE_POLL_MS);
+      };
+      poll();
+    });
+
+  const ctx: HandlerContext = { deps, report: () => last, content, settle };
+
+  return {
+    onEditState(report) {
+      last = report;
+    },
+    snapshot,
+    async execute(request) {
+      const { id } = request;
+      try {
+        // PRD 027 Req 8 (issue #366): the revision guard — a mutating request
+        // whose revision is not the live buffer's performs NO edit and hands
+        // back the fresh state so the agent re-reads and retries.
+        if (isMutatingRequest(request)) {
+          const state = snapshot();
+          if (request.revision !== state.revision) {
+            const message = `revision ${request.revision} is stale; the buffer is at ${state.revision}`;
+            return { ok: false, id, error: { code: 'stale_revision', message, state } };
+          }
+        }
+        // The cast widens the per-tool handler union to one signature: TS
+        // cannot correlate `request.tool` with the request it discriminates.
+        const handler = HANDLERS[request.tool] as Handler<BridgeToolName>;
+        const outcome = await handler(request, ctx);
+        if (outcome !== 'ok') return { ok: false, id, error: outcome };
+        return { ok: true, id, state: snapshot() };
+      } catch (e) {
+        return { ok: false, id, error: fail(e instanceof Error ? e.message : String(e)) };
+      }
+    },
+  };
+}

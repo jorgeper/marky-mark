@@ -87,7 +87,9 @@ import {
   type SidebarView,
   type ViewMode,
 } from './lib/settings';
-import { dispatchCommand, registerCommands, registerRecentHandler, type CommandId } from './lib/commands';
+import { dispatchCommand, dispatchRecent, registerCommands, registerRecentHandler, type CommandId } from './lib/commands';
+import { useAgentBridge } from './hooks/useAgentBridge';
+import type { BridgeExecutor } from './lib/agentBridgeClient';
 import { previewLinkAction } from './lib/previewLinks';
 import { buildMenuSpec, type ViewMenuState } from './lib/menuSpec';
 import { deriveAppMode } from './lib/appMode';
@@ -934,6 +936,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   /** SPEC43 §5.2: the mounted editor's Smart Edit handle — null in preview,
    * so every format command is a silent no-op there. */
   const smartEditRef = useRef<SmartEditHandle | null>(null);
+  // PRD 027 Req 13 (issue #366): the agent-bridge executor, fed every edit
+  // state report below; built by `useAgentBridge` once saveDoc exists.
+  const agentBridgeRef = useRef<BridgeExecutor | null>(null);
   /** SPEC30 §1.3: preview match mark groups, index-aligned with the count. */
   const findMarksRef = useRef<HTMLElement[][]>([]);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1636,6 +1641,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   const handleEditState = useCallback(
     (s: EditStateReport) => {
       seamEditState(s);
+      agentBridgeRef.current?.onEditState(s); // PRD 027 Req 13 (issue #366)
       lastEditorSelRef.current = { from: s.selFrom, to: s.selTo }; // SPEC25 §2.1
       const st = stateRef.current;
       if (st.mode !== 'edit' || !st.settings.splitEdit) return;
@@ -4084,6 +4090,24 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     }
     return true;
   }, [persistComments, saveDocAs, showNotice]);
+
+  // PRD 027 Req 13 (issue #366): the agent-bridge executor over the editor
+  // handle refs and the registry's own open/save paths — `dispatchRecent`
+  // for a path (the same channel Open Recent uses) and `saveDoc` behind the
+  // same edit-grant check the `save` command applies. No second open or
+  // save implementation; the platform seam decides whether any transport
+  // reaches it (the dev/e2e shim only, until issue #367).
+  agentBridgeRef.current = useAgentBridge(platform, {
+    smartEditRef,
+    editorSyncRef,
+    editorSelectRef,
+    document: () => {
+      const s = stateRef.current;
+      return { path: s.docPath, content: canonicalOf(s.buffer), dirty: s.dirty };
+    },
+    openFile: async (path) => dispatchRecent(path, 'file'),
+    save: () => (stateRef.current.docGrants.edit ? saveDoc() : Promise.resolve(false)),
+  });
 
   /**
    * PRD 007 Req 20: the conflict prompt's three answers, run through the
