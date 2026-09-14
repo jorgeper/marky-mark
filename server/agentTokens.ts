@@ -18,7 +18,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { AgentTokenRow, MintedAgentToken } from '../src/lib/workspaceLifecycle.ts';
 import type { StorageProvider } from './providers/types.ts';
-import { WORKSPACES_PREFIX } from './workspaces.ts';
+import { WORKSPACES_PREFIX } from './workspaceFiles.ts';
 
 // PRD 027 Req 3: the wire shapes are shared with the client (one definition,
 // in src/lib) and re-exported here so this module's consumers name them

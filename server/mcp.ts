@@ -87,13 +87,14 @@ interface ToolError {
   error: { code: ToolErrorCode; message: string; path?: string; etag?: string; content?: string };
 }
 
-type ToolOutcome = { ok: true; result: unknown } | { ok: false; error: ToolError['error'] };
+type ToolFailure = { ok: false; error: ToolError['error'] };
+type ToolOutcome = { ok: true; result: unknown } | ToolFailure;
 
 const toolError = (
   code: ToolErrorCode,
   message: string,
   extra: Omit<ToolError['error'], 'code' | 'message'> = {},
-): ToolOutcome => ({ ok: false, error: { code, message, ...extra } });
+): ToolFailure => ({ ok: false, error: { code, message, ...extra } });
 
 /** A JSON-Schema object with no workspace property — the token carries it. */
 interface ToolSchema {
@@ -198,12 +199,13 @@ function checkArguments(spec: ToolSpec, args: unknown): Record<string, string> |
  * scope, exactly like a path under another workspace), then the route
  * layer's own path rule. Answers the clean relative path or a tool error.
  */
-function scopedFilePath(ctx: ToolContext, rawPath: string): { path: string } | ToolOutcome {
-  const scope = checkAgentTokenScope(ctx.resolved, ctx.resolved.workspaceId, filesPrefix(ctx.resolved.workspaceId) + rawPath);
+function scopedFilePath(ctx: ToolContext, rawPath: string): { ok: true; path: string } | ToolFailure {
+  const { workspaceId } = ctx.resolved;
+  const scope = checkAgentTokenScope(ctx.resolved, workspaceId, filesPrefix(workspaceId) + rawPath);
   if (!scope.ok) return toolError(scope.error.code, scope.error.message, { path: rawPath });
   const filePath = cleanRelativePath(rawPath);
   if (!filePath) return toolError('invalid_path', 'invalid file path', { path: rawPath });
-  return { path: filePath };
+  return { ok: true, path: filePath };
 }
 
 const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
@@ -239,7 +241,7 @@ async function callTool(ctx: ToolContext, name: string, rawArgs: unknown): Promi
   }
 
   const scoped = scopedFilePath(ctx, args.path);
-  if (!('path' in scoped)) return scoped;
+  if (!scoped.ok) return scoped;
   const filePath = scoped.path;
 
   if (name === 'read_file') {
@@ -311,9 +313,7 @@ async function dispatch(ctx: ToolContext, request: JsonRpcRequest): Promise<RpcA
       // The client's revision is echoed when the server speaks it; otherwise
       // the newest one the server supports, as the MCP spec directs.
       const asked = params.protocolVersion;
-      const protocolVersion = (PROTOCOL_VERSIONS as readonly string[]).includes(asked as string)
-        ? (asked as string)
-        : PROTOCOL_VERSIONS[0];
+      const protocolVersion = PROTOCOL_VERSIONS.find((v) => v === asked) ?? PROTOCOL_VERSIONS[0];
       return { result: { protocolVersion, capabilities: { tools: {} }, serverInfo: SERVER_INFO } };
     }
     case 'ping':
