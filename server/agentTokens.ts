@@ -16,20 +16,14 @@
 // plaintext is never stored, never logged and never answered after mint.
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import type { AgentTokenRow, MintedAgentToken } from '../src/lib/workspaceLifecycle.ts';
 import type { StorageProvider } from './providers/types.ts';
 import { WORKSPACES_PREFIX } from './workspaces.ts';
 
-/** PRD 027 Req 3: what a list row carries — never the plaintext. */
-export interface AgentTokenRow {
-  id: string;
-  label: string;
-  createdAt: string;
-}
-
-/** PRD 027 Req 3: the mint answer — the row plus the plaintext, exactly once. */
-export interface MintedAgentToken extends AgentTokenRow {
-  token: string;
-}
+// PRD 027 Req 3: the wire shapes are shared with the client (one definition,
+// in src/lib) and re-exported here so this module's consumers name them
+// beside the functions that produce them.
+export type { AgentTokenRow, MintedAgentToken };
 
 /** PRD 027 Req 4: what a live token resolves to. */
 export interface ResolvedAgentToken {
@@ -49,6 +43,8 @@ export const AGENT_TOKEN_SCOPE_ERROR = {
 export type AgentTokenScopeCheck =
   | { ok: true }
   | { ok: false; error: typeof AGENT_TOKEN_SCOPE_ERROR };
+
+const OUT_OF_SCOPE: AgentTokenScopeCheck = { ok: false, error: AGENT_TOKEN_SCOPE_ERROR };
 
 /**
  * The token text: a fixed prefix, the workspace id, and 32 bytes of CSPRNG
@@ -168,14 +164,12 @@ export function checkAgentTokenScope(
   workspaceId: string,
   path?: string,
 ): AgentTokenScopeCheck {
-  if (workspaceId !== resolved.workspaceId) return { ok: false, error: AGENT_TOKEN_SCOPE_ERROR };
+  if (workspaceId !== resolved.workspaceId) return OUT_OF_SCOPE;
   if (path !== undefined) {
     const prefix = `${WORKSPACES_PREFIX}${resolved.workspaceId}/`;
     // A normalised-looking path that climbs out of the prefix is out of scope
     // exactly like a path under another workspace.
-    if (!path.startsWith(prefix) || path.split('/').includes('..')) {
-      return { ok: false, error: AGENT_TOKEN_SCOPE_ERROR };
-    }
+    if (!path.startsWith(prefix) || path.split('/').includes('..')) return OUT_OF_SCOPE;
   }
   return { ok: true };
 }

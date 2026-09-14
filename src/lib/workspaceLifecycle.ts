@@ -55,6 +55,23 @@ export interface WorkspaceListing {
   scratchpad?: true;
 }
 
+/**
+ * PRD 027 Req 3: one agent token as the list route answers it and the Manage
+ * tab shows it — never the plaintext, never the hash. The ONE definition of
+ * the wire shape: server/agentTokens.ts writes it and
+ * src/platform/hostedWorkspaces.ts reads it, like `WorkspaceListing` above.
+ */
+export interface AgentTokenRow {
+  id: string;
+  label: string;
+  createdAt: string;
+}
+
+/** PRD 027 Req 3: the mint answer — the row plus the plaintext, exactly once. */
+export interface MintedAgentToken extends AgentTokenRow {
+  token: string;
+}
+
 /** PRD 007 Req 10: the New Workspace form's state, exactly as the user sees it. */
 export interface NewWorkspaceForm {
   /**

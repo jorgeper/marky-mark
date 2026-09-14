@@ -22,19 +22,17 @@ import {
   type WorkspaceManifest,
   type WorkspaceMember,
 } from '../lib/hostedWorkspace';
-import { suggestionFrom, type WorkspaceListing } from '../lib/workspaceLifecycle';
+import {
+  suggestionFrom,
+  type AgentTokenRow,
+  type MintedAgentToken,
+  type WorkspaceListing,
+} from '../lib/workspaceLifecycle';
 
-/** PRD 027 Req 3: one agent token as the list shows it — never the plaintext. */
-export interface AgentTokenRow {
-  id: string;
-  label: string;
-  createdAt: string;
-}
-
-/** PRD 027 Req 3: the mint answer — the row plus the plaintext, shown once. */
-export interface MintedAgentToken extends AgentTokenRow {
-  token: string;
-}
+// PRD 027 Req 3: the agent-token wire shapes — one definition, shared with
+// server/agentTokens.ts through src/lib, and re-exported beside the seam
+// that answers them.
+export type { AgentTokenRow, MintedAgentToken };
 
 /** The lifecycle seam the workspace UI is written against. */
 export interface WorkspaceLifecycle {

@@ -344,10 +344,11 @@ const EXPERIMENTAL_FEATURES: Array<{
  * PRD 025 Req 4 (generalizing issue #247): whether a route names a nested
  * page rather than a tab — read off the registry above, so a third page is
  * one more `page` descriptor and never another literal here.
+ *
+ * PRD 027 Req 1: an entry with no `page` compares `undefined === undefined`
+ * against an absent route, so the absent route is answered first — otherwise
+ * a page-less experiment would open the panel on Experimental by default.
  */
-// PRD 027 Req 1: an entry with no `page` compares `undefined === undefined`
-// against an absent route, so the absent route is answered first — otherwise
-// a page-less experiment would open the panel on Experimental by default.
 const isPageRoute = (route: SettingsRoute | undefined): route is SettingsPageId =>
   route !== undefined && EXPERIMENTAL_FEATURES.some((f) => f.page?.id === route);
 
