@@ -58,7 +58,9 @@ session here can run the tiers for you:
   [`server/README.md`](../server/README.md)
   is its backend reference and
   [HOSTING-AZURE.md](HOSTING-AZURE.md) the operator guide for deploying it
-  to a real subscription.
+  to a real subscription. [AGENT-BRIDGE.md](AGENT-BRIDGE.md) walks through
+  connecting Claude Code to a workspace over the experimental agent bridge
+  (`MM_AGENT_BRIDGE=1 npm run server:local`).
 - The dev shim (`npm run dev`) exposes `window.__mmfs`, `__mmMenu`
   (under `?nativeMenu=1`), and `__mmEdit` — the same seams the e2e
   suite drives.

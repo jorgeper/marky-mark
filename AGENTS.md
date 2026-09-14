@@ -94,5 +94,6 @@ Other roots in one breath: `src/` is the React app (`App.tsx` shell,
 `scripts/` repo tooling (`validate.mjs`, `map.mjs`, release scripts),
 `themes/` the bundled themes, and the rest of `docs/` holds DEVELOPING,
 RELEASING, WINDOWS, HOSTING-AZURE and HOSTING-AZURE-PORTAL (the two
-operator guides — CLI and portal walkthroughs of the one backend), and
+operator guides — CLI and portal walkthroughs of the one backend),
+AGENT-BRIDGE (connecting Claude Code to a hosted workspace) and
 COMMENT-FORMAT.

@@ -385,7 +385,9 @@ az webapp config set --name "$APP" --resource-group "$RG" \
 If you turn the agent bridge on (`MM_AGENT_BRIDGE=1`), also enable WebSocket
 support — App Service closes upgrade requests otherwise, and the app's
 agent-control toggle would never connect (file tools over `/api/mcp` still
-work without it):
+work without it). [AGENT-BRIDGE.md](AGENT-BRIDGE.md) is the end-to-end
+setup from here: the experimental setting, minting a token, the
+`claude mcp add` line and opting a tab in.
 
 ```sh
 az webapp config set --name "$APP" --resource-group "$RG" \

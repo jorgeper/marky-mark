@@ -243,3 +243,28 @@ describe('SPEC20 follow-up (issue #266) hosted Insert Image… upload', () => {
     }
   });
 });
+
+describe('PRD 027 Req 15a (issue #368) hosted listing refresh on a miss', () => {
+  it('U1434: a file another client created after the tab listed the workspace exists on the next ask — one fresh listing — and the directory then shows it', async () => {
+    const h = await harness();
+    try {
+      const id = await h.workspace('ada');
+      const root = hostedFilesRoot(id);
+      expect((await h.call('ada', 'PUT', `/api/workspaces/${id}/files/first.md`, '# first\n')).status).toBe(200);
+      await withHostedPlatform(h, id, 'mock:ada', async (platform) => {
+        // The tab lists the workspace once: the listing is now cached.
+        expect(await platform.readDirNames(root)).toEqual(['first.md']);
+        // Another client — an agent's create_file over /api/mcp — adds a file.
+        expect((await h.call('ada', 'PUT', `/api/workspaces/${id}/files/agent-note.md`, '# note\n')).status).toBe(200);
+        // A miss re-lists once instead of answering from the stale cache…
+        expect(await platform.exists(`${root}/agent-note.md`)).toBe(true);
+        // …and the refreshed listing is what the tree reads next.
+        expect([...(await platform.readDirNames(root))].sort()).toEqual(['agent-note.md', 'first.md']);
+        // A path nobody made is still absent after its own fresh listing.
+        expect(await platform.exists(`${root}/nobody.md`)).toBe(false);
+      });
+    } finally {
+      await h.close();
+    }
+  });
+});

@@ -304,6 +304,10 @@ claude mcp add --transport http marky-mark https://<origin>/api/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
+The owner-facing walkthrough — flag, setting, token, this line, opting a
+tab in, the three demo prompts — is
+[`docs/AGENT-BRIDGE.md`](../docs/AGENT-BRIDGE.md) (PRD 027 Req 16).
+
 Unit tests: `tests/unit/agent-tokens.test.ts`, `tests/unit/server-mcp.test.ts`,
 `tests/unit/agent-bridge-protocol.test.ts`,
 `tests/unit/server-agent-bridge.test.ts`,

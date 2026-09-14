@@ -548,8 +548,16 @@ export function createHostedPlatform(): Platform {
       // A workspace's files root always exists — it is the prefix itself, and
       // an empty new workspace must still open as an available folder.
       if (!target.rel) return true;
-      const paths = await relPathsOf(target);
-      return paths.some((p) => p === target.rel || p.startsWith(`${target.rel}/`));
+      const listed = (paths: string[]) => paths.some((p) => p === target.rel || p.startsWith(`${target.rel}/`));
+      if (listed(await relPathsOf(target))) return true;
+      // PRD 027 Req 15a (issue #368): the listing is cached per tab and only
+      // this tab's own writes invalidate it, so a file another client made
+      // since — an agent's `create_file` over /api/mcp, another member — is
+      // missing from it. A miss costs one fresh listing before answering
+      // false: the agent's `open_file` then lands, and the SPEC34 §5
+      // re-list on open shows the new file in the tree.
+      invalidate(target);
+      return listed(await relPathsOf(target));
     },
 
     async remove(path) {

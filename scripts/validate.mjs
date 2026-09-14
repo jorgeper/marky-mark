@@ -370,7 +370,11 @@ record('editor package boundary', Date.now() - boundaryStart);
 // added E486-E489 (the footer's placement across tabs, Save committing the
 // pending edits, Cancel's discard confirmation, and the Esc / scrim routes)
 // on top of the collected 475. Re-pinned to the collected count.
-const E2E_TEST_FLOOR = 479;
+// 650 as of issue #368 (PRD 027 Reqs 15+16): E659–E661 — the three agent
+// bridge anchor demos over the real /api/mcp endpoint and an opted-in tab
+// (hosted.spec.ts). The floor had drifted 168 behind the suite (647
+// collected before this issue). Re-pinned to the collected count.
+const E2E_TEST_FLOOR = 650;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {

@@ -9597,3 +9597,209 @@ test('E658: PRD 027 Req 11 — against an idle opted-in tab, a scroll and a repl
     await request.delete(`${HOSTED}/api/workspaces/${id}`, { headers });
   }
 });
+
+// PRD 027 Req 15 (issue #368): the three anchor demos, end to end through
+// the real seams — a token minted through the route, every agent action a
+// `tools/call` over `POST /api/mcp`, a real tab opted in through the
+// agent-control toggle. No dev-shim transport, no `page.evaluate` into app
+// internals. The hosted session tools take the app's OWN document path
+// (`/w/<id>/files/<rel>` — `hostedFilesRoot`), which is what
+// `get_editor_state` reports and what `open_file` compares against; the
+// file tools take the workspace-relative path the files route uses.
+
+/**
+ * PRD 027 Req 15: a fresh workspace seeded with `files` (PUT through the
+ * files route BEFORE the tab signs in, so its first listing shows them),
+ * the tab signed in, the experiment on and the tab opted in.
+ */
+async function controlledTab(
+  page: Page,
+  request: APIRequestContext,
+  name: string,
+  files: Record<string, string> = {},
+): Promise<{ id: string; session: string; token: string }> {
+  const session = await signIn(request, 'grace');
+  const id = await createWorkspace(request, session, name);
+  const headers = { Authorization: `Bearer ${session}` };
+  for (const [path, data] of Object.entries(files)) {
+    expect((await request.put(`${HOSTED}/api/workspaces/${id}/files/${path}`, { headers, data })).status()).toBe(200);
+  }
+  const { token } = await mintToken(request, session, id);
+  await signInTo(page, 'grace', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await turnAgentBridgeOn(page);
+  await optIn(page);
+  return { id, session, token };
+}
+
+/** PRD 027 Req 15: drop the user's settings blob and the workspace, as E656–E658 do. */
+async function dropControlledTab(request: APIRequestContext, session: string, id: string): Promise<void> {
+  const headers = { Authorization: `Bearer ${session}` };
+  await request.delete(`${HOSTED}/api/me/files/settings.json`, { headers });
+  await request.delete(`${HOSTED}/api/workspaces/${id}`, { headers });
+}
+
+const DEMO_A_DOC = '# Hello from the agent\n\nThe agent created this file over MCP and opened it in the controlled tab.\n';
+
+test('E659: PRD 027 Req 15a — create_file then open_file over /api/mcp makes a new Markdown file appear in the folder tree of the controlled tab, open, and render, with no reload', async ({
+  page,
+  request,
+}) => {
+  // PRD 027 Req 15a (issue #368): demo a — the agent creates a file (a
+  // file tool: no browser involved) and opens it; the tab shows it.
+  // SPEC34 §5: opening a document re-lists its ancestor directories, so the
+  // new file is in the tree without a reload or a refresh control. (Cited
+  // here, above `test.info()`: docs/MAP.md's generator ends a test's
+  // citation range at the next `test…(` match, which that call is.)
+  const { id, session, token } = await controlledTab(page, request, `E659 w${test.info().workerIndex}`);
+  try {
+    await expect(page.getByTestId('folder-item').filter({ hasText: 'agent-note.md' })).toHaveCount(0);
+    const created = await mcpTool(request, token, 'create_file', { path: 'agent-note.md', content: DEMO_A_DOC });
+    expect(created.isError).toBe(false);
+    expect(created.payload).toMatchObject({ path: 'agent-note.md' });
+
+    const opened = await mcpTool(request, token, 'open_file', { path: `${hostedFilesRoot(id)}/agent-note.md` });
+    expect(opened.isError).toBe(false);
+    const state = (opened.payload as BridgeStatePayload).state;
+    expect(state.path).toBe(`${hostedFilesRoot(id)}/agent-note.md`);
+    expect(state.content).toBe(DEMO_A_DOC);
+
+    // The tree re-list on open (cited above) shows the new file at once.
+    await expect(page.getByTestId('folder-item').filter({ hasText: 'agent-note.md' })).toHaveCount(1);
+    await expect(page.getByTestId('docname')).toContainText('agent-note.md');
+    await expect(page.getByTestId('doc').locator('h1')).toContainText('Hello from the agent');
+    await expect(page.getByTestId('doc')).toContainText('The agent created this file over MCP');
+
+    // The stored bytes are what the agent gave — read back through the file tool.
+    const read = await mcpTool(request, token, 'read_file', { path: 'agent-note.md' });
+    expect(read.isError).toBe(false);
+    expect(read.payload).toMatchObject({ path: 'agent-note.md', content: DEMO_A_DOC });
+  } finally {
+    await dropControlledTab(request, session, id);
+  }
+});
+
+/** PRD 027 Req 15b: a generated long document — a heading and a few hundred numbered paragraphs. */
+const LONG_DOC = `# Long\n\n${Array.from({ length: 200 }, (_, i) => `Paragraph ${i + 1} of the long document.\n`).join('\n')}`;
+
+test('E660: PRD 027 Req 15b — with a long document open in edit mode, get_editor_state reports the scroll position and scroll by one page moves the viewport of the controlled tab', async ({
+  page,
+  request,
+}) => {
+  // PRD 027 Req 15b (issue #368): demo b — the agent reads where the tab
+  // is and scrolls it a page; the assertion is on direction and non-zero
+  // movement, never an exact line count.
+  const { id, session, token } = await controlledTab(page, request, `E660 w${test.info().workerIndex}`, { 'long.md': LONG_DOC });
+  try {
+    await openFromSidebar(page, 'long.md');
+    await intoEditMode(page);
+    // The editor's scroll container as edit mode lands (a small top offset is
+    // its own); the assertion below is on movement from here, not on zero.
+    const scroller = page.getByTestId('editor').locator('.cm-scroller');
+    const scrollTopBefore = await scroller.evaluate((el) => el.scrollTop);
+
+    const before = await mcpTool(request, token, 'get_editor_state');
+    expect(before.isError).toBe(false);
+    const start = (before.payload as BridgeScrollPayload).state.scroll;
+    expect(start.topLine).toBe(1);
+    expect(start.totalLines).toBe(LONG_DOC.split('\n').length);
+
+    const scrolled = await mcpTool(request, token, 'scroll', { target: { by: 'pages', amount: 1 } });
+    expect(scrolled.isError).toBe(false);
+
+    // The viewport moved: the editor's scroll container is off the top, and
+    // the top visible line the next snapshot reports is later than before.
+    await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(scrollTopBefore);
+    await expect
+      .poll(async () => ((await mcpTool(request, token, 'get_editor_state')).payload as BridgeScrollPayload).state.scroll.topLine)
+      .toBeGreaterThan(start.topLine);
+    await expect(page.getByTestId('editor').locator('.cm-line').filter({ hasText: /^# Long$/ })).not.toBeInViewport();
+  } finally {
+    await dropControlledTab(request, session, id);
+  }
+});
+
+/** A bridge tool's `{state}` payload with the scroll block, for E660. */
+interface BridgeScrollPayload {
+  state: { scroll: { topLine: number; totalLines: number } };
+}
+
+const DEMO_C_DOC = '# Transform\n\nalpha beta gamma\n\nThe closing line.\n';
+const DEMO_C_NEW = 'ALPHA BETA GAMMA';
+
+test('E661: PRD 027 Req 15c — a selection the user made is read via get_editor_state, replaced via replace_selection and formatted via apply_format, shows replaced and formatted in the tab, undoes one step per tool call, and stays dirty until the save tool persists it', async ({
+  page,
+  request,
+}) => {
+  // PRD 027 Req 15c (issue #368): demo c — the user selects, the agent
+  // transforms; each tool call is one undo step and nothing autosaves.
+  const { id, session, token } = await controlledTab(page, request, `E661 w${test.info().workerIndex}`, { 'transform.md': DEMO_C_DOC });
+  try {
+    await openFromSidebar(page, 'transform.md');
+    const content = await intoEditMode(page);
+    const stored = () => storedText(request, session, id, 'transform.md');
+
+    // The USER selects the passage: a click on its line, then Home and Shift+End.
+    const selectPassage = async () => {
+      await content.locator('.cm-line').filter({ hasText: /alpha beta gamma|ALPHA BETA GAMMA/ }).click();
+      await page.keyboard.press('Home');
+      await page.keyboard.press('Shift+End');
+    };
+    await selectPassage();
+    const read = await mcpTool(request, token, 'get_editor_state');
+    expect(read.isError).toBe(false);
+    const first = (read.payload as BridgeStatePayload).state;
+    expect(first.selection.text).toBe('alpha beta gamma');
+    expect(first.dirty).toBe(false);
+
+    /** Replace the selected passage, then bold it — two tool calls, two undo steps. */
+    const transform = async (revision: string): Promise<BridgeStatePayload['state']> => {
+      const replaced = await mcpTool(request, token, 'replace_selection', { revision, text: DEMO_C_NEW });
+      expect(replaced.isError).toBe(false);
+      const after = (replaced.payload as BridgeStatePayload).state;
+      expect(after.content).toBe(DEMO_C_DOC.replace('alpha beta gamma', DEMO_C_NEW));
+      expect(after.dirty).toBe(true);
+      expect(after.revision).not.toBe(revision);
+      await expect(content).toContainText(DEMO_C_NEW);
+      // The agent selects what it just wrote, then formats it as one step.
+      const from = after.content.indexOf(DEMO_C_NEW);
+      const selected = await mcpTool(request, token, 'set_selection', { from, to: from + DEMO_C_NEW.length });
+      expect(selected.isError).toBe(false);
+      const bold = await mcpTool(request, token, 'apply_format', { revision: after.revision, op: 'bold' });
+      expect(bold.isError).toBe(false);
+      const formatted = (bold.payload as BridgeStatePayload).state;
+      expect(formatted.content).toContain(`**${DEMO_C_NEW}**`);
+      expect(formatted.dirty).toBe(true);
+      expect(formatted.revision).not.toBe(after.revision);
+      await expect(content).toContainText(`**${DEMO_C_NEW}**`);
+      await expect(page.getByTestId('dirty-dot')).toBeVisible();
+      return formatted;
+    };
+    await transform(first.revision);
+    expect(await stored()).toBe(DEMO_C_DOC); // nothing autosaved
+
+    // One undo per tool call: the first walks back only the format…
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect(content).not.toContainText(`**${DEMO_C_NEW}**`);
+    await expect(content).toContainText(DEMO_C_NEW);
+    // …the second restores the passage the user had.
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect(content).toContainText('alpha beta gamma');
+    await expect(content).not.toContainText(DEMO_C_NEW);
+    expect(((await mcpTool(request, token, 'get_editor_state')).payload as BridgeStatePayload).state.content).toBe(DEMO_C_DOC);
+
+    // The transform again, now kept: dirty until the save TOOL persists it.
+    await selectPassage();
+    const again = (await mcpTool(request, token, 'get_editor_state')).payload as BridgeStatePayload;
+    expect(again.state.selection.text).toBe('alpha beta gamma');
+    const kept = await transform(again.state.revision);
+    expect(await stored()).toBe(DEMO_C_DOC);
+    const saved = await mcpTool(request, token, 'save');
+    expect(saved.isError).toBe(false);
+    expect((saved.payload as BridgeStatePayload).state.dirty).toBe(false);
+    expect(await stored()).toBe(kept.content);
+    await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  } finally {
+    await dropControlledTab(request, session, id);
+  }
+});
