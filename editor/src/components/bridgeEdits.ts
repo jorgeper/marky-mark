@@ -8,7 +8,7 @@
 import { isolateHistory } from '@codemirror/commands';
 import type { EditorState, TransactionSpec } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
-import { gridSeamOf } from './tableMode';
+import { displayRangeOf } from './tableMode';
 
 /**
  * The slice of an `EditorView` a bridge edit touches: the state it reads and
@@ -28,9 +28,9 @@ export interface BridgeEditTarget {
  * the view is NEVER focused (the agent's edit must not steal the user's
  * focus — `insertRef` does, which is why the bridge does not reuse it).
  *
- * SPEC40 §2 (issue #357): `from`/`to` are the host's canonical offsets; both
- * ends cross the grid seam before the dispatch (the `selectSourceRange`
- * precedent), then clamp into the document — a stale offset can never throw.
+ * SPEC40 §2 (issue #357): `from`/`to` are the host's canonical offsets;
+ * `displayRangeOf` crosses the grid seam and clamps them (the
+ * `selectSourceRange` precedent) — a stale offset can never throw.
  * Returns the raw range the edit replaced and the caret it left.
  */
 export function bridgeReplaceRange(
@@ -39,13 +39,7 @@ export function bridgeReplaceRange(
   to: number,
   text: string
 ): { from: number; to: number; caret: number } {
-  const len = view.state.doc.length;
-  const seam = gridSeamOf(view.state);
-  const a = seam.canonicalToDisplay(Math.min(from, to));
-  const b = seam.canonicalToDisplay(Math.max(from, to));
-  // Re-ordered after the crossing: the seam's snaps are not guaranteed monotone.
-  const start = Math.max(0, Math.min(Math.min(a, b), len));
-  const end = Math.max(start, Math.min(Math.max(a, b), len));
+  const { from: start, to: end } = displayRangeOf(view.state, from, to);
   const caret = start + text.length;
   view.dispatch({
     changes: { from: start, to: end, insert: text },

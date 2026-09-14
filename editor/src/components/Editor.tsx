@@ -151,6 +151,7 @@ import {
   canonicalLineMapper,
   gridGeometry,
   gridSeamOf,
+  displayRangeOf,
 } from './tableMode';
 import { diffLineMarks, diffRemovedBlocks, type DiffLineMark } from './diffMarks';
 import { bridgeReplaceRange, viewportLineCount } from './bridgeEdits';
@@ -1211,13 +1212,7 @@ function editStateReport(
  * range becomes the anchor's cell).
  */
 function selectSourceRange(view: EditorView, from: number, to: number, reveal: boolean): void {
-  const len = view.state.doc.length;
-  const seam = gridSeamOf(view.state);
-  const a = seam.canonicalToDisplay(Math.min(from, to));
-  const b = seam.canonicalToDisplay(Math.max(from, to));
-  // Re-ordered after the crossing: the seam's snaps are not guaranteed monotone.
-  const anchor = Math.max(0, Math.min(Math.min(a, b), len));
-  const head = Math.max(anchor, Math.min(Math.max(a, b), len));
+  const { from: anchor, to: head } = displayRangeOf(view.state, from, to);
   view.dispatch({
     selection: { anchor, head },
     effects: reveal ? EditorView.scrollIntoView(anchor, { y: 'center' }) : [],

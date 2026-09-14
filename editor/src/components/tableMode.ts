@@ -511,6 +511,23 @@ export function gridSeamOf(state: EditorState): GridSeam {
   return gridSeam(state.doc.toString(), gridGeometry(state));
 }
 
+/**
+ * SPEC40 §2 (issue #357): a CANONICAL `[from, to]` as the display range a
+ * dispatch can take — both ends cross the seam, are re-ordered after the
+ * crossing (the seam's snaps are not guaranteed monotone) and clamp into the
+ * document, so a stale offset can never throw. Shared by the host-driven
+ * moves (`selectSourceRange`, the bridge's `replaceRange`).
+ */
+export function displayRangeOf(state: EditorState, from: number, to: number): { from: number; to: number } {
+  const len = state.doc.length;
+  const seam = gridSeamOf(state);
+  const a = seam.canonicalToDisplay(Math.min(from, to));
+  const b = seam.canonicalToDisplay(Math.max(from, to));
+  const start = Math.max(0, Math.min(Math.min(a, b), len));
+  const end = Math.max(start, Math.min(Math.max(a, b), len));
+  return { from: start, to: end };
+}
+
 /** SPEC40 §2.2: grid every untracked valid table (history-transparent). */
 export function gridifyAll(view: EditorView, canonicalHint?: string): void {
   const set = view.state.field(tableModeField, false) ?? null;
