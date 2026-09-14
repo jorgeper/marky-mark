@@ -668,8 +668,13 @@ const mmHighlight = HighlightStyle.define([
 // so the highest-precedence one ends up deepest), putting its background above
 // the code background and below the code text, which stays legible.
 // `InlineCode` / `CodeText` are exactly the nodes @lezer/markdown gives
-// `tags.monospace`, i.e. the ones styled `mm-md-code` — minus an inline span's
-// `CodeMark` backticks, which are not (issue #359, below).
+// `tags.monospace`, i.e. the ones styled `mm-md-code`. An inline span's
+// `CodeMark` backticks are excluded (issue #359): @lezer/markdown styles them
+// `tags.processingInstruction`, so they are flat `.mm-md-mark` spans with no
+// `--mm-code-bg` — the drawn layer already shows through them, and a nested
+// tint would paint the selection a second time, in a darker shade than the
+// prose beside it. The tint belongs only where a code background hides the
+// drawn layer.
 const codeSelMark = Decoration.mark({ class: 'mm-code-sel' });
 
 function codeSelectionDeco(view: EditorView): DecorationSet {
@@ -687,18 +692,12 @@ function codeSelectionDeco(view: EditorView): DecorationSet {
       enter: (n) => {
         if (n.name === 'CodeText') code.push({ from: n.from, to: n.to });
         else if (n.name === 'InlineCode') {
-          // SPEC23 §3 (issue #359): tint only the text BETWEEN the backtick
-          // runs. @lezer/markdown styles the `CodeMark` children as
-          // `tags.processingInstruction`, so the backticks are flat
-          // `.mm-md-mark` spans with no `--mm-code-bg` — the drawn layer
-          // already shows through them, and a nested tint would paint the
-          // selection a second time (a darker shade than the prose beside
-          // it). The tint belongs only where a code background hides the
-          // drawn layer, which is the whole point of issue #123.
+          // SPEC23 §3 (issue #359): only the text BETWEEN the backtick runs
+          // gets the tint — the marks carry no code background (see above).
           const marks = n.node.getChildren('CodeMark');
-          const from = marks.length ? marks[0].to : n.from;
-          const to = marks.length > 1 ? marks[marks.length - 1].from : n.to;
-          if (from < to) code.push({ from, to });
+          const codeFrom = marks.length ? marks[0].to : n.from;
+          const codeTo = marks.length > 1 ? marks[marks.length - 1].from : n.to;
+          if (codeFrom < codeTo) code.push({ from: codeFrom, to: codeTo });
         }
       },
     });
