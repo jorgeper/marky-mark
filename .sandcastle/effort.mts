@@ -1,5 +1,4 @@
-// Effort tiers — the one place that turns config.mts's EFFORT_TIERS and
-// AGENT_TIERS into decisions:
+// Effort tiers — shared policy plus explicit local execution choices:
 //
 //   modelFor(role)          which model an agent runs on (its configured tier)
 //   effortLabelDefs()       the `sandcastle:effort-<tier>` issue labels
@@ -8,13 +7,12 @@
 //                           on its path fall short
 //   skipComment(...)        the note the loop leaves on a held issue, with a
 //                           configuration signature so it is posted once
-//   agentTable()            what `npm run sandcastle:agents` / /config-agents show
+//   agentTable()            format an effort configuration for diagnostics
 //
-// Pure: every function takes the configuration as an argument (defaulting
-// to config.mts) so tests never depend on the live setup, and nothing here
-// touches gh, the filesystem, or the sandbox.
+// Tests pass explicit configurations. Runtime callers share one validated
+// snapshot, loaded lazily so importing label definitions needs no local setup.
 
-import { AGENT_TIERS, EFFORT_TIERS } from "./config.mts";
+import { effectiveConfiguration, requireRunnableConfiguration, TIER_NAMES } from "./configuration.mjs";
 
 export interface EffortTier {
   name: string;
@@ -22,15 +20,26 @@ export interface EffortTier {
 }
 
 export interface EffortConfig {
+  harness?: string;
   /** Ordered weakest → strongest. */
   tiers: readonly EffortTier[];
   /** Agent role → tier name. */
   agentTiers: Readonly<Record<string, string>>;
 }
 
-export const LIVE_CONFIG: EffortConfig = {
-  tiers: EFFORT_TIERS,
-  agentTiers: AGENT_TIERS,
+let runtimeConfig: EffortConfig | undefined;
+const liveEffortConfig = (): EffortConfig =>
+  runtimeConfig ??= effectiveConfiguration(requireRunnableConfiguration());
+
+/** Called before any workflow side effect, including deterministic GitHub writes. */
+export const assertExecutionReady = (): void => {
+  try {
+    liveEffortConfig();
+  } catch (error) {
+    console.error(`SETUP NEEDED: ${error instanceof Error ? error.message : String(error)}`);
+    console.error("Run npm run configure, then npm run doctor.");
+    process.exit(1);
+  }
 };
 
 export const EFFORT_LABEL_PREFIX = "sandcastle:effort-";
@@ -56,7 +65,7 @@ const tierByName = (name: string, config: EffortConfig): EffortTier => {
   const tier = config.tiers.find((t) => t.name === name);
   if (tier === undefined) {
     throw new Error(
-      `effort tier "${name}" is not in EFFORT_TIERS (${config.tiers.map((t) => t.name).join(", ")}) — fix .sandcastle/config.mts or run /config-agents`,
+      `effort tier "${name}" is not configured (${config.tiers.map((t) => t.name).join(", ")}) — run npm run configure`,
     );
   }
   return tier;
@@ -65,12 +74,12 @@ const tierByName = (name: string, config: EffortConfig): EffortTier => {
 /** The model an agent runs on: its configured tier's model. */
 export const modelFor = (
   role: string,
-  config: EffortConfig = LIVE_CONFIG,
+  config: EffortConfig = liveEffortConfig(),
 ): string => {
   const tierName = config.agentTiers[role];
   if (tierName === undefined) {
     throw new Error(
-      `agent "${role}" has no tier in AGENT_TIERS — add it to .sandcastle/config.mts`,
+      `agent "${role}" has no configured tier — run npm run configure`,
     );
   }
   return tierByName(tierName, config).model;
@@ -79,16 +88,16 @@ export const modelFor = (
 /** Every configuration problem the doctor (and the loop, before it starts)
  *  should name. Empty means the config is sound. */
 export const effortConfigErrors = (
-  config: EffortConfig = LIVE_CONFIG,
+  config: EffortConfig = liveEffortConfig(),
 ): string[] => {
   const errors: string[] = [];
   if (config.tiers.length === 0) {
-    errors.push("EFFORT_TIERS is empty — declare at least one tier");
+    errors.push("No effort tiers are configured");
   }
   const names = new Set<string>();
   for (const tier of config.tiers) {
     if (names.has(tier.name)) {
-      errors.push(`EFFORT_TIERS names "${tier.name}" twice`);
+      errors.push(`tier policy names "${tier.name}" twice`);
     }
     names.add(tier.name);
     if (!tier.model) errors.push(`tier "${tier.name}" has no model`);
@@ -96,13 +105,13 @@ export const effortConfigErrors = (
   for (const [role, tierName] of Object.entries(config.agentTiers)) {
     if (!names.has(tierName)) {
       errors.push(
-        `agent "${role}" is configured at tier "${tierName}", which EFFORT_TIERS does not define`,
+        `agent "${role}" is configured at tier "${tierName}", which the tier policy does not define`,
       );
     }
   }
   for (const role of [...ISSUE_PATH_AGENTS, ...PR_PATH_AGENTS]) {
     if (!(role in config.agentTiers)) {
-      errors.push(`agent "${role}" is missing from AGENT_TIERS`);
+      errors.push(`agent "${role}" is missing from the effective assignments`);
     }
   }
   return errors;
@@ -116,22 +125,22 @@ export interface LabelDef {
 
 /** One issue label per tier, in tier order. */
 export const effortLabelDefs = (
-  tiers: readonly EffortTier[] = LIVE_CONFIG.tiers,
+  tiers: readonly { name: string }[] = TIER_NAMES.map((name) => ({ name })),
 ): LabelDef[] =>
   tiers.map((tier, index) => ({
     name: effortLabelFor(tier.name),
     color: "C5DEF5",
     desc:
       index === 0
-        ? `Needs the ${tier.name} effort tier (${tier.model}) — the default for unlabeled issues`
-        : `Needs the ${tier.name} effort tier (${tier.model}) on every agent that works it`,
+        ? `Needs the ${tier.name} effort tier — the default for unlabeled issues`
+        : `Needs the ${tier.name} effort tier on every agent that works it`,
   }));
 
 /** The tier an issue's labels demand: the strongest effort label present,
  *  else the weakest tier. Labels naming no configured tier are ignored. */
 export const requiredTier = (
   labels: readonly string[],
-  config: EffortConfig = LIVE_CONFIG,
+  config: EffortConfig = liveEffortConfig(),
 ): string => {
   let best = 0;
   for (const label of labels) {
@@ -158,7 +167,7 @@ export type Eligibility =
 export const eligibility = (
   labels: readonly string[],
   prLabeled: boolean,
-  config: EffortConfig = LIVE_CONFIG,
+  config: EffortConfig = liveEffortConfig(),
 ): Eligibility => {
   const required = requiredTier(labels, config);
   const needed = tierRank(required, config);
@@ -177,8 +186,9 @@ export const eligibility = (
 
 /** A short stable fingerprint of the configuration, so a held issue is
  *  commented on once per configuration rather than once per run. */
-export const configSignature = (config: EffortConfig = LIVE_CONFIG): string => {
+export const configSignature = (config: EffortConfig = liveEffortConfig()): string => {
   const canonical = JSON.stringify({
+    harness: config.harness,
     tiers: config.tiers.map((t) => [t.name, t.model]),
     agents: Object.entries(config.agentTiers).sort(([a], [b]) =>
       a.localeCompare(b),
@@ -199,7 +209,7 @@ const skipMarkerFor = (config: EffortConfig): string =>
 
 export const skipComment = (
   verdict: Extract<Eligibility, { ok: false }>,
-  config: EffortConfig = LIVE_CONFIG,
+  config: EffortConfig = liveEffortConfig(),
 ): string => {
   const requiredModel = tierByName(verdict.required, config).model;
   return [
@@ -207,7 +217,7 @@ export const skipComment = (
     ``,
     ...verdict.short.map((s) => `- ${s.role}: ${s.tier} (${s.model})`),
     ``,
-    `Run \`/config-agents\` to raise them to \`${verdict.required}\` (${requiredModel}), or relabel the issue. The loop re-checks on every run and says nothing more until the configuration changes.`,
+    `Run \`npm run configure\` to raise them to \`${verdict.required}\` (${requiredModel}), or relabel the issue. Restart the loop after changing configuration.`,
     skipMarkerFor(config),
   ].join("\n");
 };
@@ -216,14 +226,14 @@ export const skipComment = (
  *  the issue. */
 export const skipAlreadyPosted = (
   commentBodies: readonly string[],
-  config: EffortConfig = LIVE_CONFIG,
+  config: EffortConfig = liveEffortConfig(),
 ): boolean => {
   const marker = skipMarkerFor(config);
   return commentBodies.some((body) => body.includes(marker));
 };
 
-/** The table `npm run sandcastle:agents` prints and /config-agents reads. */
-export const agentTable = (config: EffortConfig = LIVE_CONFIG): string => {
+/** Effort-only table; configure --show also includes harness and provenance. */
+export const agentTable = (config: EffortConfig = liveEffortConfig()): string => {
   const roleWidth = Math.max(
     ...Object.keys(config.agentTiers).map((r) => r.length),
     "agent".length,
@@ -234,7 +244,7 @@ export const agentTable = (config: EffortConfig = LIVE_CONFIG): string => {
   );
   const modelWidth = Math.max(...config.tiers.map((t) => t.model.length), 0);
   const lines = [
-    `Effort tiers (weakest → strongest), from .sandcastle/config.mts:`,
+    `Effort tiers (weakest → strongest), from the effective configuration:`,
     ``,
     ...config.tiers.map(
       (t) => `  ${t.name.padEnd(tierWidth)}  ${t.model.padEnd(modelWidth)}  label: ${effortLabelFor(t.name)}`,

@@ -6,6 +6,7 @@ import {
 import { chat } from "sandcastle-local/chat";
 import { docker } from "sandcastle-local/sandboxes/docker";
 import {
+  assertExecutionReady,
   modelFor,
   DESIGN_LABEL,
   DECOMPOSE_LABEL,
@@ -39,6 +40,7 @@ import {
 //
 // Ctrl-C is always safe — the issue persists; conversations re-attach.
 
+assertExecutionReady();
 const agent = claudeCode(modelFor("filer"));
 const sandbox = docker();
 const AGENT_MARKER = markerFor("filer");

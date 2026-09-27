@@ -359,8 +359,8 @@ export const APPROVED_LABEL_DEF: LabelDef = {
 };
 
 // One `sandcastle:effort-<tier>` label per configured tier (config.mts
-// EFFORT_TIERS): the owner's statement of how hard an issue is, checked
-// against AGENT_TIERS by the loop before the issue reaches the planner.
+// shared tier policy): the owner's statement of how hard an issue is,
+// checked against effective local assignments before it reaches the planner.
 export const EFFORT_LABEL_DEFS: LabelDef[] = effortLabelDefs();
 
 export const ALL_LABEL_DEFS: LabelDef[] = [

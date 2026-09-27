@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EFFORT_TIERS } from "./config.mts";
+import { TIER_NAMES } from "./configuration.mjs";
 import { ALL_LABEL_DEFS } from "./github.mts";
 import { LABEL_ROWS } from "./setup.mts";
 
@@ -27,8 +27,8 @@ describe("label vocabulary", () => {
 
   it("provisions one effort label per configured tier, alongside the triggers", () => {
     const names = ALL_LABEL_DEFS.map((d) => d.name);
-    for (const tier of EFFORT_TIERS) {
-      expect(names).toContain(`sandcastle:effort-${tier.name}`);
+    for (const tier of TIER_NAMES) {
+      expect(names).toContain(`sandcastle:effort-${tier}`);
     }
   });
 });

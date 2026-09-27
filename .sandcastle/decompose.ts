@@ -7,6 +7,7 @@ import {
 import { chat } from "sandcastle-local/chat";
 import { docker } from "sandcastle-local/sandboxes/docker";
 import {
+  assertExecutionReady,
   modelFor,
   DECOMPOSE_LABEL,
   IMPLEMENT_LABEL,
@@ -36,6 +37,7 @@ import {
 //
 // Ctrl-C is always safe — the conversation is durable and re-attaches.
 
+assertExecutionReady();
 const agent = claudeCode(modelFor("decomposer"));
 const sandbox = docker();
 const AGENT_MARKER = markerFor("decomposer");

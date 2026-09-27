@@ -47,9 +47,11 @@ decisions, files touched — with all branch commits preserved for history
 | `sandcastle:approved`       | PR      | you — or the reviewer agent on `sandcastle:agent-approve` issues | authorize the merge — next run squash-merges |
 
 Effort tiers are the owner's two separate choices: the label on the issue
-says how hard it is, and `AGENT_TIERS` in `config.mts` says which tier each
-agent runs at (`npm run sandcastle:agents` prints the table, `/config-agents`
-edits it). The loop takes an issue only when every agent on its path is
+says how hard it is, and the shared policy plus local agent assignments
+say which tier each agent runs at (`npm run configure -- --show` prints the
+table; `npm run configure` edits local choices). Harness and models have
+no defaults: configure every fresh checkout before running agents.
+The loop takes an issue only when every agent on its path is
 configured at or above the issue's tier; otherwise it skips the issue and
 leaves one comment per configuration explaining which agents fall short.
 

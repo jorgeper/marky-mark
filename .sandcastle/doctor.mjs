@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadConfiguration } from "./configuration.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -69,6 +70,13 @@ export function bootstrapDoctor({
       "git clone https://github.com/jorgeper/marky-mark.git",
       "cd marky-mark");
   }
+
+  try {
+    loadConfiguration(cwd);
+  } catch (error) {
+    return stop(error instanceof Error ? error.message : String(error), "npm run configure");
+  }
+  log("OK: explicit local harness and model configuration (execution checked below)");
 
   const engine = resolve(cwd, "../sandcastle");
   const engineManifest = join(engine, "package.json");

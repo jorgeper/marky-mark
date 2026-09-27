@@ -2,3 +2,5 @@
 logs/
 worktrees/
 install-tally.json
+local.json
+local.json.*.tmp

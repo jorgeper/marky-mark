@@ -36,7 +36,7 @@
 // review approvals are never used, since authors cannot approve their own PRs.
 // `sandcastle:effort-<tier>` says how hard an issue is; the loop skips it
 // (with a note) until every agent on its path is configured at that tier
-// (config.mts AGENT_TIERS, edited with /config-agents; see effort.mts).
+// (local assignments edited with npm run configure; see effort.mts).
 //
 // Usage:
 //   npx tsx .sandcastle/main.ts              run the loop
@@ -76,6 +76,7 @@ import {
 import { logStep, timed } from "./timing.mts";
 import { printAgents, printHelp, runDoctor, runInit } from "./setup.mts";
 import {
+  assertExecutionReady,
   effortConfigErrors,
   eligibility,
   modelFor,
@@ -120,6 +121,8 @@ if (cliArgs.includes("--doctor")) {
   );
 }
 
+assertExecutionReady();
+
 // The planner emits its plan as JSON inside <plan> tags; Output.object extracts
 // and validates it against this schema.
 const planSchema = z.object({
@@ -163,11 +166,9 @@ const TARGET_BRANCH = (
   await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"])
 ).stdout.trim();
 
-// Models come from config.mts: AGENT_TIERS names the effort tier each agent
-// runs at and EFFORT_TIERS maps tiers to models. Every sandbox.run()/run()
-// call site resolves its own with modelFor("<role>") (effort.mts), so the
-// marker it passes can never drift from what actually ran. `/config-agents`
-// edits the table; `npm run sandcastle:agents` prints it.
+// Explicit local choices are snapshotted by assertExecutionReady. Every
+// agent resolves through modelFor("<role>"), keeping attribution aligned.
+// Copilot execution is rejected above until its adapter is implemented.
 
 const branchFor = (issueNumber: number) => `sandcastle/issue-${issueNumber}`;
 
@@ -784,7 +785,7 @@ const runPrdLane = async (): Promise<void> => {
   const errors = effortConfigErrors();
   if (errors.length > 0) {
     console.error(
-      `Effort tier configuration is invalid (.sandcastle/config.mts):\n${errors.map((e) => `  ✗ ${e}`).join("\n")}\nFix it by hand or with /config-agents, then re-run.`,
+      `Effective effort configuration is invalid:\n${errors.map((e) => `  ✗ ${e}`).join("\n")}\nRun npm run configure, then restart the loop.`,
     );
     process.exit(1);
   }
@@ -831,13 +832,13 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     }
     heldForEffort += 1;
     console.log(
-      `Skipping #${issue.number}: needs the \`${verdict.required}\` effort tier, but ${verdict.short.map((s) => `${s.role} runs at ${s.tier}`).join(", ")}. Run /config-agents to change that.`,
+      `Skipping #${issue.number}: needs the \`${verdict.required}\` effort tier, but ${verdict.short.map((s) => `${s.role} runs at ${s.tier}`).join(", ")}. Run npm run configure to change that, then restart the loop.`,
     );
     await noteEffortSkip(issue.number, verdict);
   }
   if (workIssues.length === 0 && heldForEffort > 0) {
     console.log(
-      `${heldForEffort} issue(s) are waiting on a higher effort tier than the current agents run at. Raise the agents with /config-agents (or relabel the issues) and re-run.`,
+      `${heldForEffort} issue(s) are waiting on a higher effort tier than the current agents run at. Raise the agents with npm run configure (or relabel the issues) and restart the loop.`,
     );
     break;
   }

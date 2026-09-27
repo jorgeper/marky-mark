@@ -40,7 +40,11 @@ describe("local engine bootstrap doctor", () => {
     directory = mkdtempSync(join(tmpdir(), "sandcastle-doctor-"));
     cwd = join(directory, "marky-mark");
     engine = join(directory, "sandcastle");
-    mkdirSync(cwd);
+    mkdirSync(join(cwd, ".sandcastle"), { recursive: true });
+    write(join(cwd, ".sandcastle/local.json"), JSON.stringify({
+      version: 1, harness: "claude-code",
+      models: { normal: "test-normal", hard: "test-hard" },
+    }));
     run.mockReset().mockImplementation(() => ({ ...ok }));
     log.mockClear();
   });
@@ -84,6 +88,14 @@ describe("local engine bootstrap doctor", () => {
   it("gives the fork clone command before any npm or engine access", () => {
     expect(doctor()).toBe(1);
     expect(output()).toContain('git clone https://github.com/jorgeper/sandcastle.git "../sandcastle"');
+    expect(run.mock.calls.every(([command]) => command === "git")).toBe(true);
+  });
+
+  it("U1455: guides configuration before engine installation on a fresh checkout", () => {
+    rmSync(join(cwd, ".sandcastle/local.json"));
+    expect(doctor()).toBe(1);
+    expect(output()).toContain("npm run configure");
+    expect(output()).not.toContain("git clone");
     expect(run.mock.calls.every(([command]) => command === "git")).toBe(true);
   });
 
@@ -178,8 +190,8 @@ describe("local engine bootstrap doctor", () => {
   });
 
   it("both npm aliases run without dependencies in a fresh checkout", () => {
-    mkdirSync(join(cwd, ".sandcastle"));
     copyFileSync(new URL("./doctor.mjs", import.meta.url), join(cwd, ".sandcastle/doctor.mjs"));
+    copyFileSync(new URL("./configuration.mjs", import.meta.url), join(cwd, ".sandcastle/configuration.mjs"));
     write(join(cwd, "package.json"), JSON.stringify({
       private: true,
       scripts: {

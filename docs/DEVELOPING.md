@@ -15,6 +15,46 @@ GitHub issues.
 Node 22.17 and older lack the default native TypeScript execution needed by
 the server checks; Doctor catches that before installing dependencies.
 
+### Doctor and Configure
+
+Fresh checkouts have **no default harness or models**, even if Claude Code
+or Copilot is installed or credentials are present. Doctor first asks you
+to run `npm run configure`; both commands work before npm dependencies.
+
+| Command | Behavior |
+| --- | --- |
+| `npm run doctor` | Read-only diagnosis and next-step guidance. |
+| `npm run configure` | Show current choices, then interactively edit harness, tier models, and agent assignments. |
+| `npm run configure -- --show` | Read-only effective configuration, including assignment provenance; no prompts. |
+
+Configure requires a terminal. It has no automatic harness/model selection:
+enter the model IDs available to the selected account. It makes no model
+requests, starts no agents, installs nothing, and never handles credentials.
+Changing harness requires choosing its models again. Blank model answers
+only preserve an existing explicit choice for the same harness.
+The wizard previews the configuration and asks before saving.
+Exit without saving, `:cancel`, Ctrl-C, and end-of-input leave the file alone.
+An invalid file can be replaced only after confirmation. If another process
+changes it while the wizard is open, saving fails instead of overwriting it.
+
+Choices live in ignored `.sandcastle/local.json` (schema version 1):
+`harness` (`claude-code` or `copilot`), `models` (one ID for each tier), and
+optional `agentTiers` overrides. No secrets belong there. Shared policy in
+`.sandcastle/configuration.mjs` defines tier names/order and default agent
+assignments, but no harness or models. The loop takes one snapshot at
+startup; restart it after configuration changes. All execution entrypoints,
+including design/decompose/issue lanes, stop before workflow side effects
+if configuration is absent, invalid, or selects an unsupported harness.
+
+Tier labels are model-independent: switching machines must not rewrite
+shared label descriptions. Local model mappings are your choices, not a
+claim that different providers' models have equivalent capabilities.
+The old `sandcastle:agents` command is a read-only alias for Configure's
+`--show` mode. Agent configuration is script-based; no configuration skill
+is installed. Existing non-configuration workflow skills are unchanged.
+
+### Install the local engine
+
 The engine is a private package named `sandcastle-local`, linked from a
 sibling checkout of [jorgeper/sandcastle](https://github.com/jorgeper/sandcastle):
 
@@ -24,7 +64,7 @@ src/
   sandcastle/
 ```
 
-The normal dependency setup, run from Marky Mark, is:
+After saving configuration, the normal dependency setup from Marky Mark is:
 
 ```bash
 git clone https://github.com/jorgeper/sandcastle.git ../sandcastle
@@ -48,17 +88,22 @@ The host's `gh auth login` and the sandbox's `GH_TOKEN` are separate;
 [PR_SETUP.md](../.sandcastle/PR_SETUP.md) documents the token permissions.
 Never paste tokens into chat or commit them.
 
-The current loop is still Claude Code-based. Setting up the local engine
-does not yet add Copilot goal/conversation support; Doctor explicitly reports
-the Claude credential requirement. The container installs Claude Code itself;
+The current execution path is still Claude Code-based. Copilot can be selected
+and saved, but Doctor and every execution entrypoint explicitly block it:
+goal/conversation support and sandbox authentication/image support remain
+unimplemented. There is no Claude fallback, and Doctor does not request
+Anthropic credentials for a Copilot selection. Saving configuration validates
+its structure, not account/model availability. Doctor's setup checks also do
+not make a billable request to verify the selected model IDs.
+For Claude configurations, the container installs Claude Code itself;
 the host CLI is only needed if you obtain an OAuth token via `claude setup-token`.
 An Anthropic API key is the alternative.
 
-When Docker is running, build the image from Marky Mark with
+For Claude, when Docker is running, build the image from Marky Mark with
 `node ../sandcastle/dist/main.js docker build-image`. Doctor's label guidance
 uses `npm run sandcastle:init`, which provisions the existing workflow's
 labels and skills rather than replacing its scaffold. After Doctor passes,
-review `npm run sandcastle:agents` and start `npm run sandcastle`.
+review `npm run configure -- --show` and start `npm run sandcastle`.
 Pass `npm run doctor -- --image-gaps` for the optional install-log scan.
 Rust and native desktop build prerequisites are not needed for this
 Docker-based workflow; desktop/release builds have additional requirements.

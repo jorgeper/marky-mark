@@ -10,9 +10,9 @@ import { modelFor } from "./effort.mts";
 // forbids sharing across templates, not within one. Pure functions live at
 // the top so tests can import this file without side effects.
 
-// Models come from config.mts (EFFORT_TIERS × AGENT_TIERS) via effort.mts;
+// Models come from the validated local configuration via effort.mts;
 // re-exported so the scripts import one module for their identity.
-export { modelFor } from "./effort.mts";
+export { assertExecutionReady, modelFor } from "./effort.mts";
 export const HARNESS = "claude-code";
 
 /** Routing labels: which lane (agent) handles an issue. */

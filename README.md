@@ -27,11 +27,16 @@ cd marky-mark
 npm run doctor
 ```
 
-No dependency installation is needed to start Doctor. Follow its next step
-and rerun it: it guides you through cloning the local Sandcastle engine,
+No dependency installation is needed to start Doctor or Configure.
+A fresh checkout has **no harness or model defaults**: Doctor first directs
+you to `npm run configure` to make explicit, machine-local choices.
+Then follow Doctor's next step and rerun it: it guides you through cloning the local Sandcastle engine,
 installing/building dependencies, GitHub access, credentials, Docker, and
 issue labels. It does not install software or change accounts for you.
 Use **`npm run doctor`**, not npm's unrelated built-in `npm doctor`.
+Use `npm run configure -- --show` to view your settings without editing.
+Copilot choices can be saved, but execution remains blocked until its
+goal/conversation and sandbox support are implemented; there is no fallback.
 Details: [local Sandcastle setup](docs/DEVELOPING.md#local-sandcastle-setup).
 
 ## Download

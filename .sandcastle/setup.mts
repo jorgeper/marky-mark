@@ -1,13 +1,14 @@
 // Init, doctor, and help — the operational commands behind
-// `npx tsx .sandcastle/main.mts [--init|--doctor|--help]`.
+// `npx tsx .sandcastle/main.ts [--init|--doctor|--help]`.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { EFFORT_TIERS, QUICK_VERIFY_COMMANDS, VERIFY_COMMANDS } from "./config.mts";
-import { agentTable, effortConfigErrors, EFFORT_LABEL_PREFIX } from "./effort.mts";
+import { QUICK_VERIFY_COMMANDS, VERIFY_COMMANDS } from "./config.mts";
+import { effortConfigErrors, EFFORT_LABEL_PREFIX } from "./effort.mts";
+import { COPILOT_BLOCKER, configurationTable, effectiveConfiguration, loadConfiguration, showConfiguration } from "./configuration.mjs";
 import { parseEnvFile } from "./env.mts";
 import * as github from "./github.mts";
 import {
@@ -33,7 +34,7 @@ export const LABEL_ROWS: [string, string, string, string][] = [
       def.name,
       "issue",
       "you",
-      `needs the ${def.name.slice(EFFORT_LABEL_PREFIX.length)} effort tier on every agent that works it (see \`npm run sandcastle:agents\`)`,
+      `needs the ${def.name.slice(EFFORT_LABEL_PREFIX.length)} effort tier on every agent that works it (see \`npm run configure -- --show\`)`,
     ],
   ),
   ["sandcastle:in-review", "PR", "orchestrator", "agent debate in progress"],
@@ -43,12 +44,8 @@ export const LABEL_ROWS: [string, string, string, string][] = [
   ["sandcastle:approved", "PR", "you", "authorize the merge — next run squash-merges"],
 ];
 
-// `npm run sandcastle:agents` — the table /config-agents reads before it
-// edits config.mts. Configuration problems print under the table and exit 1.
-export const printAgents = (): number => {
-  console.log(agentTable());
-  return effortConfigErrors().length === 0 ? 0 : 1;
-};
+// Compatibility for direct main.ts --agents invocations.
+export const printAgents = (): number => showConfiguration();
 
 export const printHelp = (): void => {
   console.log(
@@ -59,10 +56,11 @@ export const printHelp = (): void => {
       `  npm run sandcastle           run the loop (classify → merge → debate → plan → implement)`,
       `  npm run sandcastle:init      create the sandcastle label vocabulary in this repo`,
       `  npm run doctor              guided setup, even before dependencies are installed`,
-      `  npm run sandcastle:doctor    alias for npm run doctor`,
-      `  npm run sandcastle:agents    show effort tiers and which tier each agent runs at (/config-agents edits them)`,
       `      -- --image-gaps          also live-scan logs for in-sandbox installs + Dockerfile suggestions`,
-      `  npx tsx .sandcastle/main.mts [--init | --doctor [--image-gaps] | --agents | --help]`,
+      `  npm run sandcastle:doctor    alias for npm run doctor`,
+      `  npm run configure           choose this machine's harness, models, and agent tiers`,
+      `  npm run configure -- --show  display effective configuration without editing`,
+      `  npx tsx .sandcastle/main.ts [--init | --doctor [--image-gaps] | --agents | --help]`,
       ``,
       `Labels (see .sandcastle/PR_SETUP.md for the full protocol):`,
       ...LABEL_ROWS.map(
@@ -155,6 +153,15 @@ export const runDoctor = async (options?: {
   imageGaps?: boolean;
 }): Promise<number> => {
   console.log(`Sandcastle doctor\n`);
+  let configuration;
+  try {
+    configuration = loadConfiguration();
+  } catch (error) {
+    console.error(`SETUP NEEDED: ${error instanceof Error ? error.message : String(error)}\nRun: npm run configure`);
+    return 1;
+  }
+  const effective = effectiveConfiguration(configuration);
+  console.log(`${configurationTable(configuration)}\n`);
   const results: boolean[] = [];
 
   // A missing binary (`gh`, `docker`) surfaces as a raw `spawn <bin> ENOENT`
@@ -202,7 +209,9 @@ export const runDoctor = async (options?: {
       return {
         ok: false,
         detail: "missing (credentials are local to this machine)",
-        hint: "copy .sandcastle/.env.example to .sandcastle/.env, then fill in credentials locally; never commit this file. This loop still uses Claude Code; Copilot support is a separate migration.",
+        hint: configuration.harness === "claude-code"
+          ? "copy .sandcastle/.env.example to .sandcastle/.env, then fill in Claude and repository credentials locally; never commit this file"
+          : "repository access needs GH_TOKEN in .sandcastle/.env; do not add Anthropic credentials for Copilot. Copilot sandbox authentication is not implemented yet.",
       };
     }
     envVars = parseEnvFile(
@@ -212,6 +221,9 @@ export const runDoctor = async (options?: {
   });
 
   await check("agent credentials", async () => {
+    if (configuration.harness === "copilot") {
+      return { ok: false, detail: COPILOT_BLOCKER, hint: "wait for the Copilot execution migration; configuration alone does not enable it" };
+    }
     // An unreachable or rejecting API is not evidence of a working setup.
     const oauth = envVars.CLAUDE_CODE_OAUTH_TOKEN;
     const apiKey = envVars.ANTHROPIC_API_KEY;
@@ -394,18 +406,18 @@ export const runDoctor = async (options?: {
   });
 
   await check("effort tiers", async () => {
-    const errors = effortConfigErrors();
+    const errors = effortConfigErrors(effective);
     if (errors.length > 0) {
       return {
         ok: false,
         detail: errors.join("; "),
-        hint: "fix EFFORT_TIERS / AGENT_TIERS in .sandcastle/config.mts, or run /config-agents",
+        hint: "run npm run configure",
       };
     }
-    const tiers = EFFORT_TIERS.map((t) => `${t.name}=${t.model}`).join(", ");
+    const tiers = effective.tiers.map((t) => `${t.name}=${t.model}`).join(", ");
     return {
       ok: true,
-      detail: `${tiers}; every agent resolves to a model (\`npm run sandcastle:agents\` lists them)`,
+      detail: `${tiers}; every agent resolves to an explicit model ID (availability not checked)`,
     };
   });
 
@@ -419,6 +431,9 @@ export const runDoctor = async (options?: {
         detail: "Docker is installed, but its daemon is not reachable",
         hint: "start Docker Desktop (or your Docker-compatible runtime), wait until `docker info` succeeds, then rerun npm run doctor",
       };
+    }
+    if (configuration.harness === "copilot") {
+      return { ok: false, detail: "Copilot sandbox image support is not implemented", hint: "do not build the current Claude-only image for a Copilot configuration" };
     }
     const image = `sandcastle:${basename(process.cwd())}`;
     const { stdout } = await execFileAsync("docker", ["images", "-q", image]);
@@ -453,6 +468,9 @@ export const runDoctor = async (options?: {
   });
 
   await check("image gaps", async () => {
+    if (configuration.harness === "copilot") {
+      return { ok: false, detail: "not evaluated: Copilot sandbox image support is not implemented" };
+    }
     // In-sandbox installs mean the Dockerfile is missing toolchain the
     // agents keep needing (prd/006). Evidence is scoped to the CURRENT
     // image: a tally recorded against a previous image is stale (the
@@ -513,7 +531,7 @@ export const runDoctor = async (options?: {
     return {
       ok: false,
       detail: `agents install inside sandboxes (current image): ${[...found.values()].join(", ")}`,
-      hint: `add to .sandcastle/Dockerfile, then \`npx sandcastle docker build-image\` (rebuilding resets the tally):\n${suggestions}${bakedNote}`,
+      hint: `add to .sandcastle/Dockerfile, then \`node ../sandcastle/dist/main.js docker build-image\` (rebuilding resets the tally):\n${suggestions}${bakedNote}`,
     };
   });
 
@@ -528,7 +546,7 @@ export const runDoctor = async (options?: {
   const failed = results.filter((ok) => !ok).length;
   console.log(
     failed === 0
-      ? `\nAll checks passed. Review agent models with \`npm run sandcastle:agents\`, then start the loop with \`npm run sandcastle\`. Doctor has not started agents or changed GitHub issues.`
+      ? `\nAll setup checks passed (model access is not verified). Review choices with \`npm run configure -- --show\`, then start the loop with \`npm run sandcastle\`. Doctor has not started agents or changed GitHub issues.`
       : `\n${failed} check(s) need attention.`,
   );
   return failed === 0 ? 0 : 1;

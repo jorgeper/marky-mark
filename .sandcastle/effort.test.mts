@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_TIERS, EFFORT_TIERS } from "./config.mts";
+import { DEFAULT_AGENT_TIERS, TIER_NAMES, effectiveConfiguration } from "./configuration.mjs";
 import {
   agentTable,
   configSignature,
@@ -54,11 +54,15 @@ describe("effort tiers: model resolution", () => {
     expect(() => modelFor("nobody", allNormal)).toThrow(/nobody/);
   });
 
-  it("the real config resolves every agent to a model", () => {
-    for (const role of Object.keys(AGENT_TIERS)) {
-      expect(modelFor(role)).toMatch(/^claude-/);
+  it("shared roles resolve through explicit local models, without provider defaults", () => {
+    const config = effectiveConfiguration({
+      version: 1, harness: "claude-code",
+      models: { normal: "chosen-normal", hard: "chosen-hard" }, agentTiers: {},
+    });
+    for (const role of Object.keys(DEFAULT_AGENT_TIERS)) {
+      expect(modelFor(role, config)).toBe("chosen-hard");
     }
-    expect(effortConfigErrors()).toEqual([]);
+    expect(effortConfigErrors(config)).toEqual([]);
   });
 });
 
@@ -94,7 +98,7 @@ describe("effort tiers: labels", () => {
 
   it("the real config derives a label for every configured tier", () => {
     expect(effortLabelDefs().map((d) => d.name)).toEqual(
-      EFFORT_TIERS.map((t) => `sandcastle:effort-${t.name}`),
+      TIER_NAMES.map((name) => `sandcastle:effort-${name}`),
     );
   });
 
@@ -188,7 +192,7 @@ describe("effort tiers: the skip comment", () => {
     expect(body).toContain("implementer");
     expect(body).toContain("normal (model-normal)");
     expect(body).toContain("`hard` (model-hard)");
-    expect(body).toContain("/config-agents");
+    expect(body).toContain("npm run configure");
   });
 
   it("is posted once per configuration: the signature marker makes re-posts detectable", () => {
