@@ -27,15 +27,66 @@ to run `npm run configure`; both commands work before npm dependencies.
 | `npm run configure` | Show current choices, then interactively edit harness, tier models, and agent assignments. |
 | `npm run configure -- --show` | Read-only effective configuration, including assignment provenance; no prompts. |
 
-Configure requires a terminal. It has no automatic harness/model selection:
-enter the model IDs available to the selected account. It makes no model
-requests, starts no agents, installs nothing, and never handles credentials.
+Configure requires a terminal. It has no automatic harness/model selection.
+After you select a harness, it checks the native CLI's authentication and
+retrieves its model catalog, then offers a numbered picker for each tier.
+You can also enter an ID directly; an ID absent from a successfully retrieved
+catalog requires explicit confirmation as **unverified**. The automatic
+`auto` and `default` choices are omitted and cannot be saved.
 Changing harness requires choosing its models again. Blank model answers
 only preserve an existing explicit choice for the same harness.
 The wizard previews the configuration and asks before saving.
 Exit without saving, `:cancel`, Ctrl-C, and end-of-input leave the file alone.
 An invalid file can be replaced only after confirmation. If another process
 changes it while the wizard is open, saving fails instead of overwriting it.
+
+#### Authentication and model discovery
+
+Configure reuses the selected CLI's own authentication; it never asks you to
+paste credentials or copies credentials into `.sandcastle/local.json`.
+Install the native CLI to enable discovery:
+
+| Harness | Native setup | Catalog |
+| --- | --- | --- |
+| Copilot | [Install Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli), then `copilot login` | CLI account catalog, subject to your account, policy, and CLI version. No OpenAI API key is needed for Copilot models. |
+| Claude Code | [Install Claude Code](https://code.claude.com/docs/en/setup), then `claude auth login`, or configure its API/cloud-provider credentials | Native Claude Code model picker, not a separate Anthropic API catalog. A Claude subscription does not require an additional API key. |
+
+Claude's picker may return aliases, including context-window suffixes such
+as `opus[1m]`. Configure preserves these verbatim; aliases resolve according
+to the CLI/provider and can change over time. Enter a full model ID manually
+if you need a version pin. A picker entry is not proof of successful inference.
+
+Missing CLI/login, an unsupported CLI version, malformed metadata, network
+errors, and timeouts are reported rather than replaced with a hardcoded model
+list. After logging in or updating the CLI in another terminal, enter
+`:retry` at a model prompt. Alternatively enter a manual ID, explicitly
+marked **unverified**, or `:cancel` to leave without saving.
+
+Discovery deliberately removes `GH_TOKEN` and `GITHUB_TOKEN` from child
+environments so repository tokens cannot override Copilot's identity.
+A dedicated `COPILOT_GITHUB_TOKEN` is respected if explicitly present in
+the environment; otherwise Copilot uses its native stored credentials.
+Configure does not load `.sandcastle/.env`. Repository credentials, host
+model-discovery credentials, and future Docker agent authentication remain
+separate concerns.
+
+Discovery uses Node built-ins and installed CLIs: no engine checkout, npm
+dependencies, or SDK download is needed. Copilot is queried through its
+headless metadata RPC without creating a session. Claude uses safe-mode
+authentication status and a stream-json initialization request with tools,
+MCP integrations, and session persistence disabled. No user prompt or
+inference request is sent, and no login/install is performed automatically.
+Probes run outside the repository in temporary directories with bounded
+output/time and child-process cleanup. The native CLIs may maintain their
+own credential caches or diagnostic files; discovery is not a guarantee of
+zero filesystem activity. Secrets and raw CLI diagnostics are not displayed.
+
+`npm run configure -- --show` remains entirely local: it does not start either
+CLI, refresh models, or authenticate. Doctor's Docker/execution checks remain
+separate; seeing a model in Configure does not enable the blocked Copilot
+execution path.
+
+#### Saved configuration
 
 Choices live in ignored `.sandcastle/local.json` (schema version 1):
 `harness` (`claude-code` or `copilot`), `models` (one ID for each tier), and
@@ -95,9 +146,10 @@ unimplemented. There is no Claude fallback, and Doctor does not request
 Anthropic credentials for a Copilot selection. Saving configuration validates
 its structure, not account/model availability. Doctor's setup checks also do
 not make a billable request to verify the selected model IDs.
-For Claude configurations, the container installs Claude Code itself;
-the host CLI is only needed if you obtain an OAuth token via `claude setup-token`.
-An Anthropic API key is the alternative.
+For Claude configurations, the container installs Claude Code itself.
+The host CLI provides model discovery and can obtain an OAuth token via
+`claude setup-token`. An Anthropic API key is the alternative for agent
+execution; manual configuration does not require host model discovery.
 
 For Claude, when Docker is running, build the image from Marky Mark with
 `node ../sandcastle/dist/main.js docker build-image`. Doctor's label guidance

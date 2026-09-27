@@ -29,6 +29,7 @@ describe("explicit local Sandcastle configuration", () => {
   const output = () => log.mock.calls.map(([line]) => line).join("\n");
   const write = (value: unknown) => writeFileSync(path, JSON.stringify(value));
   const wizard = (answers: Array<string | null>) => configure({
+    discover: async () => ({ status: "unavailable", message: "Test: no catalog", hint: "Enter models manually." }),
     cwd, log, ask: async (question) => {
       log(question);
       if (!answers.length) throw new Error("Unexpected extra wizard prompt");
@@ -221,6 +222,18 @@ describe("explicit local Sandcastle configuration", () => {
     }
     return { PATH: bin, COMMAND_LOG: join(cwd, "commands.log") };
   };
+
+  it("U1477: help and show never launch a CLI or authentication probe", () => {
+    const env = isolateExecution();
+    for (const args of [["--help"], ["--show"]]) {
+      const result = start(".sandcastle/configure.mjs", args, env);
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(args[0] === "--show" ? 1 : 0);
+    }
+    write(chosen("copilot"));
+    expect(start(".sandcastle/configure.mjs", ["--show"], env).status).toBe(0);
+    expect(existsSync(env.COMMAND_LOG)).toBe(false);
+  });
 
   it("U1451: every execution entrypoint stops before commands when unconfigured or Copilot-selected", () => {
     const env = isolateExecution();

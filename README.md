@@ -30,6 +30,10 @@ npm run doctor
 No dependency installation is needed to start Doctor or Configure.
 A fresh checkout has **no harness or model defaults**: Doctor first directs
 you to `npm run configure` to make explicit, machine-local choices.
+Configure checks your selected CLI's existing login and offers a numbered
+model picker. Missing login or unavailable discovery produces instructions
+and an explicitly unverified manual-entry option; no credentials go in the
+configuration file.
 Then follow Doctor's next step and rerun it: it guides you through cloning the local Sandcastle engine,
 installing/building dependencies, GitHub access, credentials, Docker, and
 issue labels. It does not install software or change accounts for you.

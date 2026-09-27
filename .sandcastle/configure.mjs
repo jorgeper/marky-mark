@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { discoverModels } from "./model-discovery.mjs";
 import {
   ConfigurationError, COPILOT_BLOCKER, DEFAULT_AGENT_TIERS, LOCAL_CONFIG, ROOT,
   TIER_NAMES, configurationTable, isModelId, parseConfiguration,
@@ -10,9 +11,9 @@ import {
 class Cancelled extends Error {}
 
 /**
- * @param {{cwd?: string, ask: (question: string) => Promise<string | null>, log?: (message: string) => void}} options
+ * @param {{cwd?: string, ask: (question: string) => Promise<string | null>, log?: (message: string) => void, discover?: typeof discoverModels, signal?: AbortSignal}} options
  */
-export async function configure({ cwd = ROOT, ask, log = console.log }) {
+export async function configure({ cwd = ROOT, ask, log = console.log, discover = discoverModels, signal }) {
   const original = readConfigurationText(cwd);
   /** @type {import("./configuration.mjs").LocalConfiguration | undefined} */
   let draft;
@@ -24,7 +25,8 @@ export async function configure({ cwd = ROOT, ask, log = console.log }) {
     log(`SETUP NEEDED: ${error.message}`);
     if (original !== null) log("The existing file will remain untouched unless you confirm its replacement.");
   }
-  log("\nNo installs, logins, model requests, or GitHub writes. Type :cancel at any prompt to discard changes.");
+  log("\nModel selection checks native CLI authentication and model metadata only: no inference prompts, agents, installs, automatic logins, or GitHub writes.");
+  log("CLI credential/cache maintenance may occur. Secrets are never copied into configuration. Type :cancel at any prompt to discard changes.");
 
   /** @param {string} question */
   const answer = async (question) => {
@@ -61,16 +63,46 @@ export async function configure({ cwd = ROOT, ask, log = console.log }) {
   };
   const selectModels = async () => {
     if (!draft) throw new ConfigurationError("Select a harness first.");
+    const harness = draft.harness;
+    /** @type {import("./model-discovery.mjs").ModelChoice[]} */
+    let models = [];
+    const refresh = async () => {
+      log(`Checking ${harness} authentication and model catalog...`);
+      const result = await discover(harness, { signal });
+      models = result.status === "available" ? result.models : [];
+      if (result.status === "available") {
+        log(`Authentication: ${result.authentication}\nModels from ${result.source}:`);
+        log(models.map((model, index) => `  ${index + 1}) ${model.name} (${model.id})`).join("\n"));
+        log("Auto/default choices are omitted. A catalog listing is not a model-execution or Docker check.");
+      } else {
+        log(`Model discovery unavailable: ${result.message}\n${result.hint}`);
+        log("Manual model entry is UNVERIFIED. Complete login in another terminal and enter :retry to refresh, or :cancel to exit.");
+      }
+    };
+    await refresh();
     for (const tier of TIER_NAMES) {
       const previous = draft.models[tier];
       while (true) {
-        const value = await answer(`Model for ${tier}${previous ? ` [${previous}; Enter to keep]` : " (required)"}: `);
-        const model = value || previous;
+        const value = await answer(`Model for ${tier}${previous ? ` [${previous}; Enter to keep]` : " (required)"} — ${models.length ? "number or model ID" : "manual ID (unverified)"}, :retry to refresh: `);
+        if (value === ":retry") {
+          await refresh();
+          continue;
+        }
+        const index = models.findIndex((_, index) => String(index + 1) === value);
+        if (/^\d+$/.test(value) && index < 0) {
+          log("Choose a listed number or enter a model ID, not an out-of-range number.");
+          continue;
+        }
+        const model = index >= 0 ? models[index].id : value || previous;
         if (isModelId(model)) {
+          if (models.length && !models.some((choice) => choice.id === model)) {
+            const confirm = await answer(`${model} is not in this catalog and is UNVERIFIED. Keep it anyway? [y/N]: `);
+            if (!["y", "yes"].includes(confirm.toLowerCase())) continue;
+          }
           draft.models[tier] = model;
           break;
         }
-        log("Enter an explicit model ID, not a command, credential, or whitespace.");
+        log("Choose an explicit model, not auto/default, a command, credential, or whitespace.");
       }
     }
   };
@@ -148,7 +180,7 @@ export async function runConfigure({
   log = console.log,
 } = {}) {
   if (args.length === 1 && ["--help", "-h"].includes(args[0])) {
-    log("Usage: npm run configure [-- --show]\nInteractive configuration, or --show for read-only output. No default harness or models.");
+    log("Usage: npm run configure [-- --show]\nInteractive authenticated model discovery and configuration, or --show for local read-only output without CLI/auth probes. No default harness or models.");
     return 0;
   }
   if (args.length === 1 && args[0] === "--show") return showConfiguration(cwd, log);
@@ -166,7 +198,7 @@ export async function runConfigure({
   terminal.on("close", () => controller.abort());
   try {
     return await configure({
-      cwd, log,
+      cwd, log, signal: controller.signal,
       ask: (question) => terminal.question(question, { signal: controller.signal }),
     });
   } finally {

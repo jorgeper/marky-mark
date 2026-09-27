@@ -22,7 +22,7 @@ export const DEFAULT_AGENT_TIERS = Object.freeze({
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const LOCAL_CONFIG = ".sandcastle/local.json";
 export const COPILOT_BLOCKER =
-  "Copilot is configured, but this workflow's goal/conversation execution and sandbox authentication are not implemented for Copilot yet. No agents will run; there is no Claude fallback.";
+  "Copilot execution is not implemented for this workflow's goals, conversations, or sandbox authentication yet. No agents will run; there is no Claude fallback.";
 
 /**
  * @typedef {"claude-code" | "copilot"} Harness
@@ -44,7 +44,9 @@ function checkKeys(value, allowed, label) {
 
 /** @param {unknown} value @returns {value is string} */
 export const isModelId = (value) =>
-  typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._:/+-]*$/.test(value);
+  typeof value === "string" && value.length <= 256
+  && !["auto", "default"].includes(value.toLowerCase())
+  && /^[a-zA-Z0-9][a-zA-Z0-9._:/+-]*(?:\[1m\])?$/.test(value);
 
 /** @param {unknown} value @returns {LocalConfiguration} */
 export function validateConfiguration(value) {
@@ -156,7 +158,7 @@ export function configurationTable(config) {
     ...Object.entries(effective.agentTiers).map(([role, tier]) =>
       `  ${role.padEnd(19)} ${tier.padEnd(9)} ${config.models[tier].padEnd(29)} ${Object.hasOwn(config.agentTiers, role) ? "local override" : "shared policy"}`),
     "",
-    "Model IDs are explicit; availability and authentication have not been verified.",
+    "Model execution is unverified; this view does not authenticate or refresh the model catalog.",
     ...(config.harness === "copilot" ? [COPILOT_BLOCKER] : []),
   ].join("\n");
 }
