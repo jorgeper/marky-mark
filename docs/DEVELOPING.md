@@ -4,6 +4,95 @@ One rule: **pay only for the tier you're in.** Iterate in seconds, check
 in minutes, gate fully once per feature, ship macOS first, add Windows
 whenever.
 
+## Local Sandcastle setup
+
+Start with Git and Node.js 22.18+ (22.x) or 24+, clone Marky Mark, and run
+`npm run doctor` before installing anything else. `npm run sandcastle:doctor`
+is an alias. Doctor runs on Node alone, prints the next commands, exits
+nonzero when setup needs attention, and can be rerun safely after every step.
+It never installs software, writes credentials, starts agents, or changes
+GitHub issues.
+Node 22.17 and older lack the default native TypeScript execution needed by
+the server checks; Doctor catches that before installing dependencies.
+
+The engine is a private package named `sandcastle-local`, linked from a
+sibling checkout of [jorgeper/sandcastle](https://github.com/jorgeper/sandcastle):
+
+```text
+src/
+  marky-mark/
+  sandcastle/
+```
+
+The normal dependency setup, run from Marky Mark, is:
+
+```bash
+git clone https://github.com/jorgeper/sandcastle.git ../sandcastle
+npm --prefix ../sandcastle ci --no-audit --no-fund
+npm --prefix ../sandcastle run build
+npm ci --no-audit --no-fund
+npm run doctor
+```
+
+No engine package registration or publishing is involved. Other npm
+dependencies still download from their registries. Keep the engine checkout
+in place; after changing or updating its source, rebuild it. Existing
+checkouts must contain the `sandcastle-local` migration in both repositories.
+Do not re-run the engine's scaffold/init command over this customized workflow.
+
+Once dependencies load, Doctor checks host GitHub access and commit identity,
+the ignored `.sandcastle/.env` file, agent credentials, the sandbox GitHub
+token, committed skills, verification commands, effort tiers, the Docker
+daemon/image, and labels. It tells you how to fix missing prerequisites.
+The host's `gh auth login` and the sandbox's `GH_TOKEN` are separate;
+[PR_SETUP.md](../.sandcastle/PR_SETUP.md) documents the token permissions.
+Never paste tokens into chat or commit them.
+
+The current loop is still Claude Code-based. Setting up the local engine
+does not yet add Copilot goal/conversation support; Doctor explicitly reports
+the Claude credential requirement. The container installs Claude Code itself;
+the host CLI is only needed if you obtain an OAuth token via `claude setup-token`.
+An Anthropic API key is the alternative.
+
+When Docker is running, build the image from Marky Mark with
+`node ../sandcastle/dist/main.js docker build-image`. Doctor's label guidance
+uses `npm run sandcastle:init`, which provisions the existing workflow's
+labels and skills rather than replacing its scaffold. After Doctor passes,
+review `npm run sandcastle:agents` and start `npm run sandcastle`.
+Pass `npm run doctor -- --image-gaps` for the optional install-log scan.
+Rust and native desktop build prerequisites are not needed for this
+Docker-based workflow; desktop/release builds have additional requirements.
+
+### Fork isolation
+
+All Marky Mark remote writes belong on `jorgeper/marky-mark`; all engine
+writes belong on `jorgeper/sandcastle`. Never send changes, PRs, issues, or
+comments to the engine's upstream, regardless of its current name.
+
+Use `git clone` as above: `gh repo clone` can add an upstream remote and
+select the parent as its default repository. After cloning, run these
+local safeguards from Marky Mark once GitHub CLI is installed:
+
+```bash
+git config --local remote.pushDefault origin
+git config --local push.default simple
+gh repo set-default jorgeper/marky-mark
+git -C ../sandcastle config --local remote.pushDefault origin
+git -C ../sandcastle config --local push.default simple
+(cd ../sandcastle && gh repo set-default jorgeper/sandcastle)
+git remote -v
+git -C ../sandcastle remote -v
+```
+
+Both checkouts should have only their owned `origin` remote. If an
+`upstream` remote exists, remove it with `git remote remove upstream` in
+that checkout. Verify `gh repo set-default --view` in each checkout too.
+These settings do not travel with commits; repeat them on every machine.
+Agents must still use explicit owned-repository targets for remote writes.
+Defaults and instructions prevent accidental routing, not arbitrary API
+access. For stronger isolation, use dedicated agent credentials with access
+limited to the owned repositories; do not give agents broader credentials.
+
 ## The tiers
 
 | You're doing… | Command | What runs | Rough time |

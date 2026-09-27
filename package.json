@@ -6,9 +6,10 @@
   "type": "module",
   "workspaces": ["editor"],
   "scripts": {
+    "doctor":              "node .sandcastle/doctor.mjs",
     "sandcastle":           "npx tsx .sandcastle/main.ts",
     "sandcastle:init":      "npx tsx .sandcastle/main.ts --init",
-    "sandcastle:doctor":    "npx tsx .sandcastle/main.ts --doctor",
+    "sandcastle:doctor":    "node .sandcastle/doctor.mjs",
     "sandcastle:design":    "npx tsx .sandcastle/design.ts",
     "sandcastle:decompose": "npx tsx .sandcastle/decompose.ts",
     "sandcastle:issue":     "npx tsx .sandcastle/issue.ts",
@@ -53,7 +54,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@ai-hero/sandcastle": "file:../sandcastle",
+    "sandcastle-local": "file:../sandcastle",
     "@playwright/test": "^1.50.0",
     "@tauri-apps/cli": "^2.5.0",
     "@types/diff-match-patch": "^1.0.36",

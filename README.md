@@ -16,6 +16,24 @@ Select text to comment on it.
 > **⚠️ Alpha** — Marky Mark is pre-release software (`0.5.0-alpha.2`).
 > Builds are unsigned, formats may still shift, expect rough edges.
 
+## Set up a development machine
+
+Install [Git](https://git-scm.com/downloads) and
+[Node.js 22.18+ (22.x) or 24+](https://nodejs.org/en/download) (includes npm), then:
+
+```bash
+git clone https://github.com/jorgeper/marky-mark.git
+cd marky-mark
+npm run doctor
+```
+
+No dependency installation is needed to start Doctor. Follow its next step
+and rerun it: it guides you through cloning the local Sandcastle engine,
+installing/building dependencies, GitHub access, credentials, Docker, and
+issue labels. It does not install software or change accounts for you.
+Use **`npm run doctor`**, not npm's unrelated built-in `npm doctor`.
+Details: [local Sandcastle setup](docs/DEVELOPING.md#local-sandcastle-setup).
+
 ## Download
 
 Grab the [**latest release**](https://github.com/jorgeper/marky-mark/releases/latest)

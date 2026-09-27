@@ -392,8 +392,8 @@ sandboxes</strong>. Its pitch is three lines long:</p>
 
 <p>It's not an app and it's not a SaaS. It's a library you script.</p>
 
-<pre><code>import { run, claudeCode } from "@ai-hero/sandcastle";
-import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
+<pre><code>import { run, claudeCode } from "sandcastle-local";
+import { docker } from "sandcastle-local/sandboxes/docker";
 
 await run({
   agent: claudeCode("claude-opus-4-8"),

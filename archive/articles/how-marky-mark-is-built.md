@@ -38,8 +38,8 @@ sandboxes**. Its pitch is three lines long:
 That's it. It's not an app, it's not a SaaS, it's a library you script.
 
 ```typescript
-import { run, claudeCode } from "@ai-hero/sandcastle";
-import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
+import { run, claudeCode } from "sandcastle-local";
+import { docker } from "sandcastle-local/sandboxes/docker";
 
 await run({
   agent: claudeCode("claude-opus-4-8"),

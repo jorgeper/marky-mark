@@ -17,6 +17,20 @@ resolving here.
 Coding rules are **not** in this file: they live in
 `.sandcastle/CODING_STANDARDS.md`. Read that before writing code.
 
+## Hard boundary: fork-only remote writes
+
+Marky Mark writes target `jorgeper/marky-mark`; local Sandcastle engine
+writes target `jorgeper/sandcastle`. **Never propose changes to, push to,
+or create/modify PRs, issues, comments, labels, releases, or workflows on
+Sandcastle upstream (`mattpocock/sandcastle`, AI Hero, or a renamed successor).**
+Do not add an upstream remote or restore an upstream GitHub CLI default.
+Before any remote write, verify the origin fetch/push URLs and use the
+explicit owned repository (`gh ... --repo owner/repo`, or the explicit
+`repos/owner/repo/...` API path); push explicitly to the verified `origin`.
+Never infer a PR target from GitHub's fork parent. If anything resolves to
+upstream, stop and correct the local target; never bypass this boundary.
+Fresh-clone safeguards: [local setup](docs/DEVELOPING.md#fork-isolation).
+
 ## Finding code: citation-grep first
 
 Behaviour in this repo carries a citation comment naming the contract it

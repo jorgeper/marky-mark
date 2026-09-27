@@ -58,7 +58,8 @@ export const printHelp = (): void => {
       `Usage:`,
       `  npm run sandcastle           run the loop (classify → merge → debate → plan → implement)`,
       `  npm run sandcastle:init      create the sandcastle label vocabulary in this repo`,
-      `  npm run sandcastle:doctor    check env, auth, docker image, and labels`,
+      `  npm run doctor              guided setup, even before dependencies are installed`,
+      `  npm run sandcastle:doctor    alias for npm run doctor`,
       `  npm run sandcastle:agents    show effort tiers and which tier each agent runs at (/config-agents edits them)`,
       `      -- --image-gaps          also live-scan logs for in-sandbox installs + Dockerfile suggestions`,
       `  npx tsx .sandcastle/main.mts [--init | --doctor [--image-gaps] | --agents | --help]`,
@@ -197,6 +198,13 @@ export const runDoctor = async (options?: {
 
   let envVars: Record<string, string> = {};
   await check(".sandcastle/.env", async () => {
+    if (!existsSync(new URL("./.env", import.meta.url))) {
+      return {
+        ok: false,
+        detail: "missing (credentials are local to this machine)",
+        hint: "copy .sandcastle/.env.example to .sandcastle/.env, then fill in credentials locally; never commit this file. This loop still uses Claude Code; Copilot support is a separate migration.",
+      };
+    }
     envVars = parseEnvFile(
       readFileSync(new URL("./.env", import.meta.url), "utf8"),
     );
@@ -204,18 +212,14 @@ export const runDoctor = async (options?: {
   });
 
   await check("agent credentials", async () => {
-    // Presence is not validity: a stale or mispasted credential passes an
-    // existence check here, then 401s every agent mid-run ("Invalid bearer
-    // token"). Probe the API up front. Only a 401 fails the check — any
-    // other response proves the credential authenticated — and a network
-    // error degrades to a soft pass so the doctor still works offline.
+    // An unreachable or rejecting API is not evidence of a working setup.
     const oauth = envVars.CLAUDE_CODE_OAUTH_TOKEN;
     const apiKey = envVars.ANTHROPIC_API_KEY;
     if (!oauth && !apiKey) {
       return {
         ok: false,
         detail: "no CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY",
-        hint: "run `claude setup-token` and add CLAUDE_CODE_OAUTH_TOKEN to .sandcastle/.env",
+        hint: "for a Claude subscription, install Claude Code (https://code.claude.com/docs/en/setup), run `claude setup-token`, and add CLAUDE_CODE_OAUTH_TOKEN to .sandcastle/.env; alternatively set ANTHROPIC_API_KEY. Copilot credentials cannot run this Claude-only loop yet.",
       };
     }
     if (oauth && !oauth.startsWith("sk-ant-oat01-")) {
@@ -243,8 +247,9 @@ export const runDoctor = async (options?: {
       status = res.status;
     } catch {
       return {
-        ok: true,
-        detail: `${label} set (API unreachable — could not verify)`,
+        ok: false,
+        detail: `${label} set, but the API is unreachable; authentication is unverified`,
+        hint: "check your network/proxy access to api.anthropic.com, then rerun npm run doctor",
       };
     }
     if (status === 401) {
@@ -254,6 +259,13 @@ export const runDoctor = async (options?: {
         hint: oauth
           ? "the token is expired or revoked — run `claude setup-token` and update .sandcastle/.env"
           : "check the key in the Anthropic console and update .sandcastle/.env",
+      };
+    }
+    if (status < 200 || status >= 300) {
+      return {
+        ok: false,
+        detail: `agent credential check returned HTTP ${status}; authentication is unverified`,
+        hint: "check credentials and API access, resolve any rate limit or service error, then rerun npm run doctor",
       };
     }
     return { ok: true, detail: `${label} authenticates against the API` };
@@ -295,8 +307,35 @@ export const runDoctor = async (options?: {
   });
 
   await check("gh CLI host auth + repo", async () => {
-    const slug = await github.repoSlug();
-    return { ok: true, detail: slug };
+    // Let the outer handler provide installation guidance for missing gh.
+    await execFileAsync("gh", ["--version"]);
+    try {
+      const slug = await github.repoSlug();
+      return { ok: true, detail: slug };
+    } catch {
+      return {
+        ok: false,
+        detail: "the host GitHub CLI cannot access this repository",
+        hint: "run `gh auth login` with an account that can access jorgeper/marky-mark, then `gh auth setup-git` for HTTPS pushes. Host login and the sandbox's GH_TOKEN are separate.",
+      };
+    }
+  });
+
+  await check("git commit identity", async () => {
+    for (const key of ["GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"]) {
+      try {
+        const { stdout } = await execFileAsync("git", ["var", key]);
+        if (stdout.trim()) continue;
+      } catch {
+        return {
+          ok: false,
+          detail: "git cannot determine the author/committer identity",
+          hint: 'set `git config user.name "Your Name"` and `git config user.email "your-email"` in this checkout (or use --global), then rerun npm run doctor',
+        };
+      }
+      return { ok: false, detail: "git identity is empty", hint: "configure git user.name and user.email" };
+    }
+    return { ok: true, detail: "author and committer identity configured" };
   });
 
   await check("implementer skill committed", async () => {
@@ -371,13 +410,23 @@ export const runDoctor = async (options?: {
   });
 
   await check("docker sandbox image", async () => {
+    await execFileAsync("docker", ["--version"]);
+    try {
+      await execFileAsync("docker", ["info"], { timeout: 15_000 });
+    } catch {
+      return {
+        ok: false,
+        detail: "Docker is installed, but its daemon is not reachable",
+        hint: "start Docker Desktop (or your Docker-compatible runtime), wait until `docker info` succeeds, then rerun npm run doctor",
+      };
+    }
     const image = `sandcastle:${basename(process.cwd())}`;
     const { stdout } = await execFileAsync("docker", ["images", "-q", image]);
     if (!stdout.trim()) {
       return {
         ok: false,
         detail: `${image} not built`,
-        hint: "run `npx sandcastle docker build-image`",
+        hint: "run `node ../sandcastle/dist/main.js docker build-image` from Marky Mark",
       };
     }
     return { ok: true, detail: image };
@@ -479,7 +528,7 @@ export const runDoctor = async (options?: {
   const failed = results.filter((ok) => !ok).length;
   console.log(
     failed === 0
-      ? `\nAll checks passed.`
+      ? `\nAll checks passed. Review agent models with \`npm run sandcastle:agents\`, then start the loop with \`npm run sandcastle\`. Doctor has not started agents or changed GitHub issues.`
       : `\n${failed} check(s) need attention.`,
   );
   return failed === 0 ? 0 : 1;
