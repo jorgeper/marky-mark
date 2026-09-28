@@ -131,6 +131,25 @@ npm ci --no-audit --no-fund
 npm run doctor
 ```
 
+On a work machine using an approved npm mirror, image building is a separate
+setup step: Docker does not inherit the host's npm registry. Doctor reads
+`npm config get registry` locally and prints the appropriate build command;
+it does not change npm settings, probe the registry, or build an image.
+Pass the credential-free HTTPS registry explicitly:
+
+```bash
+node ../sandcastle/dist/main.js docker build-image \
+  --npm-registry https://packagefeedproxy.microsoft.io/npm/
+```
+
+Without the option, the Dockerfile uses `https://registry.npmjs.org/`.
+The override applies to npm/npx during the image build, including Playwright
+and Copilot installation; it is not persisted as a runtime registry setting.
+It does not proxy browser downloads, apt, or the Claude installer.
+Never pass tokens in this option or copy your host `.npmrc` into the image.
+Registry authentication, if required, needs a separate build-secret setup.
+Rebuild the sibling engine first if its CLI does not recognize the option.
+
 No engine package registration or publishing is involved. Other npm
 dependencies still download from their registries. Keep the engine checkout
 in place; after changing or updating its source, rebuild it. Existing

@@ -220,6 +220,7 @@ describe("explicit local Sandcastle configuration", () => {
     for (const command of ["git", "gh", "docker", "claude", "copilot"]) {
       writeFileSync(join(bin, command), '#!/bin/sh\nprintf "%s\\n" "$0 $*" >> "$COMMAND_LOG"\nexit 99\n', { mode: 0o755 });
     }
+    writeFileSync(join(bin, "npm"), '#!/bin/sh\nprintf "https://registry.npmjs.org/\\n"\n', { mode: 0o755 });
     return { PATH: bin, COMMAND_LOG: join(cwd, "commands.log") };
   };
 
@@ -253,6 +254,7 @@ describe("explicit local Sandcastle configuration", () => {
 
   it("U1452: Copilot Doctor checks its own credentials and image without probing Anthropic", () => {
     const env = isolateExecution();
+    writeFileSync(join(cwd, "bin/npm"), '#!/bin/sh\nprintf "https://registry.example.com/npm/\\n"\n', { mode: 0o755 });
     write(chosen("copilot"));
     const before = readFileSync(path, "utf8");
     writeFileSync(join(cwd, ".sandcastle/.env"), "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-test-only\n");
@@ -265,7 +267,19 @@ describe("explicit local Sandcastle configuration", () => {
     expect(result.stdout).not.toContain("claude setup-token");
     expect(result.stdout).toContain("docker build-image");
     expect(result.stdout).toContain("COPILOT_GITHUB_TOKEN");
+    expect(result.stdout).toContain("https://github.com/settings/personal-access-tokens/new");
+    expect(result.stdout).toContain("Resource owner: your personal account");
+    expect(result.stdout).toContain("Repository access: Public repositories");
+    expect(result.stdout).toContain("Permissions > Account > Add permissions > Copilot Requests");
+    expect(result.stdout).toContain("COPILOT_GITHUB_TOKEN=<token> in .sandcastle/.env");
+    expect(result.stdout).toContain("Resource owner: jorgeper");
+    expect(result.stdout).toContain("Only select repositories > marky-mark");
+    expect(result.stdout).toContain("Contents, Issues, and Pull requests: Read and write; Metadata: Read");
+    expect(result.stdout).toContain("GH_TOKEN=<token> in .sandcastle/.env");
+    expect(result.stdout).toContain("Details: .sandcastle/PR_SETUP.md");
     expect(result.stdout).toContain("lacks the Copilot runtime capability marker");
+    expect(result.stdout).toContain("docker build-image --npm-registry 'https://registry.example.com/npm/'");
+    expect(result.stdout).toContain("No network probe performed");
     expect(existsSync(join(cwd, "network.log"))).toBe(false);
     expect(readFileSync(path, "utf8")).toBe(before);
   });
@@ -327,10 +341,29 @@ exit 0
     const result = start("--import", ["tsx", ".sandcastle/doctor.ts"], env);
     expect(result.stdout).toContain("COPILOT_GITHUB_TOKEN authenticates to GitHub");
     expect(result.stdout).toContain("image metadata only; no container or agent launched");
+    expect(result.stdout).toContain("npm registry for image builds");
+    expect(result.stdout).not.toContain(" --npm-registry ");
     expect(result.stdout + result.stderr).not.toContain("github_pat_inference");
+    expect(result.stdout + result.stderr).not.toContain("github_pat_repo");
+    expect(result.stdout).toContain("GH_TOKEN could not authenticate to GitHub");
+    expect(result.stdout).toContain("GH_TOKEN=<token> in .sandcastle/.env");
     const commands = readFileSync(env.COMMAND_LOG, "utf8");
     expect(commands).toContain("dedicated-token-probe");
     expect(commands).not.toMatch(/\brun\b|\bexec\b/);
+    writeFileSync(join(cwd, "bin/gh"), "#!/bin/sh\nexit 99\n", { mode: 0o755 });
+    const rejected = start("--import", ["tsx", ".sandcastle/doctor.ts"], env);
+    expect(rejected.status, rejected.stderr).toBe(1);
+    expect(rejected.stdout).toContain("COPILOT_GITHUB_TOKEN could not authenticate to GitHub");
+    expect(rejected.stdout).toContain("Permissions > Account > Add permissions > Copilot Requests");
+    expect(rejected.stdout).toContain("COPILOT_GITHUB_TOKEN=<token> in .sandcastle/.env");
+    expect(rejected.stdout).toContain("Details: .sandcastle/PR_SETUP.md");
+    expect(rejected.stdout + rejected.stderr).not.toContain("github_pat_inference");
+    expect(rejected.stdout + rejected.stderr).not.toContain("github_pat_repo");
+    writeFileSync(join(cwd, "bin/npm"), '#!/bin/sh\nprintf "https://user:private-registry-token@registry.example.com/\\n"\n', { mode: 0o755 });
+    const unsafeRegistry = start("--import", ["tsx", ".sandcastle/doctor.ts"], env);
+    expect(unsafeRegistry.status).toBe(1);
+    expect(unsafeRegistry.stdout).toContain("host npm registry is not a credential-free HTTPS URL (value hidden)");
+    expect(unsafeRegistry.stdout + unsafeRegistry.stderr).not.toContain("private-registry-token");
   });
 
   it("U1454: the running process keeps one explicit snapshot even when the file changes", () => {

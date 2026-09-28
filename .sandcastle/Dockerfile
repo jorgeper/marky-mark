@@ -1,5 +1,8 @@
 FROM node:22-bookworm
 
+# Explicit build-time override; never copy host .npmrc or credentials.
+ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
   git \

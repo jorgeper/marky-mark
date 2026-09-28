@@ -163,6 +163,26 @@ export const runDoctor = async (options?: {
   const effective = effectiveConfiguration(configuration);
   console.log(`${configurationTable(configuration)}\n`);
   const results: boolean[] = [];
+  const copilotTokenHelp = [
+    "Create a fine-grained PAT: https://github.com/settings/personal-access-tokens/new",
+    "Sign in with your Copilot-licensed account. Set a name and expiration.",
+    "Resource owner: your personal account (not an organization, even for a work-provided license).",
+    "Repository access: Public repositories; no additional repository permissions are needed for inference.",
+    "Permissions > Account > Add permissions > Copilot Requests.",
+    "Generate token and save COPILOT_GITHUB_TOKEN=<token> in .sandcastle/.env.",
+    "Classic PATs are not supported. Your organization must allow Copilot CLI.",
+    "GH_TOKEN handles repository access separately; host Copilot login is not copied into Docker.",
+    "Never commit or share tokens. Details: .sandcastle/PR_SETUP.md",
+  ].join("\n");
+  const githubTokenHelp = [
+    "Create a fine-grained PAT: https://github.com/settings/personal-access-tokens/new",
+    "Set a name and expiration. Resource owner: jorgeper (the owner of this repository).",
+    "Repository access: Only select repositories > marky-mark.",
+    "Permissions > Repository: Contents, Issues, and Pull requests: Read and write; Metadata: Read (automatic).",
+    "Generate token and save GH_TOKEN=<token> in .sandcastle/.env.",
+    "This token is for repository operations, not Copilot inference. Host gh login is separate.",
+    "Never commit or share tokens. Details: .sandcastle/PR_SETUP.md",
+  ].join("\n");
 
   // A missing binary (`gh`, `docker`) surfaces as a raw `spawn <bin> ENOENT`
   // from every check that shells out to it — translate it into an actionable
@@ -179,7 +199,7 @@ export const runDoctor = async (options?: {
       const result = await fn();
       results.push(result.ok);
       console.log(`  ${result.ok ? "✓" : "✗"} ${name} — ${result.detail}`);
-      if (!result.ok && result.hint) console.log(`      ↳ ${result.hint}`);
+      if (!result.ok && result.hint) console.log(`      ↳ ${result.hint.replaceAll("\n", "\n        ")}`);
     } catch (error) {
       results.push(false);
       const errno = error as NodeJS.ErrnoException;
@@ -223,7 +243,7 @@ export const runDoctor = async (options?: {
   await check("agent credentials", async () => {
     if (configuration.harness === "copilot") {
       const problem = copilotCredentialProblem(envVars);
-      if (problem) return { ok: false, detail: problem, hint: "create a fine-grained PAT with account permission Copilot Requests; see .sandcastle/PR_SETUP.md" };
+      if (problem) return { ok: false, detail: problem, hint: copilotTokenHelp };
       try {
         await execFileAsync("gh", ["api", "user", "--silent"], {
           env: { ...process.env, GH_TOKEN: envVars.COPILOT_GITHUB_TOKEN },
@@ -231,7 +251,7 @@ export const runDoctor = async (options?: {
         });
         return { ok: true, detail: "COPILOT_GITHUB_TOKEN authenticates to GitHub; Copilot entitlement and model execution are not tested (no inference request)" };
       } catch {
-        return { ok: false, detail: "COPILOT_GITHUB_TOKEN could not authenticate to GitHub", hint: "check token expiry, organization policy and network access; never paste tokens into configure" };
+        return { ok: false, detail: "COPILOT_GITHUB_TOKEN could not authenticate to GitHub", hint: `Check token expiry, organization policy and network access.\n${copilotTokenHelp}` };
       }
     }
     // An unreachable or rejecting API is not evidence of a working setup.
@@ -298,12 +318,21 @@ export const runDoctor = async (options?: {
       return {
         ok: false,
         detail: "missing from .sandcastle/.env",
-        hint: "see .sandcastle/PR_SETUP.md for the required scopes",
+        hint: githubTokenHelp,
       };
     }
-    await execFileAsync("gh", ["api", "user"], {
-      env: { ...process.env, GH_TOKEN: envVars.GH_TOKEN },
-    });
+    try {
+      await execFileAsync("gh", ["api", "user"], {
+        env: { ...process.env, GH_TOKEN: envVars.GH_TOKEN },
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") throw error;
+      return {
+        ok: false,
+        detail: "GH_TOKEN could not authenticate to GitHub",
+        hint: `Check token expiry, organization policy and network access.\n${githubTokenHelp}`,
+      };
+    }
     // A contents-only fine-grained PAT passes the auth probe above but
     // strands sandbox agents on issue/PR operations — probe issue access.
     const slug = await github.repoSlug();
@@ -318,7 +347,7 @@ export const runDoctor = async (options?: {
         ok: false,
         detail:
           "authenticates but cannot read this repo's issues — sandbox agents will fail on issue/PR operations",
-        hint: "regenerate the token with Contents + Issues + Pull requests R/W (fine-grained) or `repo` scope (classic), then update GH_TOKEN in .sandcastle/.env",
+        hint: githubTokenHelp,
       };
     }
     return {
@@ -431,6 +460,31 @@ export const runDoctor = async (options?: {
     };
   });
 
+  let imageBuildCommand = "node ../sandcastle/dist/main.js docker build-image";
+  await check("npm registry for image builds", async () => {
+    const { stdout } = await execFileAsync("npm", ["config", "get", "registry"], { timeout: 15_000 });
+    let registry: URL;
+    try {
+      registry = new URL(stdout.trim());
+      if (registry.protocol !== "https:" || registry.username || registry.password || registry.search || registry.hash) {
+        throw new Error("Unsafe registry URL");
+      }
+    } catch {
+      return {
+        ok: false,
+        detail: "host npm registry is not a credential-free HTTPS URL (value hidden)",
+        hint: "check `npm config get registry` locally; do not pass credentials or tokens as Docker build arguments. See docs/DEVELOPING.md.",
+      };
+    }
+    if (registry.href !== "https://registry.npmjs.org/") {
+      imageBuildCommand += ` --npm-registry '${registry.href.replaceAll("'", "'\\''")}'`;
+    }
+    return {
+      ok: true,
+      detail: `${registry.href}\n        Build: ${imageBuildCommand}\n        Host npm settings are not copied into Docker. No network probe performed. Details: docs/DEVELOPING.md`,
+    };
+  });
+
   await check("docker sandbox image", async () => {
     await execFileAsync("docker", ["--version"]);
     try {
@@ -448,7 +502,7 @@ export const runDoctor = async (options?: {
       return {
         ok: false,
         detail: `${image} not built`,
-        hint: "run `node ../sandcastle/dist/main.js docker build-image` from Marky Mark",
+        hint: `run \`${imageBuildCommand}\` from Marky Mark`,
       };
     }
     if (configuration.harness === "copilot") {
@@ -456,7 +510,7 @@ export const runDoctor = async (options?: {
         "image", "inspect", "--format", '{{ index .Config.Labels "io.sandcastle.copilot-runtime" }}', image,
       ]);
       if (capability.trim() !== "1") {
-        return { ok: false, detail: `${image} lacks the Copilot runtime capability marker`, hint: "rebuild with `node ../sandcastle/dist/main.js docker build-image` to install Copilot and its resume/autopilot support" };
+        return { ok: false, detail: `${image} lacks the Copilot runtime capability marker`, hint: `rebuild with \`${imageBuildCommand}\` to install Copilot and its resume/autopilot support` };
       }
     }
     return { ok: true, detail: `${image} (image metadata only; no container or agent launched)` };
@@ -543,7 +597,7 @@ export const runDoctor = async (options?: {
     return {
       ok: false,
       detail: `agents install inside sandboxes (current image): ${[...found.values()].join(", ")}`,
-      hint: `add to .sandcastle/Dockerfile, then \`node ../sandcastle/dist/main.js docker build-image\` (rebuilding resets the tally):\n${suggestions}${bakedNote}`,
+      hint: `add to .sandcastle/Dockerfile, then \`${imageBuildCommand}\` (rebuilding resets the tally):\n${suggestions}${bakedNote}`,
     };
   });
 

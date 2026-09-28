@@ -31,6 +31,15 @@ other. Classic PATs (`ghp_...`) are not supported for Copilot inference.
 Rebuild the image with `node ../sandcastle/dist/main.js docker build-image`
 and run `npm run doctor`. No Anthropic credentials are needed for Copilot.
 
+Doctor prints token-creation instructions directly when either token is
+missing or fails its check, including the creation URL, resource owner,
+repository access, permissions, and where to save it. For the inference
+token, select your personal account as resource owner, **Public
+repositories** for repository access, and **Permissions > Account >
+Copilot Requests**. This does not grant access to private repositories;
+the separate repository token below handles that. Give both tokens an
+expiration and never commit or share them.
+
 1. **Upgrade your fine-grained PAT** (the `GH_TOKEN` in `.sandcastle/.env`):
    https://github.com/settings/personal-access-tokens — it needs these repo
    permissions on the repos you run sandcastle in:
