@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { discoverModels } from "./model-discovery.mjs";
 import {
-  ConfigurationError, COPILOT_BLOCKER, DEFAULT_AGENT_TIERS, LOCAL_CONFIG, ROOT,
+  ConfigurationError, COPILOT_SETUP, DEFAULT_AGENT_TIERS, LOCAL_CONFIG, ROOT,
   TIER_NAMES, configurationTable, isModelId, parseConfiguration,
   readConfigurationText, saveConfiguration, showConfiguration,
 } from "./configuration.mjs";
@@ -47,7 +47,7 @@ export async function configure({ cwd = ROOT, ask, log = console.log, discover =
     /** @type {import("./configuration.mjs").Harness} */
     const harness = choice === "1" ? "copilot" : "claude-code";
     if (harness === "copilot") {
-      log(COPILOT_BLOCKER);
+      log(COPILOT_SETUP);
       log("CLI setup: https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli");
       log("Choose model IDs available to your Copilot account. Do not enter GitHub credentials here.");
     } else {

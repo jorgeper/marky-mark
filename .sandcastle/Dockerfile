@@ -23,6 +23,13 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
   && apt-get update && apt-get install -y gh \
   && rm -rf /var/lib/apt/lists/*
 
+# Both harnesses are available; local.json selects which one runs.
+RUN npm install --global @github/copilot \
+  && copilot --help | grep -q -- '--max-autopilot-continues' \
+  && copilot --help | grep -q -- '--reasoning-effort' \
+  && copilot --help | grep -q -- '--resume'
+LABEL io.sandcastle.copilot-runtime="1"
+
 # Build-args for UID/GID alignment: sandcastle docker build-image
 # defaults these to the host user's UID/GID so image-built files
 # and bind-mounted files share an owner without runtime chown.

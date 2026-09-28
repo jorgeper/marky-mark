@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { QUICK_VERIFY_COMMANDS, VERIFY_COMMANDS } from "./config.mts";
 import { effortConfigErrors, EFFORT_LABEL_PREFIX } from "./effort.mts";
-import { COPILOT_BLOCKER, configurationTable, effectiveConfiguration, loadConfiguration, showConfiguration } from "./configuration.mjs";
-import { parseEnvFile } from "./env.mts";
+import { configurationTable, effectiveConfiguration, loadConfiguration, showConfiguration } from "./configuration.mjs";
+import { copilotCredentialProblem, parseEnvFile } from "./env.mts";
 import * as github from "./github.mts";
 import {
   currentImageId,
@@ -211,7 +211,7 @@ export const runDoctor = async (options?: {
         detail: "missing (credentials are local to this machine)",
         hint: configuration.harness === "claude-code"
           ? "copy .sandcastle/.env.example to .sandcastle/.env, then fill in Claude and repository credentials locally; never commit this file"
-          : "repository access needs GH_TOKEN in .sandcastle/.env; do not add Anthropic credentials for Copilot. Copilot sandbox authentication is not implemented yet.",
+          : "copy .sandcastle/.env.example to .sandcastle/.env; set COPILOT_GITHUB_TOKEN for inference and GH_TOKEN for repository access. Do not add Anthropic credentials for Copilot.",
       };
     }
     envVars = parseEnvFile(
@@ -222,7 +222,17 @@ export const runDoctor = async (options?: {
 
   await check("agent credentials", async () => {
     if (configuration.harness === "copilot") {
-      return { ok: false, detail: COPILOT_BLOCKER, hint: "wait for the Copilot execution migration; configuration alone does not enable it" };
+      const problem = copilotCredentialProblem(envVars);
+      if (problem) return { ok: false, detail: problem, hint: "create a fine-grained PAT with account permission Copilot Requests; see .sandcastle/PR_SETUP.md" };
+      try {
+        await execFileAsync("gh", ["api", "user", "--silent"], {
+          env: { ...process.env, GH_TOKEN: envVars.COPILOT_GITHUB_TOKEN },
+          timeout: 15_000,
+        });
+        return { ok: true, detail: "COPILOT_GITHUB_TOKEN authenticates to GitHub; Copilot entitlement and model execution are not tested (no inference request)" };
+      } catch {
+        return { ok: false, detail: "COPILOT_GITHUB_TOKEN could not authenticate to GitHub", hint: "check token expiry, organization policy and network access; never paste tokens into configure" };
+      }
     }
     // An unreachable or rejecting API is not evidence of a working setup.
     const oauth = envVars.CLAUDE_CODE_OAUTH_TOKEN;
@@ -231,7 +241,7 @@ export const runDoctor = async (options?: {
       return {
         ok: false,
         detail: "no CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY",
-        hint: "for a Claude subscription, install Claude Code (https://code.claude.com/docs/en/setup), run `claude setup-token`, and add CLAUDE_CODE_OAUTH_TOKEN to .sandcastle/.env; alternatively set ANTHROPIC_API_KEY. Copilot credentials cannot run this Claude-only loop yet.",
+        hint: "for a Claude subscription, install Claude Code (https://code.claude.com/docs/en/setup), run `claude setup-token`, and add CLAUDE_CODE_OAUTH_TOKEN to .sandcastle/.env; alternatively set ANTHROPIC_API_KEY.",
       };
     }
     if (oauth && !oauth.startsWith("sk-ant-oat01-")) {
@@ -432,9 +442,6 @@ export const runDoctor = async (options?: {
         hint: "start Docker Desktop (or your Docker-compatible runtime), wait until `docker info` succeeds, then rerun npm run doctor",
       };
     }
-    if (configuration.harness === "copilot") {
-      return { ok: false, detail: "Copilot sandbox image support is not implemented", hint: "do not build the current Claude-only image for a Copilot configuration" };
-    }
     const image = `sandcastle:${basename(process.cwd())}`;
     const { stdout } = await execFileAsync("docker", ["images", "-q", image]);
     if (!stdout.trim()) {
@@ -444,7 +451,15 @@ export const runDoctor = async (options?: {
         hint: "run `node ../sandcastle/dist/main.js docker build-image` from Marky Mark",
       };
     }
-    return { ok: true, detail: image };
+    if (configuration.harness === "copilot") {
+      const { stdout: capability } = await execFileAsync("docker", [
+        "image", "inspect", "--format", '{{ index .Config.Labels "io.sandcastle.copilot-runtime" }}', image,
+      ]);
+      if (capability.trim() !== "1") {
+        return { ok: false, detail: `${image} lacks the Copilot runtime capability marker`, hint: "rebuild with `node ../sandcastle/dist/main.js docker build-image` to install Copilot and its resume/autopilot support" };
+      }
+    }
+    return { ok: true, detail: `${image} (image metadata only; no container or agent launched)` };
   });
 
   await check("labels", async () => {
@@ -468,9 +483,6 @@ export const runDoctor = async (options?: {
   });
 
   await check("image gaps", async () => {
-    if (configuration.harness === "copilot") {
-      return { ok: false, detail: "not evaluated: Copilot sandbox image support is not implemented" };
-    }
     // In-sandbox installs mean the Dockerfile is missing toolchain the
     // agents keep needing (prd/006). Evidence is scoped to the CURRENT
     // image: a tally recorded against a previous image is stale (the

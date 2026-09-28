@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import {
-  claudeCode,
   conversation,
   type Conversation,
 } from "sandcastle-local";
+import { agentForModel } from "./agents.mts";
 import { chat } from "sandcastle-local/chat";
 import { docker } from "sandcastle-local/sandboxes/docker";
 import {
@@ -38,7 +38,7 @@ import {
 // Ctrl-C is always safe — the conversation is durable and re-attaches.
 
 assertExecutionReady();
-const agent = claudeCode(modelFor("decomposer"));
+const agent = agentForModel(modelFor("decomposer"));
 const sandbox = docker();
 const AGENT_MARKER = markerFor("decomposer");
 

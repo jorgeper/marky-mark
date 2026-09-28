@@ -89,8 +89,8 @@ zero filesystem activity. Secrets and raw CLI diagnostics are not displayed.
 
 `npm run configure -- --show` remains entirely local: it does not start either
 CLI, refresh models, or authenticate. Doctor's Docker/execution checks remain
-separate; seeing a model in Configure does not enable the blocked Copilot
-execution path.
+separate; seeing a model in Configure does not prove the Docker token can
+use it.
 
 #### Saved configuration
 
@@ -145,13 +145,49 @@ The host's `gh auth login` and the sandbox's `GH_TOKEN` are separate;
 [PR_SETUP.md](../.sandcastle/PR_SETUP.md) documents the token permissions.
 Never paste tokens into chat or commit them.
 
-The current execution path is still Claude Code-based. Copilot can be selected
-and saved, but Doctor and every execution entrypoint explicitly block it:
-goal/conversation support and sandbox authentication/image support remain
-unimplemented. There is no Claude fallback, and Doctor does not request
-Anthropic credentials for a Copilot selection. Saving configuration validates
-its structure, not account/model availability. Doctor's setup checks also do
-not make a billable request to verify the selected model IDs.
+Both harnesses support the main loop and design/decompose/issue conversations,
+including resumed PR-summary turns. All agent roles and attribution markers
+use the selected harness and explicitly configured model. There is no Claude
+fallback. Saving configuration validates structure, not model execution.
+
+For Copilot, set a **nonempty `COPILOT_GITHUB_TOKEN` directly in
+`.sandcastle/.env`**, using a fine-grained PAT with the account permission
+**Copilot Requests**. Use the same account as your host CLI login. This is
+separate from `GH_TOKEN` for repository operations; neither that token nor
+the Mac's native Copilot login is an inference-credential fallback. Blank
+or missing file values are rejected by this workflow, even if a token is
+exported in the parent shell. Do not put tokens in `local.json` or Configure.
+Then rebuild the sandbox image from Marky Mark:
+
+```bash
+node ../sandcastle/dist/main.js docker build-image
+npm run doctor
+```
+
+The image contains both CLIs; its Copilot capability marker is written only
+after the build checks the required CLI flags. Doctor inspects image metadata
+without starting a container, checks the dedicated token against GitHub's
+read-only user endpoint, and reports missing prerequisites. This proves
+neither Copilot entitlement nor model availability; Doctor makes no inference
+requests and does not change accounts.
+
+Copilot goals run bounded autopilot, followed by a **fresh, independent
+verification session using the configured reviewer model**. The verifier
+inspects the workspace and runs the required checks itself. Only an explicit
+positive JSON verdict sets `goalMet`; worker completion promises cannot bypass
+it. Rejection leaves the goal unmet; malformed verdicts or verifier failures
+fail the attempt. Verification incurs additional model usage and check time.
+`goalMaxTurns` bounds Copilot's autopilot *continuations*, not every internal
+model/tool turn; Claude retains its native `/goal` semantics.
+
+Copilot sessions are captured as native session directories under
+`~/.copilot/session-state` (or host `COPILOT_HOME`) and restored into fresh
+containers for resume. Account configuration and the global session database
+are not copied. Native retention/deletion can make older conversations
+unresumable; the conversation transcript alone cannot reconstruct model context.
+Session forking is not supported. Both CLIs discover the existing
+`.claude/skills/` directory; no duplicate configuration skills are needed.
+
 For Claude configurations, the container installs Claude Code itself.
 The host CLI provides model discovery and can obtain an OAuth token via
 `claude setup-token`. An Anthropic API key is the alternative for agent

@@ -39,8 +39,10 @@ installing/building dependencies, GitHub access, credentials, Docker, and
 issue labels. It does not install software or change accounts for you.
 Use **`npm run doctor`**, not npm's unrelated built-in `npm doctor`.
 Use `npm run configure -- --show` to view your settings without editing.
-Copilot choices can be saved, but execution remains blocked until its
-goal/conversation and sandbox support are implemented; there is no fallback.
+Both Copilot and Claude Code run the loop and conversation lanes.
+Copilot needs a dedicated `COPILOT_GITHUB_TOKEN` in `.sandcastle/.env` and a
+rebuilt sandbox image; the host CLI login used by Configure is not copied
+into Docker. There is no harness fallback.
 Details: [local Sandcastle setup](docs/DEVELOPING.md#local-sandcastle-setup).
 
 ## Download

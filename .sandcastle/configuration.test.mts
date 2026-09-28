@@ -9,7 +9,7 @@ import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  COPILOT_BLOCKER, DEFAULT_AGENT_TIERS, LOCAL_CONFIG, configurationTable,
+  COPILOT_SETUP, DEFAULT_AGENT_TIERS, LOCAL_CONFIG, configurationTable,
   effectiveConfiguration, loadConfiguration, parseConfiguration,
   requireRunnableConfiguration, saveConfiguration, showConfiguration,
   validateConfiguration,
@@ -90,8 +90,8 @@ describe("explicit local Sandcastle configuration", () => {
     write(chosen("copilot"));
     const before = readFileSync(path, "utf8");
     expect(showConfiguration(cwd, log)).toBe(0);
-    expect(output()).toContain(COPILOT_BLOCKER);
-    expect(() => requireRunnableConfiguration(cwd)).toThrow(COPILOT_BLOCKER);
+    expect(output()).toContain(COPILOT_SETUP);
+    expect(requireRunnableConfiguration(cwd).harness).toBe("copilot");
     expect(readFileSync(path, "utf8")).toBe(before);
     write(chosen());
     expect(requireRunnableConfiguration(cwd)).toEqual(chosen());
@@ -235,7 +235,7 @@ describe("explicit local Sandcastle configuration", () => {
     expect(existsSync(env.COMMAND_LOG)).toBe(false);
   });
 
-  it("U1451: every execution entrypoint stops before commands when unconfigured or Copilot-selected", () => {
+  it("U1451: every execution entrypoint stops before commands when configuration or Copilot credentials are missing", () => {
     const env = isolateExecution();
     for (const config of [null, chosen("copilot"), { ...chosen(), models: {} }]) {
       if (config === null) rmSync(path, { force: true });
@@ -245,27 +245,27 @@ describe("explicit local Sandcastle configuration", () => {
         expect(result.error).toBeUndefined();
         expect(result.status, result.stderr).toBe(1);
         expect(result.stderr).toContain("SETUP NEEDED:");
-        expect(result.stderr).toContain(config === null ? "Not configured" : config.harness === "copilot" ? COPILOT_BLOCKER : "explicit model ID");
+        expect(result.stderr).toContain(config === null ? "Not configured" : config.harness === "copilot" ? "COPILOT_GITHUB_TOKEN" : "explicit model ID");
         expect(existsSync(env.COMMAND_LOG)).toBe(false);
       }
     }
   }, 30_000);
 
-  it("U1452: Copilot Doctor never probes Anthropic or suggests a Claude image", () => {
+  it("U1452: Copilot Doctor checks its own credentials and image without probing Anthropic", () => {
     const env = isolateExecution();
     write(chosen("copilot"));
     const before = readFileSync(path, "utf8");
     writeFileSync(join(cwd, ".sandcastle/.env"), "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-test-only\n");
-    writeFileSync(join(cwd, "bin/docker"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    writeFileSync(join(cwd, "bin/docker"), '#!/bin/sh\nif [ "$1" = "images" ]; then printf "fake-image\\n"; fi\nexit 0\n', { mode: 0o755 });
     writeFileSync(join(cwd, "no-network.mjs"),
       'import { appendFileSync } from "node:fs"; globalThis.fetch = async () => { appendFileSync("network.log", "unexpected"); throw new Error("Network forbidden in test"); };');
     const result = start("--import", ["tsx", "--import", "./no-network.mjs", ".sandcastle/doctor.ts", "--image-gaps"], env);
     expect(result.status, result.stderr).toBe(1);
-    expect(result.stdout).toContain(COPILOT_BLOCKER);
+    expect(result.stdout).toContain(COPILOT_SETUP);
     expect(result.stdout).not.toContain("claude setup-token");
-    expect(result.stdout).not.toContain("docker build-image");
-    expect(result.stdout).toContain("Copilot sandbox image support is not implemented");
-    expect(result.stdout).toContain("image gaps — not evaluated");
+    expect(result.stdout).toContain("docker build-image");
+    expect(result.stdout).toContain("COPILOT_GITHUB_TOKEN");
+    expect(result.stdout).toContain("lacks the Copilot runtime capability marker");
     expect(existsSync(join(cwd, "network.log"))).toBe(false);
     expect(readFileSync(path, "utf8")).toBe(before);
   });
@@ -278,6 +278,59 @@ describe("explicit local Sandcastle configuration", () => {
       const result = spawnSync("git", ["check-ignore", file], { cwd, encoding: "utf8" });
       expect(result.status).toBe(0);
     }
+  });
+
+  it("U1493: configured Copilot starts with the dedicated file token, never a repository-token fallback", () => {
+    const env = isolateExecution();
+    write(chosen("copilot"));
+    const credentials = join(cwd, ".sandcastle/.env");
+    writeFileSync(join(cwd, "runtime.mts"), `
+      import { assertExecutionReady, harnessFor, modelFor } from "./.sandcastle/effort.mts";
+      import { agentForModel } from "./.sandcastle/agents.mts";
+      assertExecutionReady();
+      const agent = agentForModel(modelFor("implementer"));
+      console.log(JSON.stringify({ harness: harnessFor(), provider: agent.name, model: agent.model, verifier: agent.goalVerifier?.model }));
+    `);
+    for (const content of ["GH_TOKEN=github_pat_repo\n", "COPILOT_GITHUB_TOKEN=\n"]) {
+      writeFileSync(credentials, content);
+      const blocked = start("--import", ["tsx", "./runtime.mts"], { ...env, COPILOT_GITHUB_TOKEN: "github_pat_parent" });
+      expect(blocked.error, blocked.stderr + blocked.stdout).toBeUndefined();
+      expect(blocked.status).toBe(1);
+      expect(blocked.stderr).toContain("COPILOT_GITHUB_TOKEN");
+    }
+    writeFileSync(credentials, "COPILOT_GITHUB_TOKEN=github_pat_inference\nGH_TOKEN=github_pat_repo\n");
+    const ready = start("--import", ["tsx", "./runtime.mts"], env);
+    expect(ready.status, ready.stderr).toBe(0);
+    expect(JSON.parse(ready.stdout)).toEqual({
+      harness: "copilot", provider: "copilot", model: "chosen-hard", verifier: "chosen-hard",
+    });
+    expect(existsSync(env.COMMAND_LOG)).toBe(false);
+  });
+
+  it("U1494: Doctor checks the dedicated token and image metadata without running a container or exposing credentials", () => {
+    const env = isolateExecution();
+    write(chosen("copilot"));
+    writeFileSync(join(cwd, ".sandcastle/.env"), "COPILOT_GITHUB_TOKEN=github_pat_inference\nGH_TOKEN=github_pat_repo\n");
+    writeFileSync(join(cwd, "bin/gh"), `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "user" ] && [ "$GH_TOKEN" = "github_pat_inference" ]; then
+  printf "dedicated-token-probe\\n" >> "$COMMAND_LOG"
+  exit 0
+fi
+exit 99
+`, { mode: 0o755 });
+    writeFileSync(join(cwd, "bin/docker"), `#!/bin/sh
+printf "%s\\n" "$*" >> "$COMMAND_LOG"
+if [ "$1" = "images" ]; then printf "image-id\\n"; fi
+if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then printf "1\\n"; fi
+exit 0
+`, { mode: 0o755 });
+    const result = start("--import", ["tsx", ".sandcastle/doctor.ts"], env);
+    expect(result.stdout).toContain("COPILOT_GITHUB_TOKEN authenticates to GitHub");
+    expect(result.stdout).toContain("image metadata only; no container or agent launched");
+    expect(result.stdout + result.stderr).not.toContain("github_pat_inference");
+    const commands = readFileSync(env.COMMAND_LOG, "utf8");
+    expect(commands).toContain("dedicated-token-probe");
+    expect(commands).not.toMatch(/\brun\b|\bexec\b/);
   });
 
   it("U1454: the running process keeps one explicit snapshot even when the file changes", () => {

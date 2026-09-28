@@ -1,8 +1,8 @@
 import {
-  claudeCode,
   conversation,
   type Conversation,
 } from "sandcastle-local";
+import { agentForModel } from "./agents.mts";
 import { chat } from "sandcastle-local/chat";
 import { docker } from "sandcastle-local/sandboxes/docker";
 import {
@@ -41,7 +41,7 @@ import {
 // Ctrl-C is always safe — the issue persists; conversations re-attach.
 
 assertExecutionReady();
-const agent = claudeCode(modelFor("filer"));
+const agent = agentForModel(modelFor("filer"));
 const sandbox = docker();
 const AGENT_MARKER = markerFor("filer");
 const ROUTING_LABELS = [DESIGN_LABEL, DECOMPOSE_LABEL, IMPLEMENT_LABEL];

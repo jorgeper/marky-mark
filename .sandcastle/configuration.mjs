@@ -21,8 +21,8 @@ export const DEFAULT_AGENT_TIERS = Object.freeze({
 });
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const LOCAL_CONFIG = ".sandcastle/local.json";
-export const COPILOT_BLOCKER =
-  "Copilot execution is not implemented for this workflow's goals, conversations, or sandbox authentication yet. No agents will run; there is no Claude fallback.";
+export const COPILOT_SETUP =
+  "Copilot sandbox execution needs COPILOT_GITHUB_TOKEN in .sandcastle/.env and an updated sandbox image. Goals use an independent verification pass with the reviewer model (additional model usage). There is no Claude fallback.";
 
 /**
  * @typedef {"claude-code" | "copilot"} Harness
@@ -119,7 +119,6 @@ export function effectiveConfiguration(config) {
 
 export function requireRunnableConfiguration(cwd = ROOT) {
   const config = loadConfiguration(cwd);
-  if (config.harness === "copilot") throw new ConfigurationError(COPILOT_BLOCKER);
   return config;
 }
 
@@ -159,7 +158,7 @@ export function configurationTable(config) {
       `  ${role.padEnd(19)} ${tier.padEnd(9)} ${config.models[tier].padEnd(29)} ${Object.hasOwn(config.agentTiers, role) ? "local override" : "shared policy"}`),
     "",
     "Model execution is unverified; this view does not authenticate or refresh the model catalog.",
-    ...(config.harness === "copilot" ? [COPILOT_BLOCKER] : []),
+    ...(config.harness === "copilot" ? [COPILOT_SETUP] : []),
   ].join("\n");
 }
 

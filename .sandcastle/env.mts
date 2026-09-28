@@ -13,9 +13,23 @@ export const parseEnvFile = (content: string): Record<string, string> => {
     if (!trimmed || trimmed.startsWith("#")) continue;
     const eq = trimmed.indexOf("=");
     if (eq === -1) continue;
-    vars[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    vars[trimmed.slice(0, eq).trim()] = value;
   }
   return vars;
+};
+
+export const copilotCredentialProblem = (vars: Record<string, string>): string | undefined => {
+  if (!vars.COPILOT_GITHUB_TOKEN?.trim()) {
+    return "Set COPILOT_GITHUB_TOKEN in .sandcastle/.env for sandbox inference. Host Copilot login and GH_TOKEN are not substitutes; see .sandcastle/PR_SETUP.md.";
+  }
+  if (vars.COPILOT_GITHUB_TOKEN.startsWith("ghp_")) {
+    return "COPILOT_GITHUB_TOKEN is a classic PAT, which Copilot does not support. Use a fine-grained PAT with the account permission Copilot Requests.";
+  }
+  return undefined;
 };
 
 export const readPrConfig = (

@@ -1,10 +1,10 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  claudeCode,
   conversation,
   type Conversation,
 } from "sandcastle-local";
+import { agentForModel } from "./agents.mts";
 import { chat } from "sandcastle-local/chat";
 import { docker } from "sandcastle-local/sandboxes/docker";
 import {
@@ -54,7 +54,7 @@ import { mergePrArgs } from "./github.mts";
 // Ctrl-C is always safe — conversations are durable and re-attach.
 
 assertExecutionReady();
-const agent = claudeCode(modelFor("designer"));
+const agent = agentForModel(modelFor("designer"));
 const sandbox = docker();
 const AGENT_MARKER = markerFor("designer");
 const ANCHOR_TEXT = "Designer conversation started";

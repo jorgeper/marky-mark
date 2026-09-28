@@ -21,6 +21,16 @@ decisions, files touched — with all branch commits preserved for history
 
 ## One-time setup (~2 minutes)
 
+Select your harness/models with `npm run configure` first. For Copilot,
+also set `COPILOT_GITHUB_TOKEN` in `.sandcastle/.env`: a fine-grained PAT
+with the account permission **Copilot Requests**, from the same account
+used by your host Copilot CLI. Host login is used for Configure's model
+catalog, not copied into Docker. This dedicated variable is for inference;
+`GH_TOKEN` below is for repository operations. Neither substitutes for the
+other. Classic PATs (`ghp_...`) are not supported for Copilot inference.
+Rebuild the image with `node ../sandcastle/dist/main.js docker build-image`
+and run `npm run doctor`. No Anthropic credentials are needed for Copilot.
+
 1. **Upgrade your fine-grained PAT** (the `GH_TOKEN` in `.sandcastle/.env`):
    https://github.com/settings/personal-access-tokens — it needs these repo
    permissions on the repos you run sandcastle in:

@@ -3,7 +3,8 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as readline from "node:readline/promises";
-import { modelFor } from "./effort.mts";
+import { harnessFor, modelFor } from "./effort.mts";
+import { copilotCredentialProblem } from "./env.mts";
 
 // Helpers shared by the conversational-prd template scripts (design.ts,
 // decompose.ts, issue.ts). Shared *within* the template only — ADR 0009
@@ -13,7 +14,6 @@ import { modelFor } from "./effort.mts";
 // Models come from the validated local configuration via effort.mts;
 // re-exported so the scripts import one module for their identity.
 export { assertExecutionReady, modelFor } from "./effort.mts";
-export const HARNESS = "claude-code";
 
 /** Routing labels: which lane (agent) handles an issue. */
 export const DESIGN_LABEL = "sandcastle:design";
@@ -23,7 +23,7 @@ export const IMPLEMENT_LABEL = "Sandcastle";
 /** Identity marker for everything an agent writes on GitHub on the human's
  *  behalf: [agent · harness · model]. Unmarked text = the human. */
 export const markerFor = (role: string): string =>
-  `**[${role} · ${HARNESS} · ${modelFor(role)}]**`;
+  `**[${role} · ${harnessFor()} · ${modelFor(role)}]**`;
 
 export const slugify = (text: string): string =>
   text
@@ -264,7 +264,10 @@ export const preflight = async (): Promise<void> => {
     );
   } else {
     const envVars = parseEnv(readFileSync(envUrl, "utf8"));
-    if (!envVars.CLAUDE_CODE_OAUTH_TOKEN && !envVars.ANTHROPIC_API_KEY) {
+    if (harnessFor() === "copilot") {
+      const problem = copilotCredentialProblem(envVars);
+      if (problem) problems.push(problem);
+    } else if (!envVars.CLAUDE_CODE_OAUTH_TOKEN && !envVars.ANTHROPIC_API_KEY) {
       problems.push(
         "no CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in .sandcastle/.env",
       );

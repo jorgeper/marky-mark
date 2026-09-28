@@ -13,6 +13,8 @@
 // snapshot, loaded lazily so importing label definitions needs no local setup.
 
 import { effectiveConfiguration, requireRunnableConfiguration, TIER_NAMES } from "./configuration.mjs";
+import { existsSync, readFileSync } from "node:fs";
+import { copilotCredentialProblem, parseEnvFile } from "./env.mts";
 
 export interface EffortTier {
   name: string;
@@ -27,14 +29,23 @@ export interface EffortConfig {
   agentTiers: Readonly<Record<string, string>>;
 }
 
-let runtimeConfig: EffortConfig | undefined;
-const liveEffortConfig = (): EffortConfig =>
+let runtimeConfig: ReturnType<typeof effectiveConfiguration> | undefined;
+const liveEffortConfig = () =>
   runtimeConfig ??= effectiveConfiguration(requireRunnableConfiguration());
+
+export const executionConfiguration = liveEffortConfig;
+export const harnessFor = () => liveEffortConfig().harness;
 
 /** Called before any workflow side effect, including deterministic GitHub writes. */
 export const assertExecutionReady = (): void => {
   try {
-    liveEffortConfig();
+    const config = liveEffortConfig();
+    if (config.harness === "copilot") {
+      const path = new URL("./.env", import.meta.url);
+      const vars = existsSync(path) ? parseEnvFile(readFileSync(path, "utf8")) : {};
+      const problem = copilotCredentialProblem(vars);
+      if (problem) throw new Error(problem);
+    }
   } catch (error) {
     console.error(`SETUP NEEDED: ${error instanceof Error ? error.message : String(error)}`);
     console.error("Run npm run configure, then npm run doctor.");

@@ -50,6 +50,7 @@ import { execFile } from "node:child_process";
 import { basename } from "node:path";
 import { promisify } from "node:util";
 import * as sandcastle from "sandcastle-local";
+import { agentForModel } from "./agents.mts";
 import { docker } from "sandcastle-local/sandboxes/docker";
 import { z } from "zod";
 import { parseEnvFile, prSetupGuide, readPrConfig } from "./env.mts";
@@ -77,6 +78,7 @@ import { logStep, timed } from "./timing.mts";
 import { printAgents, printHelp, runDoctor, runInit } from "./setup.mts";
 import {
   assertExecutionReady,
+  harnessFor,
   effortConfigErrors,
   eligibility,
   modelFor,
@@ -443,11 +445,11 @@ const runDebate = async (
         sandbox.run({
           name: "pr-reviewer",
           maxIterations: 1,
-          agent: sandcastle.claudeCode(model),
+          agent: agentForModel(model),
           promptFile: "./.sandcastle/pr-review-prompt.md",
           promptArgs: {
             AGENT_NAME: "pr-reviewer",
-            AGENT_MARKER: markerFor("pr-reviewer", "claude-code", model),
+            AGENT_MARKER: markerFor("pr-reviewer", harnessFor(), model),
             PR_NUMBER: prNumber,
             REPO: repo,
             THREADS_JSON: threadsJson,
@@ -463,11 +465,11 @@ const runDebate = async (
         sandbox.run({
           name: "addresser",
           maxIterations: 25,
-          agent: sandcastle.claudeCode(model),
+          agent: agentForModel(model),
           promptFile: "./.sandcastle/pr-address-prompt.md",
           promptArgs: {
             AGENT_NAME: "addresser",
-            AGENT_MARKER: markerFor("addresser", "claude-code", model),
+            AGENT_MARKER: markerFor("addresser", harnessFor(), model),
             PR_NUMBER: prNumber,
             REPO: repo,
             THREADS_JSON: threadsJson,
@@ -710,7 +712,7 @@ const runPrdLane = async (): Promise<void> => {
             sandbox: docker(),
             name: "decomposer",
             maxIterations: 1,
-            agent: sandcastle.claudeCode(decomposerModel),
+            agent: agentForModel(decomposerModel),
             promptFile: "./.sandcastle/decompose-prompt.md",
             promptArgs: {
               PARENT_NUMBER: issue.number,
@@ -719,7 +721,7 @@ const runPrdLane = async (): Promise<void> => {
               REPO: repo,
               AGENT_MARKER: markerFor(
                 "decomposer",
-                "claude-code",
+                harnessFor(),
                 decomposerModel,
               ),
               TRIGGER_LABEL: github.TRIGGER_LABEL,
@@ -925,7 +927,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         sandbox.run({
           name: "conflict-resolver",
           maxIterations: 10,
-          agent: sandcastle.claudeCode(modelFor("conflict-resolver")),
+          agent: agentForModel(modelFor("conflict-resolver")),
           promptFile: "./.sandcastle/pr-conflict-prompt.md",
           // TARGET_BRANCH is a built-in prompt arg (injected by run()) —
           // passing it in promptArgs is a PromptError that kills the run
@@ -1073,7 +1075,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
               name: "planner",
               // One iteration is enough: the planner just needs to read and reason.
               maxIterations: 1,
-              agent: sandcastle.claudeCode(modelFor("planner")),
+              agent: agentForModel(modelFor("planner")),
               promptFile: "./.sandcastle/plan-prompt.md",
               promptArgs: {
                 CANDIDATE_NUMBERS: candidates.join(", "),
@@ -1150,7 +1152,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           sandbox.run({
             name: "spec-writer",
             maxIterations: 1,
-            agent: sandcastle.claudeCode(specModel),
+            agent: agentForModel(specModel),
             promptFile: "./.sandcastle/spec-prompt.md",
             promptArgs: {
               TASK_ID: issue.id,
@@ -1158,7 +1160,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
               BRANCH: issue.branch,
               SPEC_PATH: specPath,
               REPO: await github.repoSlug(),
-              AGENT_MARKER: markerFor("spec-writer", "claude-code", specModel),
+              AGENT_MARKER: markerFor("spec-writer", harnessFor(), specModel),
               VERIFY_COMMANDS: VERIFY_TEXT,
               QUICK_VERIFY_COMMANDS: QUICK_VERIFY_TEXT,
             },
@@ -1192,7 +1194,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             goal: spec.goal,
             goalMaxTurns: GOAL_MAX_TURNS,
             maxIterations: IMPLEMENT_ATTEMPTS,
-            agent: sandcastle.claudeCode(implementerModel),
+            agent: agentForModel(implementerModel),
           }),
         );
 
@@ -1242,7 +1244,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             sandbox.run({
               name: "reviewer",
               maxIterations: 1,
-              agent: sandcastle.claudeCode(modelFor("reviewer")),
+              agent: agentForModel(modelFor("reviewer")),
               promptFile: "./.sandcastle/review-prompt.md",
               // TARGET_BRANCH reaches the prompt via the built-in arg.
               promptArgs: {
@@ -1307,7 +1309,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         const prNumber = await github.createPr({
           branch: issue.branch,
           title,
-          body: `${markerFor("implementer", "claude-code", implementerModel)} opened this PR.\n\n${body}${closesLine}`,
+          body: `${markerFor("implementer", harnessFor(), implementerModel)} opened this PR.\n\n${body}${closesLine}`,
         });
         console.log(`  #${issue.id}: opened PR #${prNumber}`);
         await runDebate(
@@ -1385,7 +1387,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       sandbox: docker(),
       name: "merger",
       maxIterations: 1,
-      agent: sandcastle.claudeCode(modelFor("merger")),
+      agent: agentForModel(modelFor("merger")),
       promptFile: "./.sandcastle/merge-prompt.md",
       promptArgs: {
         BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
