@@ -139,6 +139,12 @@ describe("authenticated, metadata-only model discovery", () => {
     expect(JSON.stringify(result)).not.toContain("not-for-display");
   });
 
+  it("U1490: discovery uses normal CLI runtime selection rather than forcing the bundled older runtime", async () => {
+    expect((await discoverModels("copilot", options)).status).toBe("available");
+    expect(trace().find((row) => row.kind === "start").args)
+      .toEqual(["--headless", "--stdio", "--log-level", "error"]);
+  });
+
   it("U1458: Claude uses its authenticated picker and preserves context aliases", async () => {
     const result = await discoverModels("claude-code", options);
     expect(result.status).toBe("available");

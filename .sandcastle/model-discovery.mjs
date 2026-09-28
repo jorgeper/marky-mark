@@ -226,7 +226,8 @@ export async function discoverModels(harness, options = {}) {
   try {
     const settings = { ...options, cwd };
     if (harness === "copilot") {
-      return await probe("copilot", ["--headless", "--stdio", "--no-auto-update", "--log-level", "error"], "rpc", settings, async (request) => {
+      // --no-auto-update also forces the older bundled runtime, unlike normal CLI startup.
+      return await probe("copilot", ["--headless", "--stdio", "--log-level", "error"], "rpc", settings, async (request) => {
         const ping = await request("ping");
         if (!object(ping) || typeof ping.protocolVersion !== "number" || ping.protocolVersion < 3) {
           throw new Error("This Copilot CLI does not support the required metadata protocol.");

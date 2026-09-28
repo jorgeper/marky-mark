@@ -72,13 +72,19 @@ separate concerns.
 
 Discovery uses Node built-ins and installed CLIs: no engine checkout, npm
 dependencies, or SDK download is needed. Copilot is queried through its
-headless metadata RPC without creating a session. Claude uses safe-mode
+headless metadata RPC without creating a session. It follows normal CLI
+startup and runtime selection, like interactive `copilot`: discovery must
+not pass `--no-auto-update`, which can force an older bundled runtime instead
+of the newer downloaded version and return a different model catalog.
+Native CLI auto-update behavior still applies.
+Claude uses safe-mode
 authentication status and a stream-json initialization request with tools,
 MCP integrations, and session persistence disabled. No user prompt or
-inference request is sent, and no login/install is performed automatically.
+inference request is sent, and Configure does not invoke login, a package
+installer, or an explicit update command.
 Probes run outside the repository in temporary directories with bounded
 output/time and child-process cleanup. The native CLIs may maintain their
-own credential caches or diagnostic files; discovery is not a guarantee of
+own updates, credential caches, or diagnostic files; discovery is not a guarantee of
 zero filesystem activity. Secrets and raw CLI diagnostics are not displayed.
 
 `npm run configure -- --show` remains entirely local: it does not start either

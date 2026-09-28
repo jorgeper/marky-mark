@@ -25,8 +25,8 @@ export async function configure({ cwd = ROOT, ask, log = console.log, discover =
     log(`SETUP NEEDED: ${error.message}`);
     if (original !== null) log("The existing file will remain untouched unless you confirm its replacement.");
   }
-  log("\nModel selection checks native CLI authentication and model metadata only: no inference prompts, agents, installs, automatic logins, or GitHub writes.");
-  log("CLI credential/cache maintenance may occur. Secrets are never copied into configuration. Type :cancel at any prompt to discard changes.");
+  log("\nModel selection checks native CLI authentication and model metadata only: no inference prompts, agents, automatic logins, or GitHub writes.");
+  log("Normal CLI startup, including native updates and credential/cache maintenance, may occur. Secrets are never copied into configuration. Type :cancel at any prompt to discard changes.");
 
   /** @param {string} question */
   const answer = async (question) => {
