@@ -249,6 +249,10 @@ test('E81: editor vim nav — Esc inert with the setting off; full modal keyset 
 test('E82: markdown highlighting — themed token classes on by default, live toggle keeps undo, persists', async ({
   page,
 }) => {
+  // PRD 006 §12: test SPEC23's raw highlighter, not live preview's override.
+  await openSettings(page, 'editor');
+  await page.getByTestId('editor-live-preview').uncheck();
+  await saveSettings(page);
   await fsWrite(page, '/docs/hl.md', '# Big Title\n\nsome **bold** and `code` here\n');
   await page.goto('/#open=/docs/hl.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Big Title');
@@ -715,7 +719,8 @@ test('E261: selection over code — the tint paints above --mm-code-bg in the ed
   const DOC = '# T\n\nprose with `inline code` inside\n\n```js\nconst answer = 42;\n```\n\ntail\n';
 
   /** Boot the app on DOC with a settings patch applied, in edit mode. */
-  const boot = (patch: Record<string, unknown>) => bootEditorOn(page, '/docs/sel.md', DOC, patch);
+  const boot = (patch: Record<string, unknown>) =>
+    bootEditorOn(page, '/docs/sel.md', DOC, { livePreview: false, ...patch });
   /** Put the whole of the line holding `text` in the selection. */
   const selectLine = async (pane: Locator, text: string) => {
     await pane.locator('.cm-line', { hasText: text }).first().click();
@@ -796,6 +801,10 @@ test('E261: selection over code — the tint paints above --mm-code-bg in the ed
 test('E309: issue #157 — code blocks render as cards by default, caret reveal, the Smart Edit toggle and the Settings checkbox flip and persist, preview untouched', async ({
   page,
 }) => {
+  // Issue #342: exercise the standalone card/raw-fence toggle without LP hiding fences.
+  await openSettings(page, 'editor');
+  await page.getByTestId('editor-live-preview').uncheck();
+  await saveSettings(page);
   const DOC = 'intro\n\n```js\nconst a = 1;\nconst b = 2;\n```\n\noutro\n';
   await fsWrite(page, '/docs/code157.md', DOC);
   await page.goto('/#open=/docs/code157.md');
@@ -1528,7 +1537,7 @@ test('E655: issue #359 — selection over inline code leaves the backtick marks 
   };
 
   // --- raw highlighting: whole line ------------------------------------------
-  await boot({});
+  await boot({ livePreview: false });
   const editor = page.getByTestId('editor');
   await expect(line(editor, 'prose with').locator('.mm-md-code')).toBeVisible();
   await expect(editor.locator('.mm-code-sel')).toHaveCount(0);

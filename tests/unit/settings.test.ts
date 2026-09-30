@@ -93,6 +93,25 @@ describe('v3 settings', () => {
   });
 });
 
+describe('PRD 006 §1 promotion (issue #342)', () => {
+  test('U1435: live preview defaults on for fresh, missing and invalid settings; both saved choices round-trip', () => {
+    expect(DEFAULT_SETTINGS.livePreview).toBe(true);
+    for (const raw of ['{}', 'not json', 'null', '{"editorSyntax":false}']) {
+      expect(parseSettings(raw).livePreview).toBe(true);
+    }
+    for (const livePreview of [null, 'false', 'true', 0, 1, [], {}]) {
+      expect(parseSettings(JSON.stringify({ livePreview })).livePreview).toBe(true);
+    }
+    for (const livePreview of [false, true]) {
+      const parsed = parseSettings(JSON.stringify({ livePreview }));
+      expect(parsed.livePreview).toBe(livePreview);
+      const saved = serializeSettings(parsed);
+      expect(JSON.parse(saved).livePreview).toBe(livePreview);
+      expect(parseSettings(saved).livePreview).toBe(livePreview);
+    }
+  });
+});
+
 describe('v7 settings', () => {
   test('U15: comment controls and split-edit fields parse with defaults; malformed values fall back', () => {
     // Defaults: comments on, split ON (owner call, SPEC20 follow-up — was

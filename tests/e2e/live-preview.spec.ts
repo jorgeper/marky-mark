@@ -1,9 +1,10 @@
 // PRD 006 §1/§2/§5/§10/§11/§12 (#50): live preview wired into the shipped
-// app — the experimental settings toggle, theme-token styling, the
+// app — the default-on settings toggle (promoted by #342), theme-token styling, the
 // openExternal link hand-off, edit-adjacent feature compatibility, and the
 // supersede of SPEC23's markdown-highlighting setting while preview is on.
 import { expect, test } from './fixtures';
 import {
+  cancelSettings,
   dragAcrossText,
   editorTopGutterLine,
   freshApp,
@@ -34,52 +35,77 @@ async function setLivePreview(page: import('@playwright/test').Page, on: boolean
 
 const LP_DOC = '# Big Title\n\nsome **bold** here\n\n> a quote line\n\ntail\n';
 
-test('E142: live preview toggle — off by default with zero effect; on renders in place without a remount; persists', async ({
+test('E142: live preview defaults on in single edit; Save/Cancel, toggle, source, undo and persisted opt-out survive', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/lp.md', LP_DOC);
   await page.goto('/#open=/docs/lp.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Big Title');
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await saveSettings(page);
+  expect(JSON.parse((await fsRead(page, '/config/settings.json'))!).livePreview).toBeUndefined();
   await page.keyboard.press('Control+e');
   const editor = page.getByTestId('editor');
   await expect(editor.locator('.cm-content')).toBeVisible();
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  const originalContent = await editor.locator('.cm-content').elementHandle();
 
-  // Off by default: the row exists unchecked, no mm-lp-* classes, raw markers visible.
-  await expect(editor.locator('[class*="mm-lp-"]')).toHaveCount(0);
-  await expect(editor.locator('.cm-content')).toContainText('**bold**');
-  await openSettings(page, 'general');
-  await page.getByTestId('settings-tab-editor').click();
-  await expect(page.getByTestId('editor-live-preview')).not.toBeChecked();
-  await saveSettings(page);
-
-  // Type AAA on the tail line (undo baseline), then toggle on live.
-  await editor.locator('.cm-line').last().click();
-  await page.keyboard.press('End');
-  await page.keyboard.type('AAA');
-  await setLivePreview(page, true);
-
-  // Rendered: bold styled with its ** markers gone (cursor sits on the tail
-  // line, so the bold line is not revealed).
+  // PRD 006 §1 (issue #342): no livePreview seed, yet formatting and the row are on.
   await expect(editor.locator('.mm-lp-strong').first()).toContainText('bold');
   const boldLine = editor.locator('.cm-line', { hasText: 'bold' }).first();
   await expect(boldLine).not.toContainText('**');
   await expect(editor.locator('.cm-line.mm-lp-quote')).toHaveCount(1);
+  await openSettings(page, 'editor');
+  await expect(page.getByTestId('editor-live-preview')).toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Live preview', exact: true })).toBeChecked();
+  await page.getByTestId('editor-live-preview').uncheck();
+  await cancelSettings(page);
+  await expect(editor.locator('.mm-lp-strong').first()).toContainText('bold');
+  expect(JSON.parse((await fsRead(page, '/config/settings.json'))!).livePreview).toBeUndefined();
 
-  // No remount: undo history survived the compartment reconfigure.
-  await editor.locator('.cm-line', { hasText: 'AAA' }).first().click();
+  // A pre-toggle edit remains undoable after disabling, without replacing CM.
+  await editor.locator('.cm-line', { hasText: /^tail$/ }).click();
   await page.keyboard.press('End');
-  await page.keyboard.type('BBB');
-  await expect(editor.locator('.cm-content')).toContainText('tailAAABBB');
+  await page.keyboard.type('AAA');
+  await setLivePreview(page, false);
+  await expect(editor.locator('[class*="mm-lp-"]')).toHaveCount(0);
+  await expect(editor.locator('.cm-content')).toContainText('**bold**');
+  expect(
+    await originalContent!.evaluate((el) => el === document.querySelector('[data-testid="editor"] .cm-content'))
+  ).toBe(true);
+  await editor.locator('.cm-line', { hasText: 'tailAAA' }).click();
   await page.keyboard.press('ControlOrMeta+z');
+  await expect(editor.locator('.cm-content')).not.toContainText('AAA');
+  await page.keyboard.press('ControlOrMeta+Shift+z');
   await expect(editor.locator('.cm-content')).toContainText('tailAAA');
-  await expect(editor.locator('.cm-content')).not.toContainText('BBB');
 
-  // Persisted: survives a reload.
+  await setLivePreview(page, true);
+  await expect(editor.locator('.mm-lp-strong').first()).toContainText('bold');
+  expect(
+    await originalContent!.evaluate((el) => el === document.querySelector('[data-testid="editor"] .cm-content'))
+  ).toBe(true);
+  await editor.locator('.cm-line', { hasText: 'tailAAA' }).click();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(editor.locator('.cm-content')).not.toContainText('AAA');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await page.keyboard.press('Control+s');
+  await expect.poll(() => fsRead(page, '/docs/lp.md')).toBe(LP_DOC);
+
+  // Both explicit choices survive restarts, with the opt-out still raw and unchecked.
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"livePreview": true');
   await page.reload();
   await page.goto('/#open=/docs/lp.md');
-  // Issue #125: the relaunch reopens in the remembered edit mode.
   await expect(page.getByTestId('editor').locator('.mm-lp-strong').first()).toContainText('bold');
+  await setLivePreview(page, false);
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"livePreview": false');
+  await page.reload();
+  await page.goto('/#open=/docs/lp.md');
+  await expect(editor.locator('.cm-content')).toContainText('**bold**');
+  await expect(editor.locator('[class*="mm-lp-"]')).toHaveCount(0);
+  await openSettings(page, 'editor');
+  await expect(page.getByTestId('editor-live-preview')).not.toBeChecked();
+  await cancelSettings(page);
 });
 
 test('E143: live preview link hand-off — cmd/ctrl-click on a rendered link opens externally, no navigation', async ({
@@ -150,7 +176,6 @@ test('E144: live preview styling rides the theme tokens — heading color follow
 
 test('E145: split view keeps scroll sync with live preview on', async ({ page }) => {
   await splitApp(page);
-  await setLivePreview(page, true);
   const editor = page.locator('.cm-scroller');
 
   // Live preview is really on in the split editor: rendered section headings.
@@ -169,12 +194,12 @@ test('E145: split view keeps scroll sync with live preview on', async ({ page })
 
 test('E146: mirrored selection still lands in the editor with live preview on', async ({ page }) => {
   await fsWrite(page, '/docs/lp-mirror.md', '# Mirror\n\nThe quick **brown fox** jumps far.\n\ntail\n');
-  // Seed splitEdit + livePreview on top of the pinned settings, then reboot
+  // Seed only splitEdit on top of the pinned settings, then reboot
   // so the app reads them from settings.json (the splitApp pattern).
   await page.evaluate(() => {
     const raw = window.__mmfs!.read('/config/settings.json');
     const settings = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...settings, splitEdit: true, livePreview: true }));
+    window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...settings, splitEdit: true }));
   });
   await page.reload();
   await page.goto('/#open=/docs/lp-mirror.md');

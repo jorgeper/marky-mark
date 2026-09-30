@@ -124,7 +124,7 @@ export interface Settings {
    * `editorSyntax`, which is markdown highlighting; on by default.
    */
   codeSyntax: boolean;
-  /** PRD 006 §1: live preview in the edit pane — experimental, off by default. */
+  /** PRD 006 §1 (issue #342): live preview defaults on; saved choices still win. */
   livePreview: boolean;
   /** SPEC40 §1: show ALL tables as fitted grids in the editor (default on). */
   tableGridView: boolean;
@@ -254,7 +254,7 @@ export const DEFAULT_SETTINGS: Settings = {
   imageNamePattern: '{doc} {n}',
   editorSyntax: true,
   codeSyntax: true,
-  livePreview: false,
+  livePreview: true,
   tableGridView: true,
   inlineImages: true,
   // Issue #157: like tables and images, code blocks ship rendered.

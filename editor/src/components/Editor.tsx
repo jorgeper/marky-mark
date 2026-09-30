@@ -463,7 +463,7 @@ export interface EditorProps {
    * (that one is markdown highlighting) and live-reconfigured the same way.
    */
   codeSyntax: boolean;
-  /** PRD 006 §1: live preview (experimental) — compartment-reconfigured live, no remount. */
+  /** PRD 006 §1: live preview — compartment-reconfigured live, no remount. */
   livePreview: boolean;
   /** PRD 006 §5: receives the URL of a cmd/ctrl-clicked rendered link (platform.openExternal). */
   onOpenExternal?(url: string): void;
@@ -2329,7 +2329,7 @@ export default function Editor({
       // Issue #122: fenced-code colouring, on its own compartment so it
       // toggles live and independently of the markdown highlighting above.
       codeSynComp.current.of(codeSyntaxExt(codeSyntax)),
-      // PRD 006 §1: the experimental live-preview extension, present only
+      // PRD 006 §1: the live-preview extension, present only
       // while the setting is on — off ⇒ an empty compartment, zero behavior.
       lpComp.current.of(livePreview ? livePreviewExt() : []),
       // SPEC37 §3: aligned table mode. MUST precede the vim layer below —

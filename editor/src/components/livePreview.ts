@@ -3,9 +3,9 @@
  * extension — DOM/view wiring over the pure decoration core in
  * src/lib/livePreview.ts.
  *
- * PRD 006 §1 (#50): the shipped app reaches this through the
- * "Live preview (experimental)" setting — Editor.tsx includes the extension
- * in a compartment while `livePreview` is on; off (the default) the
+ * PRD 006 §1 (#50, promoted by #342): the shipped app reaches this through
+ * the default-on "Live preview" setting — Editor.tsx includes the extension
+ * in a compartment while `livePreview` is on; when off the
  * compartment is empty and the edit pane behaves exactly as before.
  */
 import {
@@ -275,7 +275,7 @@ export interface LivePreviewOptions {
 /**
  * PRD 006 §3–§8 (issues #47/#48/#49): the live-preview extension factory.
  * The shipped app includes it from Editor.tsx while the
- * "Live preview (experimental)" setting is on (PRD 006 §1, #50).
+ * "Live preview" setting is on (PRD 006 §1, #50, promoted by #342).
  */
 export function livePreviewExtension(options: LivePreviewOptions = {}): Extension {
   return [

@@ -333,6 +333,10 @@ const externalOpens = (page: import('@playwright/test').Page) =>
   page.evaluate(() => (window as unknown as { __mmExternalOpens?: string[] }).__mmExternalOpens ?? []);
 
 async function openLinkDoc(page: import('@playwright/test').Page) {
+  // SPEC43 §11: these cases exercise the standalone link-view/raw-link toggle.
+  await openSettings(page, 'editor');
+  await page.getByTestId('editor-live-preview').uncheck();
+  await saveSettings(page);
   await fsWrite(page, '/docs/links270.md', LINK_DOC);
   await page.goto('/#open=/docs/links270.md');
   await expect(page.getByTestId('doc')).toContainText('intro line');
@@ -691,6 +695,10 @@ const CALLOUT_DOC = [
 test('E540: Issue #318 — the five callout kinds render tinted with a title row and no marker text in the preview; Show Raw/Rendered Callouts flips the edit pane and its label, the Settings checkbox mirrors it', async ({
   page,
 }) => {
+  // PRD 006 owns quote decoration while on; this tests the standalone callout view.
+  await openSettings(page, 'editor');
+  await page.getByTestId('editor-live-preview').uncheck();
+  await saveSettings(page);
   await fsWrite(page, '/docs/callouts318.md', CALLOUT_DOC);
   await page.goto('/#open=/docs/callouts318.md');
   const doc = page.getByTestId('doc');

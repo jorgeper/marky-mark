@@ -110,6 +110,25 @@ describe('PRD 002 §B5 scope inventory', () => {
 });
 
 describe('PRD 002 §A layered resolver', () => {
+  test('U1436: PRD 006 §1 promotion preserves user live-preview choices and invalid-value fallthrough', () => {
+    expect(SETTINGS_SCOPES.livePreview).toBe('U');
+    expect(resolveSettings({}).livePreview).toBe(true);
+    for (const livePreview of [null, 'false', 'true', 0, 1, [], {}]) {
+      expect(resolveSettings({ user: { livePreview } }).livePreview).toBe(true);
+      expect(resolveSettings({ workspace: { livePreview: false }, user: { livePreview } }).livePreview).toBe(false);
+    }
+    for (const livePreview of [false, true]) {
+      expect(
+        resolveSettings({
+          global: { livePreview: !livePreview },
+          team: { livePreview: !livePreview },
+          workspace: { livePreview: !livePreview },
+          user: { livePreview },
+        }).livePreview
+      ).toBe(livePreview);
+    }
+  });
+
   test('U78: U precedence — User beats Workspace beats Team beats Global; lower layers fill omissions', () => {
     const r = resolveSettings({
       global: { fontSize: 14, zoom: 150, margins: 'wide', themeLight: 'nord' },

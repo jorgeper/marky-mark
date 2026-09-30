@@ -3,6 +3,11 @@
 **Status:** Draft
 **Date:** 2026-08-03
 
+**Promotion amendment — issue #342:** Live preview is now enabled by default
+and no longer labelled experimental. This supersedes requirement 1's original
+default-off opt-in and the deferred-promotion non-goal. Explicit saved choices
+remain respected; all rendering and compatibility requirements below remain.
+
 ## Problem
 
 Editing markdown in Marky Mark means either staring at raw syntax in the
@@ -22,8 +27,8 @@ constructs.
 
 - An Obsidian-style Live Preview mode for the existing CodeMirror edit
   pane: markdown renders in place, raw syntax reveals on the active line.
-- Shipped as an experimental opt-in so the prototype can land without
-  destabilizing the editor everyone uses today.
+- Enabled by default, with a persisted opt-out for readers who prefer raw
+  syntax (promotion decision: issue #342).
 - Zero regression to the editor with the toggle off, and no breakage of
   edit-adjacent features (split view, scroll sync, mirrored selection,
   vim nav, comments, find) with it on.
@@ -34,8 +39,6 @@ constructs.
   mode; the view mode, edit mode, and split view all remain as they are.
 - **An editable preview pane.** The rendered preview stays read-only; we
   do not round-trip HTML back to markdown.
-- **Making live preview the default.** Promotion out of experimental is a
-  separate future decision with its own issue.
 - **Interactive widgets beyond the two chosen probes.** No link-editing
   popovers, heading folding, drag handles, or slash menus. Task-list
   checkboxes and cmd/ctrl-click on links are the only interactions.
@@ -47,11 +50,13 @@ constructs.
 
 ## Requirements
 
-1. Settings gains a **"Live preview (experimental)"** toggle, **off by
-   default**, persisted alongside the other editor settings.
+1. Settings has a **"Live preview"** toggle, **on by default** (issue #342),
+   persisted alongside the other editor settings. Missing or invalid values
+   fall back to on; explicit saved `false` and `true` remain respected.
 2. With the toggle **off**, the edit pane behaves exactly as it does
    today — including the SPEC23 markdown-highlighting setting. All
-   existing editor e2e tests pass unchanged.
+   existing editor assertions remain intact; raw-editor tests explicitly
+   opt out of live preview where needed after issue #342's promotion.
 3. With the toggle **on**, inline formatting renders in place with its
    markers hidden: bold, italic, strikethrough, and inline code display
    styled, without the `**` / `*` / `~~` / `` ` `` characters.

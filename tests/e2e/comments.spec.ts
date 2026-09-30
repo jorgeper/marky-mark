@@ -2270,6 +2270,8 @@ test('E591: issue #341 — with the rendered-links view off, a quote through lin
 }) => {
   await seedSyntaxDoc(page);
   await openSettings(page, 'editor');
+  // PRD 006 §5: raw-link assertions require both renderers to be off.
+  await page.getByTestId('editor-live-preview').uncheck();
   await page.getByTestId('settings-link-view').uncheck();
   await saveSettings(page);
   await openSettings(page, 'general');
@@ -3133,6 +3135,10 @@ test('E608: issue #344 — every context (prose, bold, italic, strike, inline co
   page,
 }) => {
   await seedContextDoc(page);
+  // Issue #342: retain the raw-editor half of the E608/E609 compatibility pair.
+  await openSettings(page, 'editor');
+  await page.getByTestId('editor-live-preview').uncheck();
+  await saveSettings(page);
   const editor = page.getByTestId('editor');
 
   // Split edit (the default), grid on (the default), live preview off.
@@ -3206,6 +3212,9 @@ test('E610: issue #344 (SPEC23 §3) — over inline code and both fence bodies t
   await page.getByTestId('settings-theme-dark').selectOption('one-dark');
   const useDark = page.getByTestId('use-dark-theme');
   if (!(await useDark.isChecked())) await useDark.check();
+  // SPEC23 first; this test enables PRD 006 explicitly for its second half.
+  await page.getByTestId('settings-tab-editor').click();
+  await page.getByTestId('editor-live-preview').uncheck();
   await saveSettings(page);
   const themeBg = () => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor);
   await page.emulateMedia({ colorScheme: 'light' });

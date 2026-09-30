@@ -1139,7 +1139,7 @@ export function SettingsPanel({
         </label>
         {scopeNote('codeSyntax')}
       </div>
-      {/* PRD 006 §1: the experimental live-preview opt-in, off by default. */}
+      {/* PRD 006 §1 (issue #342): promoted to default-on, still user-switchable. */}
       <div className="checkbox-row">
         <input
           id="editor-live-preview"
@@ -1149,7 +1149,7 @@ export function SettingsPanel({
           onChange={(e) => onChange({ ...settings, livePreview: e.target.checked })}
         />
         <label htmlFor="editor-live-preview" style={{ margin: 0, fontWeight: 400 }}>
-          Live preview (experimental)
+          Live preview
         </label>
         {scopeNote('livePreview')}
       </div>
