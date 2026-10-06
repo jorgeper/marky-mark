@@ -596,12 +596,12 @@
 | rustc_version | 0.4.1 | MIT OR Apache-2.0 |
 | rustc-hash | 2.1.3 | Apache-2.0 OR MIT |
 | rustix | 1.1.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
-| rustls | 0.23.41 | Apache-2.0 OR ISC OR MIT |
+| rustls | 0.23.45 | Apache-2.0 OR ISC OR MIT |
 | rustls-native-certs | 0.8.4 | Apache-2.0 OR ISC OR MIT |
 | rustls-pki-types | 1.15.0 | MIT OR Apache-2.0 |
 | rustls-platform-verifier | 0.7.0 | MIT OR Apache-2.0 |
 | rustls-platform-verifier-android | 0.1.1 | MIT OR Apache-2.0 |
-| rustls-webpki | 0.103.13 | ISC |
+| rustls-webpki | 0.103.15 | ISC |
 | rustversion | 1.0.23 | MIT OR Apache-2.0 |
 | same-file | 1.0.6 | Unlicense/MIT |
 | schannel | 0.1.29 | MIT |
