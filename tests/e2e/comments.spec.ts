@@ -1554,6 +1554,10 @@ test('E425: PRD 022 Req 12 — the split-edit editor paints too, and a modifier-
 test('E426: PRD 022 Req 12 — an ambiguous quote does not paint in the editor, while a quote crossing inline syntax paints over its visible-text match (issue #341)', async ({
   page,
 }) => {
+  // PRD 006 §2 (issue #342): this test asserts the painted raw ** markers.
+  await openSettings(page, 'editor');
+  await page.getByTestId('editor-live-preview').uncheck();
+  await saveSettings(page);
   const DOC = '/docs/best-effort.md';
   // Issue #341: the app re-derives each anchor's context to CONTEXT_LENGTH
   // (32) rendered characters, and the visible-text mapping scores that
@@ -2234,6 +2238,10 @@ test('E590: issue #341 — quotes crossing strong/em, inline code, link text, es
   page,
 }) => {
   await seedSyntaxDoc(page);
+  // PRD 006 §2 (issue #342): keep the raw-syntax paint assertions; E609 covers LP.
+  await openSettings(page, 'editor');
+  await page.getByTestId('editor-live-preview').uncheck();
+  await saveSettings(page);
   // With the rendered-links view on (its default) the link's `](url)` is
   // hidden from the DOM, so the painted text reads as the rendered text.
   const paint = { ...SYNTAX_PAINT, 'h-link': 'link text after' };
@@ -2287,6 +2295,10 @@ test('E591: issue #341 — with the rendered-links view off, a quote through lin
 test('E592: issue #341 — a modifier-click on text that is both a link and a painted comment opens the link and activates nothing; off the link it activates; the pointer cue shows while the modifier is held', async ({
   page,
 }) => {
+  // PRD 006 §5 (issue #342): exercise the standalone link view's pointer cue.
+  await openSettings(page, 'editor');
+  await page.getByTestId('editor-live-preview').uncheck();
+  await saveSettings(page);
   const LINK_DOC = '/docs/link-comment.md';
   await fsWrite(page, LINK_DOC, '# Links\n\nvisit [the site](https://example.com/docs) today\n\ntail\n');
   await fsWrite(

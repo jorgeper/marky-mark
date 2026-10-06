@@ -49,7 +49,7 @@ test('E142: live preview defaults on in single edit; Save/Cancel, toggle, source
   const editor = page.getByTestId('editor');
   await expect(editor.locator('.cm-content')).toBeVisible();
   await expect(page.getByTestId('split-divider')).toHaveCount(0);
-  const originalContent = await editor.locator('.cm-content').elementHandle();
+  const originalContent = await editor.locator('.cm-content').evaluateHandle((el) => el);
 
   // PRD 006 §1 (issue #342): no livePreview seed, yet formatting and the row are on.
   await expect(editor.locator('.mm-lp-strong').first()).toContainText('bold');
@@ -72,7 +72,7 @@ test('E142: live preview defaults on in single edit; Save/Cancel, toggle, source
   await expect(editor.locator('[class*="mm-lp-"]')).toHaveCount(0);
   await expect(editor.locator('.cm-content')).toContainText('**bold**');
   expect(
-    await originalContent!.evaluate((el) => el === document.querySelector('[data-testid="editor"] .cm-content'))
+    await originalContent.evaluate((el) => el === document.querySelector('[data-testid="editor"] .cm-content'))
   ).toBe(true);
   await editor.locator('.cm-line', { hasText: 'tailAAA' }).click();
   await page.keyboard.press('ControlOrMeta+z');
@@ -83,7 +83,7 @@ test('E142: live preview defaults on in single edit; Save/Cancel, toggle, source
   await setLivePreview(page, true);
   await expect(editor.locator('.mm-lp-strong').first()).toContainText('bold');
   expect(
-    await originalContent!.evaluate((el) => el === document.querySelector('[data-testid="editor"] .cm-content'))
+    await originalContent.evaluate((el) => el === document.querySelector('[data-testid="editor"] .cm-content'))
   ).toBe(true);
   await editor.locator('.cm-line', { hasText: 'tailAAA' }).click();
   await page.keyboard.press('ControlOrMeta+z');

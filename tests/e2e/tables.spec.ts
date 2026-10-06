@@ -1273,7 +1273,8 @@ test('E634: issue #357 — a preview prose phrase below two grids mirrors into t
   page,
 }) => {
   const doc = seamDoc();
-  await openSeamSplit(page, '/docs/seam634.md', doc);
+  // PRD 006 §2 (issue #342): DOM text must retain all source bytes for raw offsets.
+  await openSeamSplit(page, '/docs/seam634.md', doc, { livePreview: false });
   await blurIntoPreview(page);
   await selectPhraseInPane(page, PREVIEW_PANE, SEAM_PHRASE);
   await expect.poll(async () => (await seamState(page)).selText).toBe(SEAM_PHRASE);
@@ -1292,7 +1293,8 @@ test('E635: issue #357 — a word selected in a preview table cell selects that 
   page,
 }) => {
   const doc = seamDoc();
-  await openSeamSplit(page, '/docs/seam635.md', doc);
+  // PRD 006 §2 (issue #342): DOM text must retain all source bytes for raw offsets.
+  await openSeamSplit(page, '/docs/seam635.md', doc, { livePreview: false });
   await blurIntoPreview(page);
   const editor = page.getByTestId('editor');
   for (const word of ['brown', 'seam17', 'seam03']) {
@@ -1321,7 +1323,8 @@ test('E636: issue #357 — a preview selection from the end of one cell into the
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   const doc = seamDoc();
-  await openSeamSplit(page, '/docs/seam636.md', doc);
+  // PRD 006 §2 (issue #342): DOM text must retain all source bytes for raw offsets.
+  await openSeamSplit(page, '/docs/seam636.md', doc, { livePreview: false });
   await blurIntoPreview(page);
   await page.evaluate(() => {
     window.__mmSelLog = [];

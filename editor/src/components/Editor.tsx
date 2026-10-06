@@ -1184,6 +1184,32 @@ const highlightsExt = (
  */
 const hostSelection = Annotation.define<boolean>();
 
+// SPEC23 §1.3 / PRD 006 §11 (issue #342): host selections must preserve
+// pixel offsets even when revealing live-preview syntax changes line heights.
+// Run after layout via scrollHandler, replacing CM's line-based anchoring.
+const hostScrollPosition = Annotation.define<{ top: number; left: number }>();
+const hostScrollPreservation = ViewPlugin.fromClass(
+  class {
+    position: { top: number; left: number } | undefined;
+
+    update(update: ViewUpdate) {
+      for (const tr of update.transactions) this.position = tr.annotation(hostScrollPosition);
+    }
+  },
+  {
+    provide: (plugin) =>
+      EditorView.scrollHandler.of((view) => {
+        const pending = view.plugin(plugin);
+        if (!pending?.position) return false;
+        const { top, left } = pending.position;
+        pending.position = undefined;
+        view.scrollDOM.scrollTop = top;
+        view.scrollDOM.scrollLeft = left;
+        return true;
+      }),
+  }
+);
+
 /**
  * SPEC23 §4 + SPEC24 §1 (issue #357): one report for `onEditState` — the
  * canonical fields (`canonHead`, `headLine`, `selFrom`, `selTo`) through the
@@ -1229,8 +1255,14 @@ function selectSourceRange(view: EditorView, from: number, to: number, reveal: b
   const { from: anchor, to: head } = displayRangeOf(view.state, from, to);
   view.dispatch({
     selection: { anchor, head },
-    effects: reveal ? EditorView.scrollIntoView(anchor, { y: 'center' }) : [],
-    annotations: hostSelection.of(true), // Issue #310: not an editor-made move
+    // The no-reveal effect schedules the post-layout handler, not a caret reveal.
+    effects: reveal
+      ? EditorView.scrollIntoView(anchor, { y: 'center' })
+      : EditorView.scrollIntoView(view.viewport.from),
+    annotations: [
+      hostSelection.of(true),
+      ...(reveal ? [] : [hostScrollPosition.of({ top: view.scrollDOM.scrollTop, left: view.scrollDOM.scrollLeft })]),
+    ],
   });
 }
 
@@ -2376,6 +2408,7 @@ export default function Editor({
       // SPEC23 §1: CM-drawn selection so a mirrored range shows while the
       // editor is unfocused (styled via .cm-selectionBackground).
       drawSelection(),
+      hostScrollPreservation,
       // SPEC30 §1.4: match decorations only. The highlighter requires an
       // open panel, so ours is an invisible stub (no [main-field] ⇒ it never
       // steals focus); the app's FindBar is the real UI. No search keymap.

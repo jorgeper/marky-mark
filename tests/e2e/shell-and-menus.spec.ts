@@ -633,6 +633,8 @@ test('E51: Settings opens its own window — no in-page overlay; edits apply liv
   // another U-scope Editor setting; E136 covers the menu route.)
   await sp.getByTestId('settings-tab-editor').click();
   await expect(page.locator('.mm-md-h1').first()).toBeVisible();
+  // PRD 006 §12 (issue #342): live preview otherwise supersedes editorSyntax.
+  await sp.getByTestId('editor-live-preview').uncheck();
   await sp.getByTestId('editor-syntax').click();
   // Issue #246: the edit is pending until Save — which commits it and closes
   // the settings window, so the zoom echo below reopens it.

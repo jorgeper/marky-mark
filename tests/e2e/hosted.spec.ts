@@ -6491,9 +6491,10 @@ test('E493: headings hundreds of lines down carry the copy-link control in both 
   const editor = page.getByTestId('editor');
   await expect(editor.locator('.cm-line').first()).toBeVisible();
   const headingLink = page.getByTestId('heading-copy-link-inline');
+  // PRD 006 §4 (issue #342): headings render without their ## until revealed.
   for (const [text, slug] of [
-    ['## Listed Tail', 'listed-tail'],
-    ['## Deep Tail', 'deep-tail'],
+    ['Listed Tail', 'listed-tail'],
+    ['Deep Tail', 'deep-tail'],
   ]) {
     const line = editor.locator('.cm-line', { hasText: text }).first();
     for (let i = 0; i < 60 && (await line.count()) === 0; i++) {

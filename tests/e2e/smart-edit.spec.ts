@@ -96,6 +96,10 @@ test('E105: smart-edit gutter button — cursor line only, follows the caret, ri
 test('E106: formatting end-to-end — bold via menu, italic via hotkey, H2 via the flyout, multi-line bullet toggle, one undo step each, inert in preview', async ({
   page,
 }) => {
+  // PRD 006 §2 (issue #342): compare raw source, not caret-dependent rendered DOM.
+  await openSettings(page, 'editor');
+  await page.getByTestId('editor-live-preview').uncheck();
+  await saveSettings(page);
   await fsWrite(page, '/docs/fmt.md', 'alpha\nbeta\ngamma delta\n');
   await page.goto('/#open=/docs/fmt.md');
   await expect(page.getByTestId('doc')).toContainText('alpha');
