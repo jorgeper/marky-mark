@@ -73,10 +73,11 @@ test('W1: single-file page loads with the welcome doc; theme change persists acr
 
   await page.getByTestId('settings-tab-appearance').click();
   await page.getByTestId('settings-theme-light').selectOption('monokai');
+  // Issue #246: a theme pick is pending until Save, then restyles the page.
+  await saveSettings(page);
   await expect
     .poll(() => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor))
     .toBe('rgb(39, 40, 34)');
-  await saveSettings(page);
 
   await page.reload();
   await expect(page.getByTestId('empty-hint')).toBeVisible();
@@ -229,9 +230,11 @@ test('W6: a review bundle boots straight into its document with the comment inta
     '<!-- marky-mark-comments',
     JSON.stringify(
       {
-        version: 1,
+        // Issue #283: a pre-2.0.0 store reads as no annotations by design.
+        version: '2.0.0',
         comments: [
           {
+            kind: 'comment',
             id: 'w6c1',
             anchor: { exact: 'special phrase', prefix: 'A ', suffix: ' to anchor', start: 13, end: 27 },
             author: 'W6 Reviewer',
