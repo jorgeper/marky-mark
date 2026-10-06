@@ -66,14 +66,14 @@ test('E6: remapping the edit-toggle hotkey in settings takes effect immediately;
   // SPEC34: the fixture combo moved off Mod+Shift+E — that is now the
   // folder sidebar's DEFAULT binding, so the conflict detector (rightly)
   // refuses it. The test's semantics are unchanged: remap, old dies, new works.
-  await page.keyboard.press('Control+Shift+Y');
+  await page.keyboard.press('ControlOrMeta+Shift+Y');
   await saveSettings(page);
 
   await page.keyboard.press('Control+e'); // old combo — must do nothing
   await expect(page.getByTestId('editor')).toHaveCount(0);
   await expect(page.getByTestId('doc')).toBeVisible();
 
-  await page.keyboard.press('Control+Shift+Y'); // new combo
+  await page.keyboard.press('ControlOrMeta+Shift+Y'); // new combo
   await expect(page.getByTestId('editor')).toBeVisible();
 
   // Persisted to settings.json in the config dir.
@@ -837,7 +837,7 @@ test('E309: issue #157 — code blocks render as cards by default, caret reveal,
   await expect(content).toContainText('const a = 1; // note');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
   // …and one undo restores the buffer (and the clean state).
-  await page.keyboard.press('Control+z');
+  await page.keyboard.press('ControlOrMeta+z');
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
   // Caret out — the delimiters hide again.
   await editor.locator('.cm-line').filter({ hasText: 'outro' }).click();
@@ -994,7 +994,7 @@ test('E317: issue #163 — the card copy control copies the body only, a selecti
   await page.keyboard.type('x');
   await expect(content).toContainText('xjs');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
-  await page.keyboard.press('Control+z');
+  await page.keyboard.press('ControlOrMeta+z');
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
   await expect(content).toContainText('```js');
 });

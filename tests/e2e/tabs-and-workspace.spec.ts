@@ -640,25 +640,25 @@ test('E177: issue #84 — rebinding nextFile in Settings cycles on the new combo
 
   // A combo already bound elsewhere is refused, map untouched.
   await next.click();
-  await page.keyboard.press('Control+s');
+  await page.keyboard.press('ControlOrMeta+s');
   await expect(page.getByTestId('hotkey-hint')).toContainText('already bound');
   await expect(next).toHaveValue(/(⌃Tab|Ctrl\+Tab)/);
 
   // Rebind both rows; the recorders show what was pressed.
   await next.click();
-  await page.keyboard.press('Control+F7');
+  await page.keyboard.press('ControlOrMeta+F7');
   await expect(next).toHaveValue(/F7/);
   await prev.click();
-  await page.keyboard.press('Control+F8');
+  await page.keyboard.press('ControlOrMeta+F8');
   await expect(prev).toHaveValue(/F8/);
   await saveSettings(page);
 
   // The new combos cycle immediately — no restart — and the old ones do not.
   await page.keyboard.press('Control+Tab');
   await expect(page.getByTestId('docname')).toContainText('b.md');
-  await page.keyboard.press('Control+F7');
+  await page.keyboard.press('ControlOrMeta+F7');
   await expect(page.getByTestId('docname')).toContainText('a.md');
-  await page.keyboard.press('Control+F8');
+  await page.keyboard.press('ControlOrMeta+F8');
   await expect(page.getByTestId('docname')).toContainText('b.md');
 
   // The rebinding persisted through the User-scope settings layer.
@@ -675,7 +675,7 @@ test('E177: issue #84 — rebinding nextFile in Settings cycles on the new combo
   await saveSettings(page);
   await page.keyboard.press('Control+Tab');
   await expect(page.getByTestId('docname')).toContainText('a.md');
-  await page.keyboard.press('Control+F7');
+  await page.keyboard.press('ControlOrMeta+F7');
   await expect(page.getByTestId('docname')).toContainText('a.md');
 });
 
@@ -726,7 +726,7 @@ test('E178: issue #84 — View → Next/Previous Open File dispatch the cycle, f
   await sp.getByTestId('settings-panel').waitFor();
   await sp.getByTestId('settings-tab-hotkeys').click();
   await sp.getByTestId('hotkey-nextFile').click();
-  await sp.keyboard.press('Control+F7');
+  await sp.keyboard.press('ControlOrMeta+F7');
   // Issue #246: the rebind is pending until Save, which closes the window.
   await sp.getByTestId('settings-save').click();
   await expect.poll(async () => (await viewItem('nextFile')).accelerator).toBe('Mod+F7');

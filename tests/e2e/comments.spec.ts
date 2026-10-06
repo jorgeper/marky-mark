@@ -578,12 +578,12 @@ test('E55: nav hotkeys — defaults enter at first/last; rebinding Next takes ef
 
   await openSettings(page, 'hotkeys');
   await page.getByTestId('hotkey-nextComment').click();
-  await page.keyboard.press('Control+Shift+J');
+  await page.keyboard.press('ControlOrMeta+Shift+J');
   await saveSettings(page);
 
   await page.keyboard.press('Control+Alt+ArrowDown'); // old combo — must do nothing
   await expect(page.getByTestId('comment-nav-count')).toHaveText('2 / 2');
-  await page.keyboard.press('Control+Shift+J'); // new combo — wraps 2 → 1
+  await page.keyboard.press('ControlOrMeta+Shift+J'); // new combo — wraps 2 → 1
   await expect(page.getByTestId('comment-nav-count')).toHaveText('1 / 2');
   expect(await fsRead(page, '/config/settings.json')).toContain('Mod+Shift+J');
 });

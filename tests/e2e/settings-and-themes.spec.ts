@@ -6,6 +6,8 @@ import {
   freshNativeMenuApp,
   fsRead,
   fsWrite,
+  goToDocEnd,
+  goToDocStart,
   menuClick,
   openFolderRoot,
   openLlmPage,
@@ -969,7 +971,7 @@ test('E580: PRD 025 Reqs 9, 10, 16 (issue #334) — with Fluid mode on, reduced 
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const content = editor.locator('.cm-content');
   await content.click();
-  await page.keyboard.press('Control+Home');
+  await goToDocStart(page);
   await page.keyboard.press('End');
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('Home');
@@ -1033,7 +1035,7 @@ test('E582: PRD 025 Reqs 9, 11, 14, 16 (issue #335) — with Fluid mode on, redu
   // the mode stays configured (the root keeps its attribute).
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await content.click();
-  await page.keyboard.press('Control+Home');
+  await goToDocStart(page);
   await page.keyboard.press('Shift+End');
   expect(await ghosts()).toBe(0);
   await page.keyboard.press('Shift+ArrowDown');
@@ -1045,7 +1047,7 @@ test('E582: PRD 025 Reqs 9, 11, 14, 16 (issue #335) — with Fluid mode on, redu
   // wait between key and check), a document change cancels any ghost, and
   // typing over a selection never animates one.
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await page.keyboard.press('Control+Home');
+  await goToDocStart(page);
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+End');
   await page.keyboard.press('Q');
@@ -1056,10 +1058,10 @@ test('E582: PRD 025 Reqs 9, 11, 14, 16 (issue #335) — with Fluid mode on, redu
 
   // (c) Req 14: the large-operation snap — once the document is past
   // FLUID_LARGE_OPERATION_LINES lines, select-all draws nothing.
-  await page.keyboard.press('Control+End');
+  await goToDocEnd(page);
   for (let i = 0; i < 8; i++) await page.keyboard.press('Enter');
   expect(await content.locator('.cm-line').count()).toBeGreaterThan(50);
-  await page.keyboard.press('Control+a');
+  await page.keyboard.press('ControlOrMeta+a');
   await expect(page.getByTestId('fluid-selection-ghost')).toHaveCount(0);
 
   // (d) Selection change → None: a range result draws nothing; the layer stays.
@@ -1069,7 +1071,7 @@ test('E582: PRD 025 Reqs 9, 11, 14, 16 (issue #335) — with Fluid mode on, redu
   await saveSettings(page);
   await expect(editor).toHaveAttribute('data-fluid', /;selection=none;/);
   await content.click();
-  await page.keyboard.press('Control+Home'); // line 1 is non-empty, so Shift+End lands a range
+  await goToDocStart(page); // line 1 is non-empty, so Shift+End lands a range
   await page.keyboard.press('Shift+End');
   expect(await ghosts()).toBe(0);
   await expect(layer).toHaveCount(1);
@@ -1099,7 +1101,7 @@ test('E586: PRD 025 Reqs 9, 12, 14, 16 (issue #336) — with Fluid mode on, redu
   // mode stays configured (the root keeps its attribute).
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await content.click();
-  await page.keyboard.press('Control+End');
+  await goToDocEnd(page);
   await page.keyboard.press('Backspace');
   expect(await ghosts()).toBe(0);
   await expect(editor).toHaveAttribute('data-fluid', /;deletion=fade;/);
@@ -1109,7 +1111,7 @@ test('E586: PRD 025 Reqs 9, 12, 14, 16 (issue #336) — with Fluid mode on, redu
   // deletion is real and synchronous: the line reads `Q` with no wait
   // between key and check (the ghost that may now be fading is not asserted).
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await page.keyboard.press('Control+Home');
+  await goToDocStart(page);
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+End');
   await page.keyboard.press('Q');
@@ -1123,10 +1125,10 @@ test('E586: PRD 025 Reqs 9, 12, 14, 16 (issue #336) — with Fluid mode on, redu
 
   // (c) Req 14: the large-operation rule — once the document is past
   // FLUID_LARGE_OPERATION_LINES lines, select-all + Backspace draws nothing.
-  await page.keyboard.press('Control+End');
+  await goToDocEnd(page);
   for (let i = 0; i < 8; i++) await page.keyboard.press('Enter');
   expect(await content.locator('.cm-line').count()).toBeGreaterThan(50);
-  await page.keyboard.press('Control+a');
+  await page.keyboard.press('ControlOrMeta+a');
   await page.keyboard.press('Backspace');
   await expect(content.locator('.cm-line')).toHaveCount(1);
   expect(await firstLine.textContent()).toBe('');
@@ -1188,7 +1190,7 @@ test('E588: PRD 025 Reqs 9, 13, 14, 16 (issue #337) — with Fluid mode on, redu
   // synchronously, and the mode stays configured (the root keeps its attribute).
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await content.click();
-  await page.keyboard.press('Control+Home');
+  await goToDocStart(page);
   await page.keyboard.press('Home');
   await page.keyboard.press('Q');
   expect(await firstLine.textContent()).toMatch(/^Q/);
@@ -1217,10 +1219,10 @@ test('E588: PRD 025 Reqs 9, 13, 14, 16 (issue #337) — with Fluid mode on, redu
   // (c) Req 14: the large-operation rule — once the document is past
   // FLUID_LARGE_OPERATION_LINES lines, select-all + type replaces it all
   // with one character and draws nothing.
-  await page.keyboard.press('Control+End');
+  await goToDocEnd(page);
   for (let i = 0; i < 8; i++) await page.keyboard.press('Enter');
   expect(await content.locator('.cm-line').count()).toBeGreaterThan(50);
-  await page.keyboard.press('Control+a');
+  await page.keyboard.press('ControlOrMeta+a');
   await page.keyboard.press('M');
   await expect(content.locator('.cm-line')).toHaveCount(1);
   expect(await firstLine.textContent()).toBe('M');

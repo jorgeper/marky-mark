@@ -670,7 +670,7 @@ test('E52: rebinding Save in the settings window updates the menu accelerator; o
   await sp.getByTestId('settings-panel').waitFor();
   await sp.getByTestId('settings-tab-hotkeys').click();
   await sp.getByTestId('hotkey-save').click();
-  await sp.keyboard.press('Control+Shift+D');
+  await sp.keyboard.press('ControlOrMeta+Shift+D');
   await sp.getByTestId('settings-save').click(); // issue #246: rebinds commit on Save
 
   // The main window's installed menu spec follows the rebind (SPEC13 §1.5).
@@ -692,7 +692,7 @@ test('E52: rebinding Save in the settings window updates the menu accelerator; o
   await page.keyboard.type('REBINDMARK ');
   await page.keyboard.press('Control+s'); // old combo — must do nothing
   await expect(page).toHaveTitle('welcome.md • — Marky Mark');
-  await page.keyboard.press('Control+Shift+D'); // new combo — saves, exactly once
+  await page.keyboard.press('ControlOrMeta+Shift+D'); // new combo — saves, exactly once
   await expect(page).toHaveTitle('welcome.md — Marky Mark');
   expect(await fsRead(page, WELCOME)).toContain('REBINDMARK');
 });

@@ -166,7 +166,7 @@ test('E341: unsaved edits are searched in memory — active and parked buffers a
   await expect(page.getByTestId('doc')).toContainText('vanishing');
   await page.keyboard.press('Control+e');
   await page.getByTestId('editor').locator('.cm-line').first().click();
-  await page.keyboard.press('Control+a');
+  await page.keyboard.press('ControlOrMeta+a');
   await page.keyboard.type('replaced cherrynew content');
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();

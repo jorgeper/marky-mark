@@ -802,6 +802,11 @@ export async function goToDocStart(page: Page): Promise<void> {
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowUp' : 'Control+Home');
 }
 
+/** Move the editor cursor to DOCUMENT end — goToDocStart's mirror (Cmd-ArrowDown / Ctrl-End). */
+export async function goToDocEnd(page: Page): Promise<void> {
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
+}
+
 /**
  * Screen rect of the nth occurrence of `word` inside `paneSel` — a Range over
  * the glyphs themselves, so it works for rendered markdown and for CodeMirror

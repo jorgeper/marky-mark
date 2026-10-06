@@ -7,6 +7,7 @@ import {
   freshApp,
   fsRead,
   fsWrite,
+  goToDocStart,
   openFolderRoot,
   openPath,
   seedFolders,
@@ -291,7 +292,7 @@ test('E338: the TOC re-derives from the buffer while typing, and says so when a 
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor')).toBeVisible();
   await page.getByTestId('editor').locator('.cm-line').first().click();
-  await page.keyboard.press('Control+Home'); // type at the very start, so the hashes open a line
+  await goToDocStart(page); // type at the very start, so the hashes open a line
   await page.keyboard.type('# Typed\n\n## Under\n\n');
   await expect.poll(() => rowLabels(page)).toEqual(['1:Typed', '2:Under']);
   await expect(page.getByTestId('toc-empty')).toHaveCount(0);
